@@ -1,0 +1,122 @@
+# Visual Studio specific files
+.vs/
+*.user
+*.suo
+*.vcxproj.user
+*.ncb
+*.aps
+*.cache
+*.ilk
+*.log
+*.pdb
+*.obj
+*.tlog
+*.tmp
+*.log
+*.sdf
+*.opendb
+*.tlog
+*.lastcodeanalysissucceeded
+
+# Visual Studio Code specific files
+.vscode/
+.history/
+
+# Build folders
+bin/
+obj/
+debug/
+release/
+
+# Project and solution files
+*.csproj.user
+*.csproj.nuget.g.props
+*.csproj.nuget.g.targets
+*.userosscache
+*.userprefs
+
+# NuGet Packages
+*.nupkg
+# Uncomment if you have to store package folders under the source control
+# packages/
+
+# Microsoft Azure Web App publish settings
+PublishProfiles/
+
+# Windows specific files
+Thumbs.db
+ehthumbs.db
+Desktop.ini
+
+# Recycle Bin used on file shares
+$RECYCLE.BIN/
+
+# Files that might appear on external storage devices
+.Spotlight-V100
+.Trashes
+
+# OSX specific files
+.DS_Store
+.AppleDouble
+.LSOverride
+
+# IDE preferences
+.idea/
+
+# Resharper files
+*.DotSettings.user
+
+# JetBrains Rider
+.idea/
+*.sln.iml
+
+# TFS
+$tf/
+
+# Rider
+.idea/
+*.sln.iml
+
+# CodeRush
+.cr/
+
+# StyleCop
+StyleCop.Cache
+
+# TeamCity
+_TeamCity/
+
+# DotCover
+*.dcov
+
+# NCrunch
+*.ncrunch*
+NCrunchTemp/
+
+# Assembly binding log
+*.Bind.log
+*.Bind.*.log
+
+# Packages directory can be ignored when using PackageReference in project files
+# it’s used to store NuGet cache in some project types
+packages/
+
+# Other extensions
+*.modeldata
+*.psess
+*.vsp
+*.vspx
+*.sap
+
+# Rider related
+.idea/
+
+# Temporary files for package restore
+$tf/
+*.localhistory/
+backup/
+logs/
+.vscode/
+.settings/
+.temp/
+*.vspscc
