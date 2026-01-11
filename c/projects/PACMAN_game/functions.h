@@ -1,0 +1,11 @@
+bool wonGame (int* numberOfRightLetters , char* wordToBeGuessed);
+bool gotHanged (int* mistakesHad , int* threshold);
+void title();
+void getWordFile(char* hiddenWordFile);
+void writeWordFile();
+void fillGameWord(char* hidden, char* guessingWord);
+char enterGuess();
+bool alreadyGuessed(char * previousGuessArray, char * guessTR);
+void goodGuess(char * hidden, char * guessingWord, char * guessTR, bool * mistake_bool, int * correct_letters);
+void printGuessList(char * previousGuessArray, char * guessTR, int * guesscounter);
+void countMistakes(int* currentNumberMistakes, bool* bolleanMistakeFlag, int* thresold );
