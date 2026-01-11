@@ -1,0 +1,8 @@
+
+{
+  "area": "Packaging",
+  "tag": "PKG01.Motor1.Speed",
+  "datatype": "float",
+  "description": "Motor speed in RPM",
+  "unit": "rpm"
+}

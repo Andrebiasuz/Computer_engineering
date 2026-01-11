@@ -1,0 +1,43 @@
+
+# General
+.DS_Store
+Thumbs.db
+*.log
+*.tmp
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+.env
+.env.*
+
+# Node/JS
+node_modules/
+*.tsbuildinfo
+
+# Java
+*.class
+*.jar
+*.war
+*.ear
+.target/
+
+# C/C++/C#
+*.o
+*.obj
+*.exe
+*.dll
+*.pdb
+*.out
+build/
+dist/
+
+# R
+.Rhistory
+.RData
+.Rproj.user/
+
+# IDEs
+.vscode/
+.idea/
+*.iml
