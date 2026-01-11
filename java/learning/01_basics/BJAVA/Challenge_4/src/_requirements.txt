@@ -1,0 +1,10 @@
+You're going to create a program that manages different types of players, each with their own skills and information. The aim is to use interfaces and polymorphism to deal with different types of players and their skills.
+
+Create an interface called Football Player with two methods: showInformation() to show the player's details and runSkill() to
+make the player use his skill.
+
+Create a class called BasicPlayer that implements the Player interface.
+Create a class called AdvancedPlayer that also implements the Player interface. In addition to the attributes name, age and skill, this class should have an additional attribute called
+specialty (a special ability of the player).
+Display the information and execute the skills of each player using the methods you have
+implemented.
