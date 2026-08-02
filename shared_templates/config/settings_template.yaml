@@ -1,8 +1,0 @@
-
-logging:
-  level: INFO
-  file: logs/app.log
-
-datastore:
-  type: sqlite
-  path: data/automation.db
