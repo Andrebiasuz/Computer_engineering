@@ -1,0 +1,100 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Task Tracker</title>
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+
+<header id="app-header">
+  <div class="header-left">
+    <input id="board-title" class="board-title-input" value="My Board" spellcheck="false">
+  </div>
+  <div class="header-right">
+    <input id="search-input" type="search" placeholder="Search cards..." autocomplete="off">
+    <button id="export-btn" class="btn btn-ghost" title="Export board as JSON file">Export</button>
+    <label class="btn btn-ghost" title="Import a previously exported board">
+      Import
+      <input id="import-input" type="file" accept="application/json" hidden>
+    </label>
+  </div>
+</header>
+
+<main id="board" aria-label="Board"></main>
+
+<template id="list-template">
+  <section class="list" draggable="false">
+    <header class="list-header">
+      <input class="list-title-input" spellcheck="false">
+      <button class="list-menu-btn" title="Delete list">&times;</button>
+    </header>
+    <div class="card-list"></div>
+    <button class="add-card-btn">+ Add a card</button>
+  </section>
+</template>
+
+<template id="card-template">
+  <div class="card" draggable="true" tabindex="0">
+    <div class="card-labels"></div>
+    <div class="card-title"></div>
+    <div class="card-meta">
+      <span class="meta-desc" title="Has description">&#9776;</span>
+      <span class="meta-links" title="Links"></span>
+      <span class="meta-files" title="Attachments"></span>
+      <span class="meta-due" title="Due date"></span>
+    </div>
+  </div>
+</template>
+
+<div id="modal-overlay" class="modal-overlay" hidden>
+  <div class="modal" role="dialog" aria-modal="true">
+    <button id="modal-close" class="modal-close" title="Close">&times;</button>
+
+    <input id="card-title-input" class="card-title-field" spellcheck="false">
+
+    <div class="modal-section">
+      <div class="section-label">Labels</div>
+      <div id="label-picker" class="label-picker"></div>
+    </div>
+
+    <div class="modal-section">
+      <div class="section-label">Due date</div>
+      <input id="card-due-input" type="date">
+      <button id="card-due-clear" class="btn btn-ghost btn-small">Clear</button>
+    </div>
+
+    <div class="modal-section">
+      <div class="section-label">Description</div>
+      <textarea id="card-desc-input" placeholder="Add a more detailed description..." rows="4"></textarea>
+    </div>
+
+    <div class="modal-section">
+      <div class="section-label">Links</div>
+      <div id="link-list" class="link-list"></div>
+      <form id="link-form" class="inline-form">
+        <input id="link-url-input" type="text" placeholder="https://example.com" required>
+        <input id="link-label-input" type="text" placeholder="Label (optional)">
+        <button type="submit" class="btn btn-primary btn-small">Add link</button>
+      </form>
+    </div>
+
+    <div class="modal-section">
+      <div class="section-label">Attachments</div>
+      <div id="attachment-list" class="attachment-list"></div>
+      <label class="btn btn-secondary btn-small">
+        + Attach a file
+        <input id="file-input" type="file" multiple hidden>
+      </label>
+    </div>
+
+    <div class="modal-section modal-footer">
+      <button id="delete-card-btn" class="btn btn-danger">Delete card</button>
+    </div>
+  </div>
+</div>
+
+<script src="app.js"></script>
+</body>
+</html>
