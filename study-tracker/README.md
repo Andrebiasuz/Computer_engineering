@@ -61,7 +61,21 @@ WantedBy=default.target
 
 Then run `systemctl --user enable --now study-tracker`.
 
-### Option B: no server
+### Option B: GitHub Pages
+
+Live at https://andrebiasuz.github.io/Computer_engineering/study-tracker/
+
+Pages only serves static files, so the app runs in "this browser only" mode:
+each device/browser keeps its own data in `localStorage`. Nothing you log is
+uploaded to GitHub. Move data between devices with **Data ▸ Export** /
+**Restore backup**.
+
+To (re)configure: repo **Settings ▸ Pages ▸ Build and deployment**, Source
+"Deploy from a branch", pick the branch that has `study-tracker/` and the
+`/ (root)` folder. The empty `.nojekyll` file at the repo root tells Pages to
+serve files as-is instead of running Jekyll over the whole repo.
+
+### Option C: no server
 
 Open `index.html` directly, or host the folder on any static host. Data is
 then kept in that browser's `localStorage` (the header says "this browser
