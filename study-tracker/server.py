@@ -9,6 +9,7 @@ Only the Python standard library is used - no install step.
 
     python3 server.py                      # http://localhost:8080
     python3 server.py --host 0.0.0.0 --port 8080 --data data/study-data.json
+    python3 server.py --no-browser         # don't open a browser tab
 
 API
     GET  /api/state   -> the saved JSON (404 if nothing saved yet)
@@ -21,6 +22,7 @@ import os
 import shutil
 import tempfile
 import threading
+import webbrowser
 from datetime import datetime
 from http.server import SimpleHTTPRequestHandler, ThreadingHTTPServer
 
@@ -116,12 +118,19 @@ def main():
                         help="use 0.0.0.0 to reach it from other devices on your LAN")
     parser.add_argument("--port", type=int, default=8080)
     parser.add_argument("--data", default=os.path.join(APP_DIR, "data", "study-data.json"))
+    parser.add_argument("--no-browser", action="store_true",
+                        help="don't open the app in a browser on startup")
     args = parser.parse_args()
 
     Handler.data_path = os.path.abspath(args.data)
     server = ThreadingHTTPServer((args.host, args.port), Handler)
     print(f"Study Tracker running on http://{args.host}:{args.port}")
     print(f"Data file: {Handler.data_path}")
+    if not args.no_browser:
+        # 0.0.0.0 / :: aren't browsable addresses; open via localhost instead.
+        host = "localhost" if args.host in ("0.0.0.0", "::", "") else args.host
+        url = f"http://{host}:{server.server_address[1]}/"
+        threading.Timer(0.5, webbrowser.open, args=(url,)).start()
     try:
         server.serve_forever()
     except KeyboardInterrupt:
