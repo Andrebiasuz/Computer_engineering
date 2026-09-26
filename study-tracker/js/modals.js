@@ -54,7 +54,12 @@ function openResourceEditor(resourceId) {
   const priority = h("select", { name: "priority" },
     [[1, "High"], [2, "Medium"], [3, "Low"]].map(([v, l]) => h("option", { value: v, selected: v === Number(r.priority) }, l)));
   const url = h("input", { name: "url", value: r.url, placeholder: "https://…", type: "url" });
-  const est = h("input", { name: "estHours", type: "number", min: "0", step: "0.5", value: r.estHours == null ? "" : r.estHours });
+  const est = h("input", { name: "estHours", type: "number", min: "0", step: "0.25", value: r.estHours == null ? "" : r.estHours });
+  const platforms = [...new Set(Object.values(Store.state.resources).map((x) => x.platform).filter(Boolean))].sort();
+  const platform = h("input", { name: "platform", value: r.platform || "", placeholder: "Udemy, UTFPR, Book…", list: "platform-list" });
+  const platformList = h("datalist", { id: "platform-list" }, platforms.map((p) => h("option", { value: p })));
+  const lengthH = h("input", { name: "lengthHours", type: "number", min: "0", step: "0.25", value: r.lengthHours == null ? "" : r.lengthHours });
+  const pages = h("input", { name: "pages", type: "number", min: "0", step: "1", value: r.pages == null ? "" : r.pages });
   const ps = h("input", { name: "plannedStart", type: "date", value: r.plannedStart });
   const pe = h("input", { name: "plannedEnd", type: "date", value: r.plannedEnd });
   const notes = h("textarea", { name: "notes", rows: "4", placeholder: "Why this resource, key takeaways, chapters left…" }, r.notes);
@@ -86,7 +91,8 @@ function openResourceEditor(resourceId) {
     stats,
     field("Title", title),
     h("div", { class: "form-row" }, field("Type", type), field("Category", cat), field("Priority", priority)),
-    h("div", { class: "form-row" }, field("Status", status), field("Estimated hours", est)),
+    h("div", { class: "form-row" }, field("Status", status), field("Platform", platform), platformList),
+    h("div", { class: "form-row" }, field("Study estimate (h)", est, "Used for progress"), field("Course length (h)", lengthH), field("Pages", pages)),
     h("div", { class: "form-row" }, field("Planned start", ps), field("Planned end", pe, "Drawn as the plan bar on the Gantt")),
     field("Link", url),
     field("Notes", notes),
@@ -114,6 +120,9 @@ function openResourceEditor(resourceId) {
       priority: Number(fd.get("priority")),
       url: fd.get("url").trim(),
       estHours: fd.get("estHours") === "" ? null : Number(fd.get("estHours")),
+      platform: fd.get("platform").trim(),
+      lengthHours: fd.get("lengthHours") === "" ? null : Number(fd.get("lengthHours")),
+      pages: fd.get("pages") === "" ? null : Number(fd.get("pages")),
       plannedStart: fd.get("plannedStart"),
       plannedEnd: fd.get("plannedEnd"),
       notes: fd.get("notes"),

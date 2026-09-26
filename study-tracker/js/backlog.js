@@ -20,7 +20,7 @@ const Backlog = {
     if (cat && (r.categoryId || "") !== (cat === "__none" ? "" : cat)) return false;
     if (!q) return true;
     const catName = (Store.category(r.categoryId) || {}).name || "";
-    return (r.title + " " + r.notes + " " + r.type + " " + catName).toLowerCase().includes(q);
+    return (r.title + " " + r.notes + " " + r.type + " " + (r.platform || "") + " " + catName).toLowerCase().includes(q);
   },
 
   render() {
@@ -61,7 +61,8 @@ const Backlog = {
         prio ? h("span", { class: "prio prio-" + r.priority }, prio) : null),
       h("div", { class: "res-title" }, r.title),
       h("div", { class: "res-meta" },
-        h("span", {}, r.type),
+        h("span", {}, r.platform && r.platform.toLowerCase() !== r.type.toLowerCase() ? r.type + " · " + r.platform : r.type),
+        r.pages ? h("span", {}, r.pages + " p.") : null,
         mins ? h("span", {}, fmtMinutes(mins) + (r.estHours ? " / " + r.estHours + "h" : "")) : (r.estHours ? h("span", {}, "est. " + r.estHours + "h") : null),
         r.plannedEnd ? h("span", { class: overdue ? "overdue" : "" }, (overdue ? "⚠ due " : "due ") + fmtShortDate(r.plannedEnd)) : null,
         r.url ? h("a", { href: r.url, target: "_blank", rel: "noopener", onclick: (e) => e.stopPropagation(), title: r.url }, "link ↗") : null),

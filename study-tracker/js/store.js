@@ -4,7 +4,7 @@
  * Data model
  *
  *   categories: [{ id, name, slot }]          slot = fixed color slot 0..7 (8+ = "other" gray)
- *   resources:  { id: { id, title, type, categoryId, url, estHours, priority,
+ *   resources:  { id: { id, title, type, platform, categoryId, url, estHours, lengthHours, pages, priority,
  *                        status, plannedStart, plannedEnd, notes, createdAt, doneAt, order } }
  *   logs:       { id: { id, resourceId, date, minutes, note, focus } }
  *   settings:   { dailyGoal, theme }
@@ -169,9 +169,12 @@ const Store = {
       id: uid(),
       title: "Untitled",
       type: "Course",
+      platform: "",
       categoryId: null,
       url: "",
       estHours: null,
+      lengthHours: null,
+      pages: null,
       priority: 2,
       status: "backlog",
       plannedStart: "",

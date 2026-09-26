@@ -17,7 +17,7 @@ Python server. There's nothing to install and no external requests.
 Also included:
 
 - **Study timer** in the header, as a stopwatch or a 25-minute Pomodoro countdown. Pick a resource (or drop one on the timer), start it, and press **Log** to turn the elapsed time into a session.
-- **Import backlog**: in **Data ▾**, choose **Import backlog**, then paste cells copied from Excel or Google Sheets, or load a CSV. Columns are auto-detected from English or Portuguese headers (title/tarefa, category/categoria, start/início, end/fim, hours/horas, duration/duração in days, status, % complete, priority, link, notes). You can re-map them before importing. Dates can be dd/mm/yyyy, yyyy-mm-dd or Excel serial numbers.
+- **Import backlog**: in **Data ▾**, choose **Import backlog**, then paste cells copied from Excel or Google Sheets, or load a CSV (comma or semicolon, UTF-8 or Windows-1252). Columns are auto-detected from English or Portuguese headers: title/course, status (WIP = in progress), platform, category/segment, priority (1–3 with 1 = high, or 0–5 with 5 = high), pages, study hours, course hours, duration in days, start, target end, % complete, link and notes. A column that's mostly URLs (like "Domain") becomes the link. `.pdf` file names become titles, and the file name is kept in the notes. Titles already in the backlog are skipped, so re-importing is safe. You can re-map any column before importing.
 - **Backup**: export and restore everything as JSON, or export the study log as CSV.
 - Daily goal, light/dark/system theme, and category colors that stay the same on every page.
 

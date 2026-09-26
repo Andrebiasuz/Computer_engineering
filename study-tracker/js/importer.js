@@ -6,21 +6,81 @@
  * Portuguese) and can be re-mapped before importing.
  */
 
+// Tested in order against the normalised header (lower case, no accents);
+// the first unused field that matches wins.
 const IMPORT_FIELDS = [
   { id: "", label: "— ignore —" },
-  { id: "title", label: "Title", match: /^(title|name|resource|task|item|topic|course|t[ií]tulo|nome|tarefa|recurso|atividade|assunto|curso)/i },
-  { id: "category", label: "Category", match: /^(category|subject|area|group|phase|module|track|categoria|mat[eé]ria|disciplina|[aá]rea|grupo|fase|m[oó]dulo)/i },
-  { id: "type", label: "Type", match: /^(type|kind|format|tipo|formato)/i },
-  { id: "url", label: "Link", match: /^(url|link|source|fonte)/i },
-  { id: "estHours", label: "Estimated hours", match: /(hours|hrs|estimate|effort|horas|esfor[cç]o|carga)/i },
-  { id: "durationDays", label: "Duration (days)", match: /^(duration|days|dura[cç][aã]o|dias)/i },
-  { id: "plannedStart", label: "Planned start", match: /^(start|begin|in[ií]cio|come[cç]o|data de in[ií]cio|start date)/i },
-  { id: "plannedEnd", label: "Planned end", match: /^(end|finish|due|deadline|fim|t[eé]rmino|prazo|conclus[aã]o|end date|data de fim)/i },
-  { id: "priority", label: "Priority", match: /^(priority|prio|prioridade)/i },
-  { id: "status", label: "Status", match: /^(status|state|situa[cç][aã]o|estado)/i },
-  { id: "percent", label: "% complete", match: /(%|percent|progress|progresso|conclu[ií]do)/i },
-  { id: "notes", label: "Notes", match: /^(notes?|description|comments?|obs|observa[cç][oõ]es|notas?|descri[cç][aã]o|coment[aá]rios?)/i },
+  { id: "title", label: "Title", match: /\b(title|name|resource|task|item|topic|course|titulo|nome|tarefa|recurso|atividade|assunto|curso)\b/ },
+  { id: "status", label: "Status", match: /\b(status|state|situacao|estado)\b/ },
+  { id: "platform", label: "Platform", match: /\b(platform|plataforma|provider|vendor|school|escola)\b/ },
+  { id: "category", label: "Category", match: /\b(category|subject|segment|segmento|area|group|phase|module|track|categoria|materia|disciplina|grupo|fase|modulo)\b/ },
+  { id: "priority", label: "Priority", match: /\b(priority|prio|prioridade)\b/ },
+  { id: "pages", label: "Pages", match: /\b(pages|paginas|pgs)\b/ },
+  { id: "estHours", label: "Estimated study hours", match: /(study|estudo|estimate|effort|esforco)/ },
+  { id: "lengthHours", label: "Course length (h)", match: /\b(hours|horas|hrs|carga)\b/ },
+  { id: "durationDays", label: "Duration (days)", match: /\b(days|dias)\b|^(duration|duracao)$/ },
+  { id: "plannedStart", label: "Planned start", match: /\b(start|begin|inicio|comeco)\b/ },
+  { id: "plannedEnd", label: "Planned end", match: /\b(end|finish|due|deadline|fim|termino|prazo|target)\b/ },
+  { id: "percent", label: "% complete", match: /(%|percent|progress|progresso|concluido|complete)/ },
+  { id: "type", label: "Type", match: /\b(type|kind|format|tipo|formato)\b/ },
+  { id: "url", label: "Link", match: /\b(url|link|website|site)\b/ },
+  { id: "notes", label: "Notes", match: /\b(notes?|description|comments?|obs|observacoes|notas?|descricao|comentarios?)\b/ },
 ];
+
+function normHeader(s) {
+  return String(s).normalize("NFD").replace(/[̀-ͯ]/g, "").toLowerCase().trim();
+}
+
+function looksLikeUrl(v) { return /^(https?:\/\/|www\.)\S+$/i.test(String(v || "").trim()); }
+
+// Numbers like "266,25", "1.065", "-" and "" (empty / dash = unknown).
+function parseNumberCell(v) {
+  const n = parseNumber(v);
+  return n == null || n === 0 ? null : n;
+}
+
+function guessMapping(header, dataRows) {
+  const used = new Set();
+  const mapping = header.map((name) => {
+    const key = normHeader(name);
+    const f = IMPORT_FIELDS.find((f) => f.match && !used.has(f.id) && f.match.test(key));
+    if (f) used.add(f.id);
+    return f ? f.id : "";
+  });
+  if (!mapping.includes("title")) mapping[0] = "title";
+  // A lone "Hours" column is the estimate, not the course length.
+  if (!mapping.includes("estHours") && mapping.includes("lengthHours")) mapping[mapping.indexOf("lengthHours")] = "estHours";
+  // Any column that is mostly links becomes the Link column (e.g. "Domain").
+  if (!mapping.includes("url")) {
+    header.forEach((_, i) => {
+      if (mapping.includes("url") || ["title", "notes"].includes(mapping[i])) return;
+      const vals = dataRows.map((r) => r[i]).filter((v) => v && v !== "-");
+      if (vals.length && vals.filter(looksLikeUrl).length / vals.length >= 0.6) mapping[i] = "url";
+    });
+  }
+  return mapping;
+}
+
+// Detects whether priorities run 1 = high (1–3) or high number = high (e.g. 0–5).
+function priorityMapper(values) {
+  const nums = values.map(parseNumber).filter((n) => n != null);
+  const max = Math.max(...nums, 0);
+  if (max > 3) {
+    return (v) => {
+      const n = parseNumber(v);
+      if (n == null) return mapPriority(v);
+      const r = n / max;
+      return r >= 0.7 ? 1 : r >= 0.35 ? 2 : 3;
+    };
+  }
+  return mapPriority;
+}
+
+function cleanTitle(title) {
+  const t = String(title).trim();
+  const m = t.match(/^(.*)\.(pdf|epub|mobi|djvu)$/i);
+  return m ? { title: m[1].trim(), file: t } : { title: t, file: "" };
+}
 
 function detectDelimiter(firstLine) {
   if (firstLine.includes("\t")) return "\t";
@@ -83,7 +143,7 @@ function parseNumber(v) {
 function mapStatus(v, percent) {
   const s = String(v || "").toLowerCase();
   if (/done|complete|finished|conclu|feito|finaliz|✓|✔/.test(s)) return "done";
-  if (/progress|doing|ongoing|started|andamento|fazendo|iniciad|cursando|active/.test(s)) return "active";
+  if (/\bwip\b|progress|doing|ongoing|started|andamento|fazendo|iniciad|cursando|active/.test(s)) return "active";
   if (/pause|hold|parad|pausad|suspen/.test(s)) return "paused";
   if (percent != null) {
     const p = percent <= 1 && String(percent).includes(".") ? percent * 100 : percent;
@@ -103,7 +163,7 @@ function mapPriority(v) {
 function mapType(v) {
   const s = String(v || "").toLowerCase();
   const table = [
-    [/course|curso|mooc|udemy|coursera/, "Course"], [/book|livro/, "Book"], [/video|v[ií]deo|youtube/, "Video"],
+    [/book|livro|ebook|\.pdf$/, "Book"], [/course|curso|mooc|udemy|coursera|hotmart|learning|university|utfpr/, "Course"], [/video|v[ií]deo|youtube/, "Video"],
     [/article|artigo|blog|post/, "Article"], [/doc|manual|reference/, "Documentation"], [/project|projeto/, "Project"],
     [/exercise|exerc[ií]cio|practice|lab/, "Exercise"], [/cert/, "Certification"],
   ];
@@ -111,11 +171,22 @@ function mapType(v) {
   return s ? "Other" : "Course";
 }
 
+// Excel on Windows often saves CSV as Windows-1252 rather than UTF-8.
+async function readTextFile(f) {
+  const buf = await f.arrayBuffer();
+  try {
+    return new TextDecoder("utf-8", { fatal: true }).decode(buf);
+  } catch (e) {
+    return new TextDecoder("windows-1252").decode(buf);
+  }
+}
+
 function openImporter() {
   const ta = h("textarea", { rows: "8", class: "mono", placeholder:
     "Select the cells in Excel (including the header row), copy, and paste here.\n\nExample:\nTask\tCategory\tStart\tEnd\tHours\tStatus\nCS50 week 1\tC\t01/10/2026\t07/10/2026\t10\tIn progress" });
   const file = h("input", { type: "file", accept: ".csv,.tsv,.txt,text/csv,text/plain" });
   const dayFirst = h("input", { type: "checkbox", checked: true });
+  const skipDupes = h("input", { type: "checkbox", checked: true });
   const preview = h("div", { class: "import-preview" });
   const importBtn = h("button", { class: "btn btn-primary", disabled: true }, "Import");
   let rows = [], mapping = [];
@@ -129,13 +200,7 @@ function openImporter() {
       return;
     }
     const header = rows[0];
-    const used = new Set();
-    mapping = header.map((name) => {
-      const f = IMPORT_FIELDS.find((f) => f.match && !used.has(f.id) && f.match.test(name));
-      if (f) used.add(f.id);
-      return f ? f.id : "";
-    });
-    if (!mapping.includes("title")) mapping[0] = "title";
+    mapping = guessMapping(header, rows.slice(1));
 
     const table = h("table", { class: "data-table" });
     table.append(h("thead", {},
@@ -152,19 +217,39 @@ function openImporter() {
   ta.addEventListener("input", build);
   file.addEventListener("change", async () => {
     if (!file.files[0]) return;
-    ta.value = await file.files[0].text();
+    ta.value = await readTextFile(file.files[0]);
     build();
   });
 
   importBtn.addEventListener("click", () => {
     if (!mapping.includes("title")) { toast("Map one column to Title."); return; }
-    let count = 0;
+    let count = 0, skipped = 0;
+    const header = rows[0];
+    const dataRows = rows.slice(1);
+    const prio = priorityMapper(dataRows.map((r) => r[mapping.indexOf("priority")]));
     Store.commit((s) => {
       let order = Math.max(0, ...Object.values(s.resources).map((r) => r.order || 0));
-      for (const row of rows.slice(1)) {
+      const existing = new Set(Object.values(s.resources).map((r) => r.title.toLowerCase()));
+      for (const row of dataRows) {
         const v = {};
-        mapping.forEach((f, i) => { if (f) v[f] = row[i] || ""; });
+        const extraNotes = [];
+        mapping.forEach((f, i) => {
+          const cell = (row[i] || "").trim();
+          if (!f || !cell || cell === "-") return;
+          // Keep anything that isn't a link, instead of silently dropping it.
+          if (f === "url" && !looksLikeUrl(cell)) {
+            const platformCell = row[mapping.indexOf("platform")] || "";
+            if (cell.toLowerCase() !== platformCell.trim().toLowerCase()) extraNotes.push(header[i] + ": " + cell);
+            return;
+          }
+          v[f] = cell;
+        });
         if (!v.title) continue;
+        const { title, file: fileName } = cleanTitle(v.title);
+        if (skipDupes.checked && existing.has(title.toLowerCase())) { skipped++; continue; }
+        existing.add(title.toLowerCase());
+        if (fileName) extraNotes.push("File: " + fileName);
+        const url = v.url && /^www\./i.test(v.url) ? "https://" + v.url : (v.url || "");
         let plannedStart = parseDateLoose(v.plannedStart, dayFirst.checked);
         let plannedEnd = parseDateLoose(v.plannedEnd, dayFirst.checked);
         const dur = parseNumber(v.durationDays);
@@ -172,15 +257,19 @@ function openImporter() {
         const percent = parseNumber(v.percent);
         const status = mapStatus(v.status, percent);
         const r = Store.newResource({
-          title: v.title,
-          type: mapType(v.type),
+          title,
+          // An explicit Type column wins; otherwise guess from the platform, defaulting to Course.
+          type: v.type ? mapType(v.type) : fileName ? "Book" : (v.platform ? mapType(v.platform).replace("Other", "Course") : "Course"),
+          platform: v.platform || "",
           categoryId: Store.findOrCreateCategory(s, v.category),
-          url: v.url || "",
-          estHours: parseNumber(v.estHours),
-          priority: mapPriority(v.priority),
+          url,
+          estHours: parseNumberCell(v.estHours),
+          lengthHours: parseNumberCell(v.lengthHours),
+          pages: parseNumberCell(v.pages),
+          priority: v.priority == null ? 2 : prio(v.priority),
           status,
           plannedStart, plannedEnd,
-          notes: v.notes || "",
+          notes: [v.notes, ...extraNotes].filter(Boolean).join("\n"),
           doneAt: status === "done" ? (plannedEnd || todayISO()) : "",
           order: ++order,
         });
@@ -189,16 +278,17 @@ function openImporter() {
       }
     });
     Modal.close();
-    toast(`Imported ${count} resource${count === 1 ? "" : "s"}.`);
+    toast(`Imported ${count} resource${count === 1 ? "" : "s"}` + (skipped ? `, skipped ${skipped} already in the backlog.` : "."));
     location.hash = "#backlog";
   });
 
   Modal.open(h("div", { class: "form" },
     h("h2", {}, "Import backlog"),
-    h("p", { class: "muted small" }, "Paste rows copied from Excel / Google Sheets, or load a CSV. Recognised columns: title, category, type, link, hours, duration (days), start, end, priority, status, % complete, notes — English or Portuguese headers."),
+    h("p", { class: "muted small" }, "Paste rows copied from Excel / Google Sheets, or load a CSV. Recognised columns: title, status, platform, category/segment, priority (1–3 or 0–5), pages, study hours, course hours, duration (days), start, end, % complete, link, notes — English or Portuguese headers. A column full of links is used as the Link."),
     ta,
     h("div", { class: "form-row" }, field("…or load a file", file),
-      h("label", { class: "small check" }, dayFirst, " Dates are day/month/year (dd/mm/yyyy)")),
+      h("label", { class: "small check" }, dayFirst, " Dates are day/month/year (dd/mm/yyyy)"),
+      h("label", { class: "small check" }, skipDupes, " Skip titles already in the backlog")),
     preview,
     h("div", { class: "form-actions" }, h("span"), importBtn)), { wide: true });
 }
