@@ -61,19 +61,39 @@ function guessMapping(header, dataRows) {
   return mapping;
 }
 
-// Detects whether priorities run 1 = high (1–3) or high number = high (e.g. 0–5).
+// Maps a priority column onto the board's own priority levels (highest first).
+// Numbers: a 1–3 scale is read as 1 = most important; anything with values
+// above 3 (e.g. 0–5) as "bigger = more important". So with six levels a 0–5
+// column maps one-to-one, and with three levels it is spread evenly.
 function priorityMapper(values) {
+  const levels = Store.priorities();
+  const last = levels.length - 1;
   const nums = values.map(parseNumber).filter((n) => n != null);
   const max = Math.max(...nums, 0);
-  if (max > 3) {
-    return (v) => {
-      const n = parseNumber(v);
-      if (n == null) return mapPriority(v);
-      const r = n / max;
-      return r >= 0.7 ? 1 : r >= 0.35 ? 2 : 3;
-    };
-  }
-  return mapPriority;
+  const at = (i) => levels[Math.max(0, Math.min(last, Math.round(i)))].id;
+  return (v) => {
+    const s = String(v || "").trim().toLowerCase();
+    const byLabel = levels.find((p) => p.label.toLowerCase() === s);
+    if (byLabel) return byLabel.id;
+    const n = parseNumber(s);
+    if (n != null && /^[\d.,\s-]+$/.test(s)) {
+      if (max > 3) return at((1 - n / max) * last);
+      return at(((n - 1) / 2) * last);
+    }
+    if (/^(high|alta|urgent|p1)/.test(s)) return at(0);
+    if (/^(low|baixa|p3)/.test(s)) return at(last);
+    return Store.defaultPriority();
+  };
+}
+
+// Picks a board column: a column with the same name wins, otherwise the
+// first column whose kind matches what the text/percentage suggests.
+function mapStatusColumn(v, percent) {
+  const s = String(v || "").trim().toLowerCase();
+  const byLabel = Store.columns().find((c) => c.label.toLowerCase() === s);
+  if (byLabel) return byLabel.id;
+  const kind = mapStatus(v, percent);
+  return Store.firstColumnOfKind(kind) || Store.columns()[0].id;
 }
 
 function cleanTitle(title) {
@@ -143,21 +163,14 @@ function parseNumber(v) {
 function mapStatus(v, percent) {
   const s = String(v || "").toLowerCase();
   if (/done|complete|finished|conclu|feito|finaliz|✓|✔/.test(s)) return "done";
-  if (/\bwip\b|progress|doing|ongoing|started|andamento|fazendo|iniciad|cursando|active/.test(s)) return "active";
-  if (/pause|hold|parad|pausad|suspen/.test(s)) return "paused";
+  if (/\bwip\b|progress|doing|ongoing|started|andamento|fazendo|iniciad|cursando|active/.test(s)) return "doing";
+  if (/pause|hold|parad|pausad|suspen/.test(s)) return "hold";
   if (percent != null) {
     const p = percent <= 1 && String(percent).includes(".") ? percent * 100 : percent;
     if (p >= 100) return "done";
-    if (p > 0) return "active";
+    if (p > 0) return "doing";
   }
-  return "backlog";
-}
-
-function mapPriority(v) {
-  const s = String(v || "").toLowerCase();
-  if (/^(1|high|alta|urgent|p1)/.test(s)) return 1;
-  if (/^(3|low|baixa|p3)/.test(s)) return 3;
-  return 2;
+  return "todo";
 }
 
 function mapType(v) {
@@ -255,7 +268,7 @@ function openImporter() {
         const dur = parseNumber(v.durationDays);
         if (plannedStart && !plannedEnd && dur) plannedEnd = addDays(plannedStart, Math.max(0, Math.round(dur) - 1));
         const percent = parseNumber(v.percent);
-        const status = mapStatus(v.status, percent);
+        const status = mapStatusColumn(v.status, percent);
         const r = Store.newResource({
           title,
           // An explicit Type column wins; otherwise guess from the platform, defaulting to Course.
@@ -266,11 +279,11 @@ function openImporter() {
           estHours: parseNumberCell(v.estHours),
           lengthHours: parseNumberCell(v.lengthHours),
           pages: parseNumberCell(v.pages),
-          priority: v.priority == null ? 2 : prio(v.priority),
+          priority: v.priority == null ? Store.defaultPriority() : prio(v.priority),
           status,
           plannedStart, plannedEnd,
           notes: [v.notes, ...extraNotes].filter(Boolean).join("\n"),
-          doneAt: status === "done" ? (plannedEnd || todayISO()) : "",
+          doneAt: Store.kindOf(status) === "done" ? (plannedEnd || todayISO()) : "",
           order: ++order,
         });
         s.resources[r.id] = r;
@@ -284,7 +297,7 @@ function openImporter() {
 
   Modal.open(h("div", { class: "form" },
     h("h2", {}, "Import backlog"),
-    h("p", { class: "muted small" }, "Paste rows copied from Excel / Google Sheets, or load a CSV. Recognised columns: title, status, platform, category/segment, priority (1–3 or 0–5), pages, study hours, course hours, duration (days), start, end, % complete, link, notes — English or Portuguese headers. A column full of links is used as the Link."),
+    h("p", { class: "muted small" }, "Paste rows copied from Excel / Google Sheets, or load a CSV. Recognised columns: title, status, platform, category/segment, priority (your level names, 1–3, or 0–5), pages, study hours, course hours, duration (days), start, end, % complete, link, notes — English or Portuguese headers. A column full of links is used as the Link."),
     ta,
     h("div", { class: "form-row" }, field("…or load a file", file),
       h("label", { class: "small check" }, dayFirst, " Dates are day/month/year (dd/mm/yyyy)"),

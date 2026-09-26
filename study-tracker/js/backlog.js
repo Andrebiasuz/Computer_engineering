@@ -15,6 +15,7 @@ const Backlog = {
     this.catFilter.addEventListener("change", () => this.render());
     document.getElementById("bl-add").addEventListener("click", () => openResourceEditor(null));
     document.getElementById("bl-manage-cats").addEventListener("click", openCategoryManager);
+    document.getElementById("bl-board-settings").addEventListener("click", openBoardSettings);
     this.initBulk();
   },
 
@@ -36,10 +37,7 @@ const Backlog = {
       const v = status.value;
       status.value = "";
       if (!v) return;
-      this.applyToSelected((r) => {
-        if (v === "done" && r.status !== "done") r.doneAt = todayISO();
-        r.status = v;
-      }, "Moved");
+      this.applyToSelected((r) => Store.setStatus(r, v), "Moved");
     });
     const cat = $id("bl-bulk-category");
     cat.addEventListener("change", () => {
@@ -101,7 +99,10 @@ const Backlog = {
 
     const status = document.getElementById("bl-bulk-status");
     status.innerHTML = "";
-    status.append(h("option", { value: "" }, "Move to…"), STATUSES.map((s) => h("option", { value: s.id }, s.label)));
+    status.append(h("option", { value: "" }, "Move to…"), Store.columns().map((s) => h("option", { value: s.id }, s.label)));
+    const prio = document.getElementById("bl-bulk-priority");
+    prio.innerHTML = "";
+    prio.append(h("option", { value: "" }, "Set priority…"), Store.priorities().map((p) => h("option", { value: p.id }, p.label)));
     const cat = document.getElementById("bl-bulk-category");
     cat.innerHTML = "";
     cat.append(h("option", { value: "" }, "Set category…"),
@@ -160,20 +161,21 @@ const Backlog = {
     this.board.innerHTML = "";
     const all = Store.resourceList();
 
-    for (const st of STATUSES) {
-      const items = all.filter((r) => r.status === st.id && this.matches(r));
+    const cols = Store.columns();
+    for (const st of cols) {
+      const items = all.filter((r) => Store.column(r.status).id === st.id && this.matches(r));
       const totalMin = items.reduce((s, r) => s + Store.minutesFor(r.id), 0);
       const list = h("div", { class: "kanban-cards", "data-status": st.id });
       const allSel = items.length && items.every((r) => this.selected.has(r.id));
       const colCheck = this.selecting && items.length ? h("input", { type: "checkbox", class: "col-check", title: "Select all in " + st.label, checked: allSel,
         onclick: (e) => { e.stopPropagation(); items.forEach((r) => (allSel ? this.selected.delete(r.id) : this.selected.add(r.id))); this.render(); } }) : null;
       items.forEach((r) => list.append(this.card(r)));
-      if (!items.length) list.append(h("div", { class: "empty" }, st.id === "backlog" && !all.length
+      if (!items.length) list.append(h("div", { class: "empty" }, st === cols[0] && !all.length
         ? "Nothing here yet. Add a resource, or use Data ▸ Import backlog to paste your old spreadsheet."
         : "Drop resources here"));
 
       this.bindDrop(list, st.id);
-      this.board.append(h("section", { class: "kanban-col status-" + st.id },
+      this.board.append(h("section", { class: "kanban-col", style: { "--st": "var(--tok-" + st.color + ")" } },
         h("header", { class: "kanban-head" },
           h("span", { class: "kanban-title" }, colCheck, h("span", { class: "status-dot" }), st.label),
           h("span", { class: "muted small" }, items.length + (totalMin ? " · " + fmtHours(totalMin) : ""))),
@@ -185,8 +187,8 @@ const Backlog = {
     const mins = Store.minutesFor(r.id);
     const cat = Store.category(r.categoryId);
     const pct = r.estHours ? Math.min(100, Math.round(mins / (r.estHours * 60) * 100)) : null;
-    const overdue = r.plannedEnd && r.status !== "done" && r.plannedEnd < todayISO();
-    const prio = { 1: "high", 2: "med", 3: "low" }[r.priority] || "med";
+    const overdue = r.plannedEnd && !Store.isDone(r) && r.plannedEnd < todayISO();
+    const prio = Store.priority(r.priority);
     const sel = this.selected.has(r.id);
     const showPlatform = r.platform && r.platform.toLowerCase() !== r.type.toLowerCase();
 
@@ -195,7 +197,7 @@ const Backlog = {
       h("div", { class: "res-top" },
         this.selecting ? h("input", { type: "checkbox", class: "card-check", checked: sel, tabindex: "-1", "aria-label": "Select " + r.title }) : null,
         h("span", { class: "cat-tag" }, cat ? cat.name : "uncategorised"),
-        h("span", { class: "prio prio-" + (r.priority || 2) }, prio)),
+        h("span", { class: "prio", style: { "--pc": "var(--tok-" + prio.color + ")" } }, prio.label)),
       h("div", { class: "res-title" }, r.title),
       h("div", { class: "res-meta" },
         h("span", { class: "tok-type" }, r.type),
@@ -245,10 +247,7 @@ const Backlog = {
       if (!id) return;
       // Dragging one of several selected cards moves the whole selection.
       if (this.selected.size > 1 && this.selected.has(id)) {
-        this.applyToSelected((r) => {
-          if (r.status !== status && status === "done") r.doneAt = todayISO();
-          r.status = status;
-        }, "Moved");
+        this.applyToSelected((r) => Store.setStatus(r, status), "Moved");
         return;
       }
 
@@ -262,8 +261,7 @@ const Backlog = {
       Store.commit((s) => {
         const r = s.resources[id];
         if (!r) return;
-        if (r.status !== status && status === "done") r.doneAt = todayISO();
-        r.status = status;
+        if (Store.column(r.status).id !== status) Store.setStatus(r, status);
         const ordered = cards.map((c) => s.resources[c.dataset.id]);
         const idx = after ? ordered.indexOf(s.resources[after.dataset.id]) : ordered.length;
         ordered.splice(idx, 0, r);

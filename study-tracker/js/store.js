@@ -7,6 +7,9 @@
  *   resources:  { id: { id, title, type, platform, categoryId, url, estHours, lengthHours, pages, priority,
  *                        status, plannedStart, plannedEnd, notes, createdAt, doneAt, order } }
  *   logs:       { id: { id, resourceId, date, minutes, note, focus } }
+ *   columns:    [{ id, label, kind, color }]  board columns, in order. kind drives behaviour:
+ *               todo (not started) | doing (in progress) | hold (paused) | done (finished)
+ *   priorities: [{ id, label, color }]        highest first; resource.priority holds an id
  *   settings:   { dailyGoal, theme, uiVersion }
  *
  * Persistence: always cached in localStorage. When the page is served by
@@ -14,11 +17,24 @@
  */
 
 const STORAGE_KEY = "study-tracker-state-v1";
-const STATUSES = [
-  { id: "backlog", label: "Backlog" },
-  { id: "active", label: "In progress" },
-  { id: "paused", label: "Paused" },
-  { id: "done", label: "Done" },
+const COLUMN_KINDS = [
+  { id: "todo", label: "To do", hint: "not started; logging a session moves it to the first In-progress column" },
+  { id: "doing", label: "In progress", hint: "shown in the timer" },
+  { id: "hold", label: "On hold", hint: "shown in the timer" },
+  { id: "done", label: "Finished", hint: "counts as finished in Gantt and Stats" },
+];
+// Text colors a column / priority can use (see --tok-* in style.css).
+const TOKEN_COLORS = ["comment", "fn", "type", "str", "keyword", "const", "num", "err"];
+const DEFAULT_COLUMNS = [
+  { id: "backlog", label: "Backlog", kind: "todo", color: "comment" },
+  { id: "active", label: "In progress", kind: "doing", color: "fn" },
+  { id: "paused", label: "Paused", kind: "hold", color: "type" },
+  { id: "done", label: "Done", kind: "done", color: "str" },
+];
+const DEFAULT_PRIORITIES = [
+  { id: 1, label: "high", color: "err" },
+  { id: 2, label: "med", color: "num" },
+  { id: 3, label: "low", color: "comment" },
 ];
 const RESOURCE_TYPES = ["Course", "Book", "Video", "Article", "Documentation", "Project", "Exercise", "Certification", "Other"];
 const CATEGORY_SLOTS = 8;
@@ -28,6 +44,8 @@ function defaultState() {
     version: 1,
     settings: { dailyGoal: 60, theme: "dark", uiVersion: 2 },
     categories: [],
+    columns: DEFAULT_COLUMNS.map((c) => Object.assign({}, c)),
+    priorities: DEFAULT_PRIORITIES.map((p) => Object.assign({}, p)),
     resources: {},
     logs: {},
   };
@@ -45,6 +63,8 @@ function normalizeState(s) {
     version: 1,
     settings: Object.assign(base.settings, s.settings || {}),
     categories: Array.isArray(s.categories) ? s.categories : [],
+    columns: Array.isArray(s.columns) && s.columns.length ? s.columns : base.columns,
+    priorities: Array.isArray(s.priorities) && s.priorities.length ? s.priorities : base.priorities,
     resources: s.resources && typeof s.resources === "object" ? s.resources : {},
     logs: s.logs && typeof s.logs === "object" ? s.logs : {},
   };
@@ -162,6 +182,42 @@ const Store = {
     return cat.id;
   },
 
+  /* ---------- columns (statuses) ---------- */
+
+  columns() { return this.state.columns; },
+
+  // Unknown status ids (e.g. from a deleted column) fall back to the first column.
+  column(id) { return this.state.columns.find((c) => c.id === id) || this.state.columns[0]; },
+
+  kindOf(statusId) { return this.column(statusId).kind; },
+
+  isDone(r) { return this.kindOf(r.status) === "done"; },
+
+  firstColumnOfKind(kind) { const c = this.state.columns.find((x) => x.kind === kind); return c ? c.id : null; },
+
+  /* ---------- priorities ---------- */
+
+  priorities() { return this.state.priorities; },
+
+  priority(id) {
+    const ps = this.state.priorities;
+    return ps.find((p) => p.id === Number(id)) || ps[Math.floor((ps.length - 1) / 2)];
+  },
+
+  // 0 = most important. Used for sorting.
+  priorityRank(id) { return this.state.priorities.indexOf(this.priority(id)); },
+
+  defaultPriority() { const ps = this.state.priorities; return ps[Math.floor((ps.length - 1) / 2)].id; },
+
+  // Moves a resource to another column, stamping/clearing the finish date.
+  setStatus(r, statusId) {
+    const wasDone = this.isDone(r);
+    r.status = statusId;
+    const isDone = this.isDone(r);
+    if (isDone && !wasDone) r.doneAt = todayISO();
+    if (!isDone) r.doneAt = "";
+  },
+
   /* ---------- resources ---------- */
 
   resourceList() {
@@ -180,8 +236,8 @@ const Store = {
       estHours: null,
       lengthHours: null,
       pages: null,
-      priority: 2,
-      status: "backlog",
+      priority: this.defaultPriority(),
+      status: this.firstColumnOfKind("todo") || this.state.columns[0].id,
       plannedStart: "",
       plannedEnd: "",
       notes: "",
@@ -215,7 +271,10 @@ const Store = {
     const log = Object.assign({ id: uid(), minutes: 30, note: "", focus: null, createdAt: new Date().toISOString() }, fields);
     state.logs[log.id] = log;
     const r = state.resources[log.resourceId];
-    if (r && r.status === "backlog") r.status = "active";
+    if (r && this.kindOf(r.status) === "todo") {
+      const doing = this.firstColumnOfKind("doing");
+      if (doing) r.status = doing;
+    }
     return log;
   },
 };

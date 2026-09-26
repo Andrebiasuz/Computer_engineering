@@ -42,7 +42,7 @@ const Stats = {
     const studyDays30 = Object.entries(Store.minutesByDate()).filter(([d]) => d >= addDays(today, -29)).length;
     const { current, best } = this.streaks();
     const res = Store.resourceList();
-    const done = res.filter((r) => r.status === "done").length;
+    const done = res.filter((r) => Store.isDone(r)).length;
     const todayMin = this.sumRange(today, today);
     const goal = Number(Store.state.settings.dailyGoal) || 0;
 
@@ -184,7 +184,7 @@ const Stats = {
   /* ---------- per-resource table ---------- */
 
   projectFinish(r, mins) {
-    if (r.status === "done" || !r.estHours) return "";
+    if (Store.isDone(r) || !r.estHours) return "";
     const remaining = r.estHours * 60 - mins;
     if (remaining <= 0) return "over estimate";
     const today = todayISO();
@@ -201,7 +201,7 @@ const Stats = {
       const mins = logs.reduce((s, l) => s + l.minutes, 0);
       const focus = logs.filter((l) => l.focus);
       return { r, logs, mins, avgFocus: focus.length ? focus.reduce((s, l) => s + l.focus, 0) / focus.length : null };
-    }).filter((x) => x.logs.length || x.r.estHours || x.r.status !== "backlog")
+    }).filter((x) => x.logs.length || x.r.estHours || Store.kindOf(x.r.status) !== "todo")
       .sort((a, b) => b.mins - a.mins);
 
     el.innerHTML = "";
@@ -215,7 +215,7 @@ const Stats = {
       const tr = h("tr", { class: "clickable", onclick: () => openResourceEditor(r.id) },
         h("td", {}, r.title),
         h("td", {}, h("span", { class: "swatch", style: { background: Store.categoryColor(r.categoryId) } }), " ", cat ? cat.name : "—"),
-        h("td", {}, STATUSES.find((s) => s.id === r.status).label),
+        h("td", { style: { color: "var(--tok-" + Store.column(r.status).color + ")" } }, Store.column(r.status).label),
         h("td", { class: "num" }, r.estHours ? r.estHours + "h" : "—"),
         h("td", { class: "num" }, fmtMinutes(mins)),
         h("td", { class: "num" }, pct == null ? "—" : pct + "%"),

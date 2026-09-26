@@ -24,22 +24,26 @@ const Logger = {
 
   renderSidebar() {
     const q = this.search.value.trim().toLowerCase();
-    const rank = { active: 0, backlog: 1, paused: 2, done: 3 };
+    // In-progress work first, then to-do, on hold, finished; board order within each kind.
+    const kindRank = { doing: 0, todo: 1, hold: 2, done: 3 };
+    const cols = Store.columns();
+    const rank = (r) => { const c = Store.column(r.status); return kindRank[c.kind] * 100 + cols.indexOf(c); };
     const items = Store.resourceList()
-      .filter((r) => this.showDone.checked || r.status !== "done")
+      .filter((r) => this.showDone.checked || !Store.isDone(r))
       .filter((r) => !q || r.title.toLowerCase().includes(q))
-      .sort((a, b) => rank[a.status] - rank[b.status] || (a.priority || 2) - (b.priority || 2));
+      .sort((a, b) => rank(a) - rank(b) || Store.priorityRank(a.priority) - Store.priorityRank(b.priority));
 
     this.listEl.innerHTML = "";
     if (!items.length) {
       this.listEl.append(h("p", { class: "muted small" }, Store.resourceList().length ? "No matches." : "Your backlog is empty. Add resources on the Backlog page."));
       return;
     }
-    let lastStatus = null;
+    let lastCol = null;
     for (const r of items) {
-      if (r.status !== lastStatus) {
-        lastStatus = r.status;
-        this.listEl.append(h("div", { class: "sidebar-group" }, STATUSES.find((s) => s.id === r.status).label));
+      const col = Store.column(r.status);
+      if (col !== lastCol) {
+        lastCol = col;
+        this.listEl.append(h("div", { class: "sidebar-group", style: { color: "var(--tok-" + col.color + ")" } }, col.label));
       }
       const mins = Store.minutesFor(r.id);
       const node = h("div", { class: "side-res", draggable: "true", tabindex: "0", title: "Drag onto a day, or click to log today" },

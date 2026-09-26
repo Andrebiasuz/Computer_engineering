@@ -88,7 +88,7 @@ const App = {
     document.getElementById("sb-today").textContent = "today " + fmtMinutes(t) + (goal ? " / " + fmtMinutes(goal) : "") + (goal && t >= goal ? " ✓" : "");
     document.getElementById("sb-week").textContent = "week " + fmtHours(week);
     document.getElementById("sb-streak").textContent = "streak " + streak + "d";
-    document.getElementById("sb-count").textContent = res.filter((r) => r.status === "active").length + " active · " + res.length + " items";
+    document.getElementById("sb-count").textContent = res.filter((r) => Store.kindOf(r.status) === "doing").length + " in progress · " + res.length + " items";
   },
 
   renderSyncStatus() {

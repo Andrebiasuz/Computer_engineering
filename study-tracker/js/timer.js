@@ -137,8 +137,17 @@ const Timer = {
   renderOptions() {
     this.select.innerHTML = "";
     this.select.append(h("option", { value: "" }, "Timer: pick resource…"));
-    const open = Store.resourceList().filter((r) => r.status !== "done" || r.id === this.t.resourceId);
-    for (const r of open) this.select.append(h("option", { value: r.id }, r.title));
+    // Only work that is under way: columns of kind "In progress" and "On hold".
+    // (The currently-timed item stays listed so a running timer isn't orphaned.)
+    for (const col of Store.columns().filter((c) => c.kind === "doing" || c.kind === "hold")) {
+      const items = Store.resourceList().filter((r) => Store.column(r.status) === col);
+      if (items.length) this.select.append(h("optgroup", { label: col.label }, items.map((r) => h("option", { value: r.id }, r.title))));
+    }
+    const current = Store.state.resources[this.t.resourceId];
+    if (current && !this.select.querySelector(`option[value="${current.id}"]`)) {
+      this.select.append(h("option", { value: current.id }, current.title));
+    }
+    if (this.select.options.length === 1) this.select.options[0].textContent = "Timer: nothing in progress";
     this.select.value = Store.state.resources[this.t.resourceId] ? this.t.resourceId : "";
   },
 };

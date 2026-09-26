@@ -26,7 +26,7 @@ const Gantt = {
     const planned = this.showPlanned.checked;
     const out = [];
     for (const r of Store.resourceList()) {
-      if (this.hideDone.checked && r.status === "done") continue;
+      if (this.hideDone.checked && Store.isDone(r)) continue;
       if (cat && (r.categoryId || "") !== (cat === "__none" ? "" : cat)) continue;
       const logs = Store.logsFor(r.id);
       const byDay = {};
@@ -136,10 +136,10 @@ const Gantt = {
           track.append(tick);
         }
       }
-      if (r.status === "done" && r.doneAt && r.doneAt >= start) {
+      if (Store.isDone(r) && r.doneAt && r.doneAt >= start) {
         track.append(h("div", { class: "gt-done", style: { left: x(r.doneAt) + dw / 2 + "px" }, title: "Finished " + fmtDate(r.doneAt) }, "✓"));
       }
-      const overdue = r.plannedEnd && r.status !== "done" && r.plannedEnd < today;
+      const overdue = r.plannedEnd && !Store.isDone(r) && r.plannedEnd < today;
       const label = h("div", { class: "gt-label gt-res", title: "Edit " + r.title, tabindex: "0" },
         h("span", { class: "gt-res-title" }, r.title),
         h("span", { class: "muted small" + (overdue ? " overdue" : "") }, overdue ? "overdue" : (row.total ? fmtHours(row.total) : "")));
