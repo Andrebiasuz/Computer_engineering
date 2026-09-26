@@ -9,7 +9,7 @@ Python server. There's nothing to install and no external requests.
 
 | Page | What it does |
 |---|---|
-| **Backlog** | Kanban of resources (Backlog → In progress → Paused → Done). Each card has a category, type, priority, link, estimated hours, planned start/end and notes. Drag cards between columns to change status. |
+| **Backlog** | Kanban of resources (Backlog → In progress → Paused → Done). Each card has a category, type, platform, priority, link, estimated hours, planned start/end and notes. Drag cards between columns to change status. Click **Select** (or Ctrl/Cmd+click a card) to multi-select: Shift+click selects a range, the checkbox in a column header selects the whole column, and the bulk bar can move, re-categorise, re-prioritise or **delete** everything selected (Delete key works too, and deletions can be undone from the pop-up). |
 | **Daily log** | Your backlog sits in a sidebar next to a Mon–Sun week. Drag a resource onto a day to log a session (duration, focus 1–5, notes). Drag a session to another day to move it (hold Ctrl/Alt to copy it). On a phone, tap a resource to log it for today. |
 | **Gantt** | Built from the log. The dashed outline is the planned window, the light bar is the actual span (first → last session), and the ticks are the individual study days (taller = more minutes). Also shows a today line, ✓ on finished items and an "overdue" flag. |
 | **Stats** | Today vs daily goal, this week vs last week, current/best streak, 30-day totals, minutes-per-day chart, hours by category, a 26-week consistency heatmap, and a per-resource table (estimate vs actual, sessions, average focus, projected finish date). |
@@ -19,7 +19,8 @@ Also included:
 - **Study timer** in the header, as a stopwatch or a 25-minute Pomodoro countdown. Pick a resource (or drop one on the timer), start it, and press **Log** to turn the elapsed time into a session.
 - **Import backlog**: in **Data ▾**, choose **Import backlog**, then paste cells copied from Excel or Google Sheets, or load a CSV (comma or semicolon, UTF-8 or Windows-1252). Columns are auto-detected from English or Portuguese headers: title/course, status (WIP = in progress), platform, category/segment, priority (1–3 with 1 = high, or 0–5 with 5 = high), pages, study hours, course hours, duration in days, start, target end, % complete, link and notes. A column that's mostly URLs (like "Domain") becomes the link. `.pdf` file names become titles, and the file name is kept in the notes. Titles already in the backlog are skipped, so re-importing is safe. You can re-map any column before importing.
 - **Backup**: export and restore everything as JSON, or export the study log as CSV.
-- Daily goal, light/dark/system theme, and category colors that stay the same on every page.
+- IDE-style look: dark theme by default (light and "follow system" in **Data ▾ → Theme**), syntax-colored details (types, platforms, hours, priorities, statuses), editor-style tabs, and a status bar with today/week totals, streak and the running timer.
+- Daily goal, and category colors that stay the same on every page.
 
 ## Running it
 

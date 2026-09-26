@@ -123,12 +123,17 @@ function bindTooltip(node, htmlFn) {
 /* ---------- toast ---------- */
 
 let toastTimer = null;
-function toast(msg) {
+// opts: { action: "Undo", onAction: fn } shows a button and keeps the toast up longer.
+function toast(msg, opts) {
   const el = document.getElementById("toast");
-  el.textContent = msg;
+  el.innerHTML = "";
+  el.append(h("span", {}, msg));
+  if (opts && opts.action) {
+    el.append(h("button", { class: "toast-action", onclick: () => { el.hidden = true; opts.onAction(); } }, opts.action));
+  }
   el.hidden = false;
   clearTimeout(toastTimer);
-  toastTimer = setTimeout(() => { el.hidden = true; }, 2600);
+  toastTimer = setTimeout(() => { el.hidden = true; }, opts && opts.action ? 8000 : 2600);
 }
 
 /* ---------- files ---------- */

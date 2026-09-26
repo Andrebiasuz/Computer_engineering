@@ -1,20 +1,23 @@
 <!DOCTYPE html>
-<html lang="en">
+<html lang="en" data-theme="dark">
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Study Tracker</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;700&display=swap">
 <link rel="stylesheet" href="style.css">
 </head>
 <body>
 
 <header id="app-header">
-  <div class="brand">Study Tracker</div>
+  <div class="brand"><span class="brand-mark">{&thinsp;}</span> study<span class="brand-dot">.</span>tracker</div>
   <nav id="tabs" class="tabs" aria-label="Pages">
-    <a href="#backlog" data-page="backlog">Backlog</a>
-    <a href="#logger" data-page="logger">Daily log</a>
-    <a href="#gantt" data-page="gantt">Gantt</a>
-    <a href="#stats" data-page="stats">Stats</a>
+    <a href="#backlog" data-page="backlog"><span class="tab-icon ic-backlog">≡</span>backlog</a>
+    <a href="#logger" data-page="logger"><span class="tab-icon ic-logger">◷</span>daily.log</a>
+    <a href="#gantt" data-page="gantt"><span class="tab-icon ic-gantt">▤</span>gantt</a>
+    <a href="#stats" data-page="stats"><span class="tab-icon ic-stats">Σ</span>stats</a>
   </nav>
   <div class="header-right">
     <div id="timer" class="timer" title="Drop a resource here, or pick one, then start">
@@ -24,7 +27,6 @@
       <button id="timer-pomo" class="btn btn-ghost btn-small" title="25-minute focus countdown">25m</button>
       <button id="timer-stop" class="btn btn-ghost btn-small" disabled title="Stop and log the time">Log</button>
     </div>
-    <span id="sync-status" class="sync-status" title="Where your data is saved"></span>
     <details class="menu">
       <summary class="btn btn-ghost btn-small">Data ▾</summary>
       <div class="menu-panel">
@@ -40,9 +42,9 @@
         </label>
         <label class="menu-item menu-inline">Theme
           <select id="theme-select">
-            <option value="auto">System</option>
-            <option value="light">Light</option>
             <option value="dark">Dark</option>
+            <option value="light">Light</option>
+            <option value="auto">Follow system</option>
           </select>
         </label>
       </div>
@@ -57,7 +59,24 @@
     <select id="bl-category" aria-label="Filter by category"></select>
     <button id="bl-add" class="btn btn-primary">+ Add resource</button>
     <button id="bl-manage-cats" class="btn btn-ghost">Categories</button>
-    <span class="toolbar-hint">Drag cards between columns to change status.</span>
+    <button id="bl-select" class="btn btn-ghost" title="Select several cards (or Ctrl/Cmd+click a card)">Select</button>
+    <span class="toolbar-hint">Drag cards between columns · Ctrl/Cmd+click to multi-select</span>
+  </div>
+  <div id="bl-bulk" class="bulk-bar" hidden>
+    <strong id="bl-bulk-count">0 selected</strong>
+    <button id="bl-bulk-all" class="btn btn-ghost btn-small">Select all shown</button>
+    <button id="bl-bulk-none" class="btn btn-ghost btn-small">Clear</button>
+    <span class="bulk-sep"></span>
+    <select id="bl-bulk-status" aria-label="Move selected to status"></select>
+    <select id="bl-bulk-category" aria-label="Set category of selected"></select>
+    <select id="bl-bulk-priority" aria-label="Set priority of selected">
+      <option value="">Set priority…</option>
+      <option value="1">High</option>
+      <option value="2">Medium</option>
+      <option value="3">Low</option>
+    </select>
+    <button id="bl-bulk-delete" class="btn btn-danger btn-small">Delete selected</button>
+    <button id="bl-bulk-done" class="btn btn-ghost btn-small" title="Exit selection (Esc)">Done</button>
   </div>
   <div id="bl-board" class="kanban"></div>
 </main>
@@ -134,6 +153,16 @@
 <div id="modal-overlay" class="modal-overlay" hidden>
   <div id="modal" class="modal" role="dialog" aria-modal="true"></div>
 </div>
+
+<footer id="status-bar" class="status-bar" aria-label="Status">
+  <span id="sync-status" class="sb-item" title="Where your data is saved"></span>
+  <span id="sb-timer" class="sb-item" hidden></span>
+  <span class="sb-spacer"></span>
+  <span id="sb-today" class="sb-item"></span>
+  <span id="sb-week" class="sb-item"></span>
+  <span id="sb-streak" class="sb-item"></span>
+  <span id="sb-count" class="sb-item"></span>
+</footer>
 
 <div id="tooltip" class="tooltip" hidden></div>
 <div id="toast" class="toast" hidden></div>

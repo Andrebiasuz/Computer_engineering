@@ -127,6 +127,11 @@ const Timer = {
     this.stopBtn.disabled = ms < 1000;
     this.el.classList.toggle("is-running", this.running());
     document.title = this.running() ? this.display.textContent + " · Study Tracker" : "Study Tracker";
+    const sb = document.getElementById("sb-timer");
+    const r = Store.state.resources[this.t.resourceId];
+    sb.hidden = !ms;
+    sb.textContent = (this.running() ? "▶ " : "❚❚ ") + this.display.textContent + (r ? " · " + r.title : "");
+    sb.title = r ? r.title : "";
   },
 
   renderOptions() {

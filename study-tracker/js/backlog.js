@@ -6,12 +6,141 @@ const Backlog = {
   board: document.getElementById("bl-board"),
   search: document.getElementById("bl-search"),
   catFilter: document.getElementById("bl-category"),
+  selecting: false,
+  selected: new Set(),
+  lastClicked: null,
 
   init() {
     this.search.addEventListener("input", () => this.render());
     this.catFilter.addEventListener("change", () => this.render());
     document.getElementById("bl-add").addEventListener("click", () => openResourceEditor(null));
     document.getElementById("bl-manage-cats").addEventListener("click", openCategoryManager);
+    this.initBulk();
+  },
+
+  /* ---------- multi-select + bulk actions ---------- */
+
+  initBulk() {
+    const $id = (id) => document.getElementById(id);
+    $id("bl-select").addEventListener("click", () => this.setSelecting(!this.selecting));
+    $id("bl-bulk-done").addEventListener("click", () => this.setSelecting(false));
+    $id("bl-bulk-none").addEventListener("click", () => { this.selected.clear(); this.render(); });
+    $id("bl-bulk-all").addEventListener("click", () => {
+      Store.resourceList().filter((r) => this.matches(r)).forEach((r) => this.selected.add(r.id));
+      this.render();
+    });
+    $id("bl-bulk-delete").addEventListener("click", () => this.deleteSelected());
+
+    const status = $id("bl-bulk-status");
+    status.addEventListener("change", () => {
+      const v = status.value;
+      status.value = "";
+      if (!v) return;
+      this.applyToSelected((r) => {
+        if (v === "done" && r.status !== "done") r.doneAt = todayISO();
+        r.status = v;
+      }, "Moved");
+    });
+    const cat = $id("bl-bulk-category");
+    cat.addEventListener("change", () => {
+      const v = cat.value;
+      cat.value = "";
+      if (!v) return;
+      this.applyToSelected((r) => { r.categoryId = v === "__none" ? null : v; }, "Re-categorised");
+    });
+    const prio = $id("bl-bulk-priority");
+    prio.addEventListener("change", () => {
+      const v = Number(prio.value);
+      prio.value = "";
+      if (v) this.applyToSelected((r) => { r.priority = v; }, "Re-prioritised");
+    });
+
+    document.addEventListener("keydown", (e) => {
+      if (App.page !== "backlog" || !this.selecting || !Modal.overlay.hidden) return;
+      const typing = /^(INPUT|TEXTAREA|SELECT)$/.test(document.activeElement.tagName);
+      if (e.key === "Escape") this.setSelecting(false);
+      else if (!typing && (e.key === "Delete" || e.key === "Backspace") && this.selected.size) { e.preventDefault(); this.deleteSelected(); }
+      else if (!typing && e.key.toLowerCase() === "a" && (e.ctrlKey || e.metaKey)) { e.preventDefault(); $id("bl-bulk-all").click(); }
+    });
+  },
+
+  setSelecting(on) {
+    this.selecting = on;
+    if (!on) this.selected.clear();
+    this.lastClicked = null;
+    this.render();
+  },
+
+  toggleSelect(id, e) {
+    // Shift+click selects the range between the last clicked card and this one.
+    if (e.shiftKey && this.lastClicked) {
+      const ids = $$(".res-card", this.board).map((c) => c.dataset.id);
+      const a = ids.indexOf(this.lastClicked), b = ids.indexOf(id);
+      if (a >= 0 && b >= 0) {
+        ids.slice(Math.min(a, b), Math.max(a, b) + 1).forEach((x) => this.selected.add(x));
+        this.lastClicked = id;
+        this.render();
+        return;
+      }
+    }
+    if (this.selected.has(id)) this.selected.delete(id);
+    else this.selected.add(id);
+    this.lastClicked = id;
+    this.render();
+  },
+
+  renderBulkBar() {
+    const bar = document.getElementById("bl-bulk");
+    bar.hidden = !this.selecting;
+    document.getElementById("bl-select").classList.toggle("active", this.selecting);
+    this.board.classList.toggle("selecting", this.selecting);
+    if (!this.selecting) return;
+    const n = this.selected.size;
+    document.getElementById("bl-bulk-count").textContent = n + " selected";
+    for (const id of ["bl-bulk-status", "bl-bulk-category", "bl-bulk-priority", "bl-bulk-delete"]) document.getElementById(id).disabled = !n;
+
+    const status = document.getElementById("bl-bulk-status");
+    status.innerHTML = "";
+    status.append(h("option", { value: "" }, "Move to…"), STATUSES.map((s) => h("option", { value: s.id }, s.label)));
+    const cat = document.getElementById("bl-bulk-category");
+    cat.innerHTML = "";
+    cat.append(h("option", { value: "" }, "Set category…"),
+      Store.state.categories.map((c) => h("option", { value: c.id }, c.name)),
+      h("option", { value: "__none" }, "Uncategorised"));
+  },
+
+  applyToSelected(fn, verb) {
+    const ids = [...this.selected];
+    Store.commit((s) => ids.forEach((id) => { if (s.resources[id]) fn(s.resources[id]); }));
+    toast(`${verb} ${ids.length} resource${ids.length === 1 ? "" : "s"}.`);
+  },
+
+  deleteSelected() {
+    const ids = new Set(this.selected);
+    if (!ids.size) return;
+    const logs = Store.logList().filter((l) => ids.has(l.resourceId));
+    const msg = `Delete ${ids.size} resource${ids.size === 1 ? "" : "s"}` +
+      (logs.length ? ` and their ${logs.length} logged session${logs.length === 1 ? "" : "s"}?` : "?");
+    if (!confirm(msg)) return;
+
+    // Keep copies so the deletion can be undone from the toast.
+    const backup = { resources: [...ids].map((id) => JSON.parse(JSON.stringify(Store.state.resources[id]))), logs: JSON.parse(JSON.stringify(logs)) };
+    Store.commit((s) => {
+      ids.forEach((id) => delete s.resources[id]);
+      logs.forEach((l) => delete s.logs[l.id]);
+    });
+    this.selected.clear();
+    this.render();
+    toast(`Deleted ${backup.resources.length} resource${backup.resources.length === 1 ? "" : "s"}.`, {
+      action: "Undo",
+      onAction: () => {
+        Store.commit((s) => {
+          backup.resources.forEach((r) => { s.resources[r.id] = r; });
+          backup.logs.forEach((l) => { s.logs[l.id] = l; });
+        });
+        toast("Restored.");
+      },
+    });
   },
 
   matches(r) {
@@ -25,6 +154,9 @@ const Backlog = {
 
   render() {
     fillCategoryFilter(this.catFilter);
+    // Forget selections for cards that no longer exist.
+    for (const id of this.selected) if (!Store.state.resources[id]) this.selected.delete(id);
+    this.renderBulkBar();
     this.board.innerHTML = "";
     const all = Store.resourceList();
 
@@ -32,15 +164,18 @@ const Backlog = {
       const items = all.filter((r) => r.status === st.id && this.matches(r));
       const totalMin = items.reduce((s, r) => s + Store.minutesFor(r.id), 0);
       const list = h("div", { class: "kanban-cards", "data-status": st.id });
+      const allSel = items.length && items.every((r) => this.selected.has(r.id));
+      const colCheck = this.selecting && items.length ? h("input", { type: "checkbox", class: "col-check", title: "Select all in " + st.label, checked: allSel,
+        onclick: (e) => { e.stopPropagation(); items.forEach((r) => (allSel ? this.selected.delete(r.id) : this.selected.add(r.id))); this.render(); } }) : null;
       items.forEach((r) => list.append(this.card(r)));
       if (!items.length) list.append(h("div", { class: "empty" }, st.id === "backlog" && !all.length
         ? "Nothing here yet. Add a resource, or use Data ▸ Import backlog to paste your old spreadsheet."
         : "Drop resources here"));
 
       this.bindDrop(list, st.id);
-      this.board.append(h("section", { class: "kanban-col" },
+      this.board.append(h("section", { class: "kanban-col status-" + st.id },
         h("header", { class: "kanban-head" },
-          h("span", {}, st.label),
+          h("span", { class: "kanban-title" }, colCheck, h("span", { class: "status-dot" }), st.label),
           h("span", { class: "muted small" }, items.length + (totalMin ? " · " + fmtHours(totalMin) : ""))),
         list));
     }
@@ -51,25 +186,40 @@ const Backlog = {
     const cat = Store.category(r.categoryId);
     const pct = r.estHours ? Math.min(100, Math.round(mins / (r.estHours * 60) * 100)) : null;
     const overdue = r.plannedEnd && r.status !== "done" && r.plannedEnd < todayISO();
-    const prio = { 1: "High", 2: "", 3: "Low" }[r.priority] || "";
+    const prio = { 1: "high", 2: "med", 3: "low" }[r.priority] || "med";
+    const sel = this.selected.has(r.id);
+    const showPlatform = r.platform && r.platform.toLowerCase() !== r.type.toLowerCase();
 
-    const node = h("article", { class: "res-card", draggable: "true", tabindex: "0", "data-id": r.id },
+    const node = h("article", { class: "res-card" + (sel ? " is-selected" : ""), draggable: "true", tabindex: "0", "data-id": r.id,
+      style: { "--c": Store.categoryColor(r.categoryId) } },
       h("div", { class: "res-top" },
-        h("span", { class: "cat-tag" },
-          h("span", { class: "swatch", style: { background: Store.categoryColor(r.categoryId) } }),
-          cat ? cat.name : "Uncategorised"),
-        prio ? h("span", { class: "prio prio-" + r.priority }, prio) : null),
+        this.selecting ? h("input", { type: "checkbox", class: "card-check", checked: sel, tabindex: "-1", "aria-label": "Select " + r.title }) : null,
+        h("span", { class: "cat-tag" }, cat ? cat.name : "uncategorised"),
+        h("span", { class: "prio prio-" + (r.priority || 2) }, prio)),
       h("div", { class: "res-title" }, r.title),
       h("div", { class: "res-meta" },
-        h("span", {}, r.platform && r.platform.toLowerCase() !== r.type.toLowerCase() ? r.type + " · " + r.platform : r.type),
-        r.pages ? h("span", {}, r.pages + " p.") : null,
-        mins ? h("span", {}, fmtMinutes(mins) + (r.estHours ? " / " + r.estHours + "h" : "")) : (r.estHours ? h("span", {}, "est. " + r.estHours + "h") : null),
-        r.plannedEnd ? h("span", { class: overdue ? "overdue" : "" }, (overdue ? "⚠ due " : "due ") + fmtShortDate(r.plannedEnd)) : null,
-        r.url ? h("a", { href: r.url, target: "_blank", rel: "noopener", onclick: (e) => e.stopPropagation(), title: r.url }, "link ↗") : null),
+        h("span", { class: "tok-type" }, r.type),
+        showPlatform ? h("span", { class: "tok-str" }, r.platform) : null,
+        r.pages ? h("span", { class: "tok-num" }, r.pages + "p") : null,
+        mins ? h("span", { class: "tok-num" }, fmtMinutes(mins) + (r.estHours ? " / " + r.estHours + "h" : ""))
+          : (r.estHours ? h("span", { class: "tok-num" }, "~" + r.estHours + "h") : null),
+        r.plannedEnd ? h("span", { class: overdue ? "overdue" : "tok-const" }, (overdue ? "⚠ due " : "due ") + fmtShortDate(r.plannedEnd)) : null,
+        r.url ? h("a", { class: "tok-fn", href: r.url, target: "_blank", rel: "noopener", onclick: (e) => e.stopPropagation(), title: r.url }, "link ↗") : null),
       pct != null ? h("div", { class: "progress", title: pct + "% of estimate" }, h("div", { style: { width: pct + "%" } })) : null);
 
-    node.addEventListener("click", () => openResourceEditor(r.id));
-    node.addEventListener("keydown", (e) => { if (e.key === "Enter") openResourceEditor(r.id); });
+    node.addEventListener("click", (e) => {
+      if (e.target.closest("a")) return;
+      if (this.selecting || e.ctrlKey || e.metaKey) {
+        if (!this.selecting) this.selecting = true;
+        this.toggleSelect(r.id, e);
+        return;
+      }
+      openResourceEditor(r.id);
+    });
+    node.addEventListener("keydown", (e) => {
+      if (e.key === "Enter") openResourceEditor(r.id);
+      else if (e.key === " " && this.selecting) { e.preventDefault(); this.toggleSelect(r.id, e); }
+    });
     node.addEventListener("dragstart", (e) => {
       e.dataTransfer.setData("text/resource-id", r.id);
       e.dataTransfer.effectAllowed = "move";
@@ -93,6 +243,14 @@ const Backlog = {
       list.classList.remove("drop-target");
       const id = e.dataTransfer.getData("text/resource-id");
       if (!id) return;
+      // Dragging one of several selected cards moves the whole selection.
+      if (this.selected.size > 1 && this.selected.has(id)) {
+        this.applyToSelected((r) => {
+          if (r.status !== status && status === "done") r.doneAt = todayISO();
+          r.status = status;
+        }, "Moved");
+        return;
+      }
 
       // Find the card we dropped above, to keep a manual order within a column.
       const cards = $$(".res-card", list).filter((c) => c.dataset.id !== id);

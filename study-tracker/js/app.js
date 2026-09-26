@@ -66,6 +66,7 @@ const App = {
     document.getElementById("theme-select").value = s.theme || "auto";
     document.getElementById("goal-input").value = s.dailyGoal;
     Timer.renderOptions();
+    this.renderStatusBar();
 
     if (this.page === "backlog") Backlog.render();
     else if (this.page === "logger") Logger.render();
@@ -73,15 +74,32 @@ const App = {
     else if (this.page === "stats") Stats.render();
   },
 
+  // IDE-style bottom bar: quick numbers that are useful on every page.
+  renderStatusBar() {
+    const today = todayISO();
+    const byDate = Store.minutesByDate();
+    const goal = Number(Store.state.settings.dailyGoal) || 0;
+    const t = byDate[today] || 0;
+    let week = 0;
+    for (let d = startOfWeek(today); d <= today; d = addDays(d, 1)) week += byDate[d] || 0;
+    let streak = 0, d = byDate[today] ? today : addDays(today, -1);
+    while (byDate[d]) { streak++; d = addDays(d, -1); }
+    const res = Store.resourceList();
+    document.getElementById("sb-today").textContent = "today " + fmtMinutes(t) + (goal ? " / " + fmtMinutes(goal) : "") + (goal && t >= goal ? " ✓" : "");
+    document.getElementById("sb-week").textContent = "week " + fmtHours(week);
+    document.getElementById("sb-streak").textContent = "streak " + streak + "d";
+    document.getElementById("sb-count").textContent = res.filter((r) => r.status === "active").length + " active · " + res.length + " items";
+  },
+
   renderSyncStatus() {
     const el = document.getElementById("sync-status");
     if (Store.mode === "server") {
       el.textContent = Store.serverError ? "● not saved" : "● saved to server";
-      el.className = "sync-status " + (Store.serverError ? "bad" : "good");
+      el.className = "sb-item " + (Store.serverError ? "bad" : "good");
       el.title = Store.serverError ? "Could not reach server.py — changes are kept in this browser and will be sent on the next change." : "Data is stored in data/study-data.json on the server";
     } else {
       el.textContent = "● this browser only";
-      el.className = "sync-status";
+      el.className = "sb-item";
       el.title = "Running without server.py: data lives in this browser's localStorage. Use Data ▸ Export to back it up.";
     }
   },

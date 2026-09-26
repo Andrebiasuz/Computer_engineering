@@ -7,7 +7,7 @@
  *   resources:  { id: { id, title, type, platform, categoryId, url, estHours, lengthHours, pages, priority,
  *                        status, plannedStart, plannedEnd, notes, createdAt, doneAt, order } }
  *   logs:       { id: { id, resourceId, date, minutes, note, focus } }
- *   settings:   { dailyGoal, theme }
+ *   settings:   { dailyGoal, theme, uiVersion }
  *
  * Persistence: always cached in localStorage. When the page is served by
  * server.py, the JSON file on the server is the source of truth.
@@ -26,7 +26,7 @@ const CATEGORY_SLOTS = 8;
 function defaultState() {
   return {
     version: 1,
-    settings: { dailyGoal: 60, theme: "auto" },
+    settings: { dailyGoal: 60, theme: "dark", uiVersion: 2 },
     categories: [],
     resources: {},
     logs: {},
@@ -36,6 +36,11 @@ function defaultState() {
 function normalizeState(s) {
   const base = defaultState();
   if (!s || typeof s !== "object") return base;
+  // v2 made the IDE-style dark theme the default; move older saves onto it once.
+  if (s.settings && !(s.settings.uiVersion >= 2)) {
+    s.settings.theme = "dark";
+    s.settings.uiVersion = 2;
+  }
   return {
     version: 1,
     settings: Object.assign(base.settings, s.settings || {}),
