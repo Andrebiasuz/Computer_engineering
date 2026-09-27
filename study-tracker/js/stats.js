@@ -37,7 +37,7 @@ const Stats = {
     const wk = startOfWeek(today);
     const thisWeek = this.sumRange(wk, today);
     const lastWeekSameDays = this.sumRange(addDays(wk, -7), addDays(today, -7));
-    const total = Store.logList().reduce((s, l) => s + l.minutes, 0) + Store.extraMinutesTotal();
+    const total = Store.logList().reduce((s, l) => s + l.minutes, 0);
     const last30 = this.sumRange(addDays(today, -29), today);
     const studyDays30 = Object.entries(Store.minutesByDate()).filter(([d]) => d >= addDays(today, -29)).length;
     const { current, best } = this.streaks();
@@ -135,9 +135,6 @@ const Stats = {
       const r = Store.state.resources[l.resourceId];
       const key = (r && r.categoryId) || "";
       totals[key] = (totals[key] || 0) + l.minutes;
-    }
-    for (const r of Store.resourceList()) {
-      if (r.extraMinutes) totals[r.categoryId || ""] = (totals[r.categoryId || ""] || 0) + r.extraMinutes;
     }
     const rows = Object.entries(totals).filter(([, v]) => v > 0).sort((a, b) => b[1] - a[1]);
     el.innerHTML = "";

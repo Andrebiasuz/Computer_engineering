@@ -76,25 +76,40 @@ function openResourceEditor(resourceId) {
     cat.value = id;
   });
 
-  // Studied time / sessions: logged sessions plus a manual adjustment.
+  // Studied time / sessions. Raising the hours creates real logged sessions on
+  // the chosen date, so the daily log, Gantt and stats all see the work.
   const logs = existing ? Store.logsFor(r.id) : [];
   const loggedMin = logs.reduce((s, l) => s + l.minutes, 0);
-  const initHours = String(Math.round((loggedMin + (r.extraMinutes || 0)) / 60 * 100) / 100);
+  const initHours = String(Math.round(loggedMin / 60 * 100) / 100);
   const initSessions = String(logs.length + (r.extraSessions || 0));
   const studied = h("input", { name: "studiedHours", type: "number", min: "0", step: "0.25", value: initHours });
   const sessions = h("input", { name: "sessions", type: "number", min: "0", step: "1", value: initSessions });
-  const loggedHint = logs.length
-    ? `${fmtMinutes(loggedMin)} in ${logs.length} logged session${logs.length === 1 ? "" : "s"} (${fmtShortDate(logs[0].date)} – ${fmtShortDate(logs[logs.length - 1].date)}); the rest is a manual adjustment`
-    : "Nothing logged yet; set time you studied before tracking";
+  const workDate = h("input", { name: "workDate", type: "date", value: todayISO() });
+  const workDateField = field("Date of added time", workDate);
+  const studiedHint = h("p", { class: "field-hint form-note" });
+  const updateStudiedHint = () => {
+    const delta = Math.round((Number(studied.value) || 0) * 60) - loggedMin;
+    workDateField.hidden = delta <= 0;
+    studiedHint.textContent = delta > 0
+      ? `+${fmtMinutes(delta)} will be logged as ${Math.max(1, Math.min(delta, (Number(sessions.value) || 0) - Number(initSessions)) || 1)} session(s) on the date you pick; you can edit or move it on the Daily log.`
+      : delta < 0
+        ? `${fmtMinutes(-delta)} will be removed from the most recent sessions.`
+        : logs.length
+          ? `${fmtMinutes(loggedMin)} in ${logs.length} logged session${logs.length === 1 ? "" : "s"} (${fmtShortDate(logs[0].date)} – ${fmtShortDate(logs[logs.length - 1].date)}). Change the hours to add or remove time.`
+          : "Nothing logged yet. Enter hours to log time you already studied.";
+  };
+  studied.addEventListener("input", updateStudiedHint);
+  sessions.addEventListener("input", updateStudiedHint);
+  updateStudiedHint();
 
   const form = h("form", { class: "form" },
     h("h2", {}, existing ? "Edit resource" : "Add resource"),
     field("Title", title),
     h("div", { class: "form-row" }, field("Type", type), field("Category", cat), field("Priority", priority)),
     h("div", { class: "form-row" }, field("Status", status), field("Platform", platform), platformList),
-    h("div", { class: "form-row" }, field("Hours studied", studied), field("Sessions", sessions), field("Study estimate (h)", est)),
-    h("p", { class: "field-hint form-note" }, loggedHint + ". The estimate drives the progress bar."),
-    h("div", { class: "form-row" }, field("Course length (h)", lengthH), field("Pages", pages)),
+    h("div", { class: "form-row" }, field("Hours studied", studied), field("Sessions", sessions), workDateField),
+    studiedHint,
+    h("div", { class: "form-row" }, field("Study estimate (h)", est, "Drives the progress bar"), field("Course length (h)", lengthH), field("Pages", pages)),
     h("div", { class: "form-row" }, field("Planned start", ps), field("Planned end", pe)),
     h("p", { class: "field-hint form-note" }, "Planned dates are drawn as the plan bar on the Gantt."),
     field("Link", url),
@@ -130,18 +145,39 @@ function openResourceEditor(resourceId) {
       plannedEnd: fd.get("plannedEnd"),
       notes: fd.get("notes"),
     };
-    // Only touch the adjustments if the user changed the numbers (avoids rounding drift).
-    if (fd.get("studiedHours") !== initHours) {
-      next.extraMinutes = Math.round((Number(fd.get("studiedHours")) || 0) * 60) - loggedMin;
-    }
-    if (fd.get("sessions") !== initSessions) {
-      next.extraSessions = Math.round(Number(fd.get("sessions")) || 0) - logs.length;
-    }
+    // Only act on the numbers if the user changed them (avoids rounding drift).
+    const hoursChanged = fd.get("studiedHours") !== initHours;
+    const sessionsChanged = fd.get("sessions") !== initSessions;
+    const deltaMin = hoursChanged ? Math.round((Number(fd.get("studiedHours")) || 0) * 60) - loggedMin : 0;
+    const wantSessions = Math.max(0, Math.round(Number(fd.get("sessions")) || 0));
+    if (deltaMin < 0 && !confirm(`Remove ${fmtMinutes(-deltaMin)} from the most recent sessions of this resource?`)) return;
+    const date = fd.get("workDate") || todayISO();
     const newStatus = next.status;
     delete next.status;
     Store.commit((s) => {
       s.resources[r.id] = Object.assign(r, next);
       if (!existing || Store.column(r.status).id !== newStatus) Store.setStatus(r, newStatus);
+      if (deltaMin > 0) {
+        // New sessions = how many the session count went up by (at least one).
+        const n = Math.max(1, Math.min(deltaMin, sessionsChanged ? wantSessions - Number(initSessions) : 1));
+        splitMinutes(deltaMin, n).forEach((m) => Store.addLog(s, { resourceId: r.id, date, minutes: m, note: "Added in resource editor" }));
+      } else if (deltaMin < 0) {
+        // Take time off the newest sessions first; sessions that reach zero are removed.
+        let left = -deltaMin;
+        const newestFirst = Object.values(s.logs).filter((l) => l.resourceId === r.id)
+          .sort((a, b) => b.date.localeCompare(a.date) || (b.createdAt || "").localeCompare(a.createdAt || ""));
+        for (const l of newestFirst) {
+          if (left <= 0) break;
+          const take = Math.min(left, l.minutes);
+          l.minutes -= take;
+          left -= take;
+          if (l.minutes <= 0) delete s.logs[l.id];
+        }
+      }
+      // Any remaining difference in the session count is kept as a count-only adjustment.
+      const logCount = Object.values(s.logs).filter((l) => l.resourceId === r.id).length;
+      if (sessionsChanged) r.extraSessions = wantSessions - logCount;
+      else r.extraSessions = Math.max(0, (r.extraSessions || 0));
     });
     Modal.close();
   });

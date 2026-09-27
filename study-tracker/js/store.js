@@ -5,7 +5,7 @@
  *
  *   categories: [{ id, name, slot }]          slot = fixed color slot 0..7 (8+ = "other" gray)
  *   resources:  { id: { id, title, type, platform, categoryId, url, estHours, lengthHours, pages, priority,
- *                        extraMinutes, extraSessions (manual adjustments on top of logged sessions),
+ *                        extraSessions (sessions counted without time; hours are always real logs),
  *                        status, plannedStart, plannedEnd, notes, createdAt, doneAt, order } }
  *   logs:       { id: { id, resourceId, date, minutes, note, focus } }
  *   columns:    [{ id, label, kind, color }]  board columns, in order. kind drives behaviour:
@@ -52,9 +52,35 @@ function defaultState() {
   };
 }
 
+// A short-lived version stored hand-entered hours as resource.extraMinutes,
+// which kept them out of the daily log, Gantt and daily stats. Turn them into
+// real sessions dated today (the only day that version was live).
+function migrateManualMinutes(s) {
+  if (!s || !s.resources) return;
+  s.logs = s.logs || {};
+  for (const r of Object.values(s.resources)) {
+    if (r.extraMinutes > 0) {
+      const n = Math.max(1, Math.min(r.extraSessions || 1, r.extraMinutes));
+      splitMinutes(r.extraMinutes, n).forEach((m) => {
+        const id = uid();
+        s.logs[id] = { id, resourceId: r.id, date: todayISO(), minutes: m, note: "Added in resource editor", focus: null, createdAt: new Date().toISOString() };
+      });
+      r.extraSessions = Math.max(0, (r.extraSessions || 0) - n);
+    }
+    delete r.extraMinutes;
+  }
+}
+
+// Splits a total into n near-equal whole-minute parts.
+function splitMinutes(total, n) {
+  const base = Math.floor(total / n), rest = total - base * n;
+  return Array.from({ length: n }, (_, i) => base + (i < rest ? 1 : 0));
+}
+
 function normalizeState(s) {
   const base = defaultState();
   if (!s || typeof s !== "object") return base;
+  migrateManualMinutes(s);
   // v2 made the IDE-style dark theme the default; move older saves onto it once.
   if (s.settings && !(s.settings.uiVersion >= 2)) {
     s.settings.theme = "dark";
@@ -257,15 +283,8 @@ const Store = {
       .sort((a, b) => a.date.localeCompare(b.date));
   },
 
-  loggedMinutesFor(resourceId) {
-    return this.logsFor(resourceId).reduce((s, l) => s + (l.minutes || 0), 0);
-  },
-
-  // Totals include the manual adjustment set in the resource editor (time
-  // studied before tracking, or outside the app). Daily charts use logs only.
   minutesFor(resourceId) {
-    const r = this.state.resources[resourceId];
-    return Math.max(0, this.loggedMinutesFor(resourceId) + ((r && r.extraMinutes) || 0));
+    return this.logsFor(resourceId).reduce((s, l) => s + (l.minutes || 0), 0);
   },
 
   sessionsFor(resourceId) {
@@ -273,9 +292,6 @@ const Store = {
     return Math.max(0, this.logsFor(resourceId).length + ((r && r.extraSessions) || 0));
   },
 
-  extraMinutesTotal() {
-    return Object.values(this.state.resources).reduce((s, r) => s + (r.extraMinutes || 0), 0);
-  },
 
   minutesByDate() {
     const map = {};
