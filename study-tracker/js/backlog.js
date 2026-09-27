@@ -13,10 +13,12 @@ const Backlog = {
   init() {
     this.search.addEventListener("input", () => this.render());
     this.catFilter.addEventListener("change", () => this.render());
+    this.search.addEventListener("search", () => this.render());
     document.getElementById("bl-add").addEventListener("click", () => openResourceEditor(null));
     document.getElementById("bl-manage-cats").addEventListener("click", openCategoryManager);
     document.getElementById("bl-board-settings").addEventListener("click", openBoardSettings);
     this.initBulk();
+    this.initFilters();
   },
 
   /* ---------- multi-select + bulk actions ---------- */
@@ -99,14 +101,14 @@ const Backlog = {
 
     const status = document.getElementById("bl-bulk-status");
     status.innerHTML = "";
-    status.append(h("option", { value: "" }, "Move to…"), Store.columns().map((s) => h("option", { value: s.id }, s.label)));
+    status.append(h("option", { value: "" }, "Move to…"), ...Store.columns().map((s) => h("option", { value: s.id }, s.label)));
     const prio = document.getElementById("bl-bulk-priority");
     prio.innerHTML = "";
-    prio.append(h("option", { value: "" }, "Set priority…"), Store.priorities().map((p) => h("option", { value: p.id }, p.label)));
+    prio.append(h("option", { value: "" }, "Set priority…"), ...Store.priorities().map((p) => h("option", { value: p.id }, p.label)));
     const cat = document.getElementById("bl-bulk-category");
     cat.innerHTML = "";
     cat.append(h("option", { value: "" }, "Set category…"),
-      Store.state.categories.map((c) => h("option", { value: c.id }, c.name)),
+      ...Store.state.categories.map((c) => h("option", { value: c.id }, c.name)),
       h("option", { value: "__none" }, "Uncategorised"));
   },
 
@@ -144,17 +146,110 @@ const Backlog = {
     });
   },
 
+  /* ---------- filters + sorting ---------- */
+
+  // A field sorts ascending by `get`; empty values always sink to the bottom.
+  SORTS: [
+    { id: "manual", label: "Manual order", get: (r) => r.order || 0 },
+    { id: "priority", label: "Priority", get: (r) => Store.priorityRank(r.priority) },
+    { id: "title", label: "Title", get: (r) => r.title.toLowerCase() },
+    { id: "category", label: "Category", get: (r) => ((Store.category(r.categoryId) || {}).name || "").toLowerCase() || null },
+    { id: "type", label: "Type", get: (r) => (r.type || "").toLowerCase() || null },
+    { id: "platform", label: "Platform", get: (r) => (r.platform || "").toLowerCase() || null },
+    { id: "studied", label: "Hours studied", get: (r) => Store.minutesFor(r.id) || null, desc: true },
+    { id: "estHours", label: "Study estimate", get: (r) => r.estHours || null },
+    { id: "remaining", label: "Hours remaining", get: (r) => (r.estHours ? Math.max(0, r.estHours * 60 - Store.minutesFor(r.id)) : null) },
+    { id: "progress", label: "Progress %", get: (r) => (r.estHours ? Store.minutesFor(r.id) / (r.estHours * 60) : null), desc: true },
+    { id: "lengthHours", label: "Course length", get: (r) => r.lengthHours || null },
+    { id: "pages", label: "Pages", get: (r) => r.pages || null },
+    { id: "sessions", label: "Sessions", get: (r) => Store.sessionsFor(r.id) || null, desc: true },
+    { id: "lastStudied", label: "Last studied", get: (r) => { const l = Store.logsFor(r.id); return l.length ? l[l.length - 1].date : null; }, desc: true },
+    { id: "plannedStart", label: "Planned start", get: (r) => r.plannedStart || null },
+    { id: "plannedEnd", label: "Planned end / due", get: (r) => r.plannedEnd || null },
+    { id: "createdAt", label: "Date added", get: (r) => r.createdAt || null, desc: true },
+  ],
+
+  view: { sort: "manual", desc: false },
+
+  initFilters() {
+    try { Object.assign(this.view, JSON.parse(localStorage.getItem("study-tracker-backlog-view")) || {}); } catch (e) { /* ignore */ }
+    const sortSel = document.getElementById("bl-sort");
+    sortSel.append(...this.SORTS.map((s) => h("option", { value: s.id }, "Sort: " + s.label)));
+    sortSel.value = this.SORTS.some((s) => s.id === this.view.sort) ? this.view.sort : "manual";
+    sortSel.addEventListener("change", () => {
+      const s = this.SORTS.find((x) => x.id === sortSel.value);
+      this.view.sort = s.id;
+      this.view.desc = !!s.desc; // sensible default direction per field
+      this.saveView();
+      this.render();
+    });
+    document.getElementById("bl-sort-dir").addEventListener("click", () => { this.view.desc = !this.view.desc; this.saveView(); this.render(); });
+    for (const id of ["bl-type", "bl-platform", "bl-priority"]) document.getElementById(id).addEventListener("change", () => this.render());
+    document.getElementById("bl-clear-filters").addEventListener("click", () => {
+      this.search.value = "";
+      for (const id of ["bl-category", "bl-type", "bl-platform", "bl-priority"]) document.getElementById(id).value = "";
+      this.render();
+    });
+  },
+
+  saveView() {
+    try { localStorage.setItem("study-tracker-backlog-view", JSON.stringify(this.view)); } catch (e) { /* ignore */ }
+  },
+
+  fillFilters() {
+    fillCategoryFilter(this.catFilter);
+    const all = Store.resourceList();
+    const fill = (id, allLabel, options) => {
+      const sel = document.getElementById(id);
+      const prev = sel.value;
+      sel.innerHTML = "";
+      sel.append(h("option", { value: "" }, allLabel), ...options.map(([v, l]) => h("option", { value: v }, l)));
+      sel.value = [...sel.options].some((o) => o.value === prev) ? prev : "";
+      sel.classList.toggle("is-filtering", !!sel.value);
+    };
+    const uniq = (vals) => [...new Set(vals.filter(Boolean))].sort((a, b) => a.localeCompare(b));
+    fill("bl-type", "All types", uniq(all.map((r) => r.type)).map((t) => [t, t]));
+    fill("bl-platform", "All platforms", uniq(all.map((r) => r.platform)).map((p) => [p, p]).concat([["__none", "No platform"]]));
+    fill("bl-priority", "All priorities", Store.priorities().map((p) => [String(p.id), "Priority: " + p.label]));
+    this.catFilter.classList.toggle("is-filtering", !!this.catFilter.value);
+    const active = this.search.value.trim() || ["bl-category", "bl-type", "bl-platform", "bl-priority"].some((id) => document.getElementById(id).value);
+    document.getElementById("bl-clear-filters").hidden = !active;
+    const dir = document.getElementById("bl-sort-dir");
+    dir.hidden = this.view.sort === "manual";
+    dir.textContent = this.view.desc ? "↓ desc" : "↑ asc";
+  },
+
   matches(r) {
     const q = this.search.value.trim().toLowerCase();
     const cat = this.catFilter.value;
+    const type = document.getElementById("bl-type").value;
+    const platform = document.getElementById("bl-platform").value;
+    const prio = document.getElementById("bl-priority").value;
     if (cat && (r.categoryId || "") !== (cat === "__none" ? "" : cat)) return false;
+    if (type && r.type !== type) return false;
+    if (platform && (r.platform || "") !== (platform === "__none" ? "" : platform)) return false;
+    if (prio && Store.priority(r.priority).id !== Number(prio)) return false;
     if (!q) return true;
     const catName = (Store.category(r.categoryId) || {}).name || "";
-    return (r.title + " " + r.notes + " " + r.type + " " + (r.platform || "") + " " + catName).toLowerCase().includes(q);
+    return (r.title + " " + r.notes + " " + r.type + " " + (r.platform || "") + " " + catName + " " + (r.url || "")).toLowerCase().includes(q);
+  },
+
+  sorted(items) {
+    const s = this.SORTS.find((x) => x.id === this.view.sort) || this.SORTS[0];
+    if (s.id === "manual") return items;
+    const dir = this.view.desc ? -1 : 1;
+    const keyed = items.map((r) => ({ r, k: s.get(r) }));
+    keyed.sort((a, b) => {
+      const an = a.k == null, bn = b.k == null;
+      if (an || bn) return an === bn ? (a.r.order || 0) - (b.r.order || 0) : an ? 1 : -1;
+      const c = typeof a.k === "string" ? a.k.localeCompare(b.k) : a.k - b.k;
+      return c ? c * dir : (a.r.order || 0) - (b.r.order || 0);
+    });
+    return keyed.map((x) => x.r);
   },
 
   render() {
-    fillCategoryFilter(this.catFilter);
+    this.fillFilters();
     // Forget selections for cards that no longer exist.
     for (const id of this.selected) if (!Store.state.resources[id]) this.selected.delete(id);
     this.renderBulkBar();
@@ -163,7 +258,7 @@ const Backlog = {
 
     const cols = Store.columns();
     for (const st of cols) {
-      const items = all.filter((r) => Store.column(r.status).id === st.id && this.matches(r));
+      const items = this.sorted(all.filter((r) => Store.column(r.status).id === st.id && this.matches(r)));
       const totalMin = items.reduce((s, r) => s + Store.minutesFor(r.id), 0);
       const list = h("div", { class: "kanban-cards", "data-status": st.id });
       const allSel = items.length && items.every((r) => this.selected.has(r.id));
@@ -262,6 +357,8 @@ const Backlog = {
         const r = s.resources[id];
         if (!r) return;
         if (Store.column(r.status).id !== status) Store.setStatus(r, status);
+        // With a sort active the position is decided by the sort, so only the column changes.
+        if (this.view.sort !== "manual") return;
         const ordered = cards.map((c) => s.resources[c.dataset.id]);
         const idx = after ? ordered.indexOf(s.resources[after.dataset.id]) : ordered.length;
         ordered.splice(idx, 0, r);

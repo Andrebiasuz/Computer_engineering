@@ -183,16 +183,26 @@ const Stats = {
 
   /* ---------- per-resource table ---------- */
 
-  projectFinish(r, mins) {
+  // ISO date at the last 4 weeks' pace, or "" when it can't be projected.
+  projectFinishDate(r, mins) {
     if (Store.isDone(r) || !r.estHours) return "";
     const remaining = r.estHours * 60 - mins;
-    if (remaining <= 0) return "over estimate";
+    if (remaining <= 0) return "";
     const today = todayISO();
     const recent = Store.logsFor(r.id).filter((l) => l.date > addDays(today, -28)).reduce((s, l) => s + l.minutes, 0);
-    if (!recent) return "—";
-    const perDay = recent / 28;
-    return fmtDate(addDays(today, Math.ceil(remaining / perDay)));
+    if (!recent) return "";
+    return addDays(today, Math.ceil(remaining / (recent / 28)));
   },
+
+  projectFinish(r, mins) {
+    if (Store.isDone(r) || !r.estHours) return "";
+    if (r.estHours * 60 - mins <= 0) return "over estimate";
+    const d = this.projectFinishDate(r, mins);
+    return d ? fmtDate(d) : "—";
+  },
+
+  // Stats table sort: click a header; click again to flip direction.
+  tableSort: { key: "mins", desc: true },
 
   table() {
     const el = document.getElementById("st-table");
@@ -201,12 +211,38 @@ const Stats = {
       const mins = Store.minutesFor(r.id);
       const focus = logs.filter((l) => l.focus);
       return { r, logs, mins, avgFocus: focus.length ? focus.reduce((s, l) => s + l.focus, 0) / focus.length : null };
-    }).filter((x) => x.mins || x.logs.length || x.r.estHours || Store.kindOf(x.r.status) !== "todo")
-      .sort((a, b) => b.mins - a.mins);
+    }).filter((x) => x.mins || x.logs.length || x.r.estHours || Store.kindOf(x.r.status) !== "todo");
+
+    const cols = [
+      ["Resource", "title", (x) => x.r.title.toLowerCase()],
+      ["Category", "cat", (x) => ((Store.category(x.r.categoryId) || {}).name || "").toLowerCase() || null],
+      ["Status", "status", (x) => Store.columns().indexOf(Store.column(x.r.status))],
+      ["Est.", "est", (x) => x.r.estHours || null],
+      ["Actual", "mins", (x) => x.mins || null],
+      ["Progress", "pct", (x) => (x.r.estHours ? x.mins / (x.r.estHours * 60) : null)],
+      ["Sessions", "sessions", (x) => Store.sessionsFor(x.r.id) || null],
+      ["Avg focus", "focus", (x) => x.avgFocus],
+      ["Last studied", "last", (x) => (x.logs.length ? x.logs[x.logs.length - 1].date : null)],
+      ["Projected finish", "finish", (x) => { const f = this.projectFinishDate(x.r, x.mins); return f || null; }],
+    ];
+    const sortCol = cols.find((c) => c[1] === this.tableSort.key) || cols[4];
+    const dir = this.tableSort.desc ? -1 : 1;
+    rows.sort((a, b) => {
+      const ak = sortCol[2](a), bk = sortCol[2](b);
+      if (ak == null || bk == null) return ak == null && bk == null ? 0 : ak == null ? 1 : -1;
+      return (typeof ak === "string" ? ak.localeCompare(bk) : ak - bk) * dir;
+    });
 
     el.innerHTML = "";
-    el.append(h("thead", {}, h("tr", {},
-      ["Resource", "Category", "Status", "Est.", "Actual", "Progress", "Sessions", "Avg focus", "Last studied", "Projected finish"].map((t) => h("th", {}, t)))));
+    el.append(h("thead", {}, h("tr", {}, cols.map(([label, key]) => h("th", {
+      class: "sortable" + (key === sortCol[1] ? " sorted" : ""),
+      title: "Sort by " + label,
+      onclick: () => {
+        if (this.tableSort.key === key) this.tableSort.desc = !this.tableSort.desc;
+        else this.tableSort = { key, desc: ["mins", "pct", "sessions", "focus", "last"].includes(key) };
+        this.table();
+      },
+    }, label, key === sortCol[1] ? (this.tableSort.desc ? " ↓" : " ↑") : "")))));
     const body = h("tbody");
     if (!rows.length) body.append(h("tr", {}, h("td", { colspan: 10, class: "muted" }, "Log some study sessions to see this table fill up.")));
     for (const { r, logs, mins, avgFocus } of rows) {

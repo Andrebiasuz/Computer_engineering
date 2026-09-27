@@ -363,6 +363,12 @@ h2 .small { font-weight: 400; }
   margin-bottom: 12px;
 }
 .toolbar input[type="search"] { min-width: 240px; font-family: var(--font-mono); font-size: 12.5px; }
+.toolbar select { max-width: 200px; }
+.toolbar select.is-filtering { border-color: var(--accent); color: var(--accent); }
+.sort-group { display: inline-flex; align-items: center; gap: 4px; }
+.data-table th.sortable { cursor: pointer; user-select: none; }
+.data-table th.sortable:hover { color: var(--text); }
+.data-table th.sorted { color: var(--accent); }
 .toolbar-hint { color: var(--muted); font-size: 12px; margin-left: auto; font-family: var(--font-mono); }
 .empty {
   color: var(--muted);

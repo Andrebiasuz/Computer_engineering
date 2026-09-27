@@ -57,6 +57,16 @@
   <div class="toolbar">
     <input id="bl-search" type="search" placeholder="Search resources…" autocomplete="off">
     <select id="bl-category" aria-label="Filter by category"></select>
+    <select id="bl-type" aria-label="Filter by type"></select>
+    <select id="bl-platform" aria-label="Filter by platform"></select>
+    <select id="bl-priority" aria-label="Filter by priority"></select>
+    <span class="sort-group">
+      <select id="bl-sort" aria-label="Sort cards by"></select>
+      <button id="bl-sort-dir" class="btn btn-ghost btn-small" title="Toggle ascending / descending">↓</button>
+    </span>
+    <button id="bl-clear-filters" class="btn btn-ghost btn-small" hidden>Clear filters</button>
+  </div>
+  <div class="toolbar">
     <button id="bl-add" class="btn btn-primary">+ Add resource</button>
     <button id="bl-manage-cats" class="btn btn-ghost">Categories</button>
     <button id="bl-board-settings" class="btn btn-ghost" title="Add, rename, reorder or remove columns and priority levels">Columns &amp; priorities</button>
