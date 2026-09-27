@@ -40,7 +40,7 @@ const Gantt = {
         r, byDay, logs, ps, pe,
         first: logs.length ? logs[0].date : "",
         last: logs.length ? logs[logs.length - 1].date : "",
-        total: logs.reduce((s, l) => s + l.minutes, 0),
+        total: Store.minutesFor(r.id),
       });
     }
     // Group by category (in category order), then by when the work starts.

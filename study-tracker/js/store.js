@@ -5,6 +5,7 @@
  *
  *   categories: [{ id, name, slot }]          slot = fixed color slot 0..7 (8+ = "other" gray)
  *   resources:  { id: { id, title, type, platform, categoryId, url, estHours, lengthHours, pages, priority,
+ *                        extraMinutes, extraSessions (manual adjustments on top of logged sessions),
  *                        status, plannedStart, plannedEnd, notes, createdAt, doneAt, order } }
  *   logs:       { id: { id, resourceId, date, minutes, note, focus } }
  *   columns:    [{ id, label, kind, color }]  board columns, in order. kind drives behaviour:
@@ -256,8 +257,24 @@ const Store = {
       .sort((a, b) => a.date.localeCompare(b.date));
   },
 
-  minutesFor(resourceId) {
+  loggedMinutesFor(resourceId) {
     return this.logsFor(resourceId).reduce((s, l) => s + (l.minutes || 0), 0);
+  },
+
+  // Totals include the manual adjustment set in the resource editor (time
+  // studied before tracking, or outside the app). Daily charts use logs only.
+  minutesFor(resourceId) {
+    const r = this.state.resources[resourceId];
+    return Math.max(0, this.loggedMinutesFor(resourceId) + ((r && r.extraMinutes) || 0));
+  },
+
+  sessionsFor(resourceId) {
+    const r = this.state.resources[resourceId];
+    return Math.max(0, this.logsFor(resourceId).length + ((r && r.extraSessions) || 0));
+  },
+
+  extraMinutesTotal() {
+    return Object.values(this.state.resources).reduce((s, r) => s + (r.extraMinutes || 0), 0);
   },
 
   minutesByDate() {

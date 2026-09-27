@@ -37,7 +37,7 @@ const Stats = {
     const wk = startOfWeek(today);
     const thisWeek = this.sumRange(wk, today);
     const lastWeekSameDays = this.sumRange(addDays(wk, -7), addDays(today, -7));
-    const total = Store.logList().reduce((s, l) => s + l.minutes, 0);
+    const total = Store.logList().reduce((s, l) => s + l.minutes, 0) + Store.extraMinutesTotal();
     const last30 = this.sumRange(addDays(today, -29), today);
     const studyDays30 = Object.entries(Store.minutesByDate()).filter(([d]) => d >= addDays(today, -29)).length;
     const { current, best } = this.streaks();
@@ -60,7 +60,7 @@ const Stats = {
         delta > 0 ? "good" : delta < 0 ? "bad" : ""),
       tile("Streak", current + (current === 1 ? " day" : " days"), "best: " + best + " days"),
       tile("Last 30 days", fmtHours(last30), studyDays30 + " study days · avg " + fmtMinutes(studyDays30 ? last30 / studyDays30 : 0) + "/day"),
-      tile("All time", fmtHours(total), Store.logList().length + " sessions"),
+      tile("All time", fmtHours(total), Store.resourceList().reduce((s, r) => s + Store.sessionsFor(r.id), 0) + " sessions"),
       tile("Finished", done + " / " + res.length, "resources"));
   },
 
@@ -136,7 +136,10 @@ const Stats = {
       const key = (r && r.categoryId) || "";
       totals[key] = (totals[key] || 0) + l.minutes;
     }
-    const rows = Object.entries(totals).sort((a, b) => b[1] - a[1]);
+    for (const r of Store.resourceList()) {
+      if (r.extraMinutes) totals[r.categoryId || ""] = (totals[r.categoryId || ""] || 0) + r.extraMinutes;
+    }
+    const rows = Object.entries(totals).filter(([, v]) => v > 0).sort((a, b) => b[1] - a[1]);
     el.innerHTML = "";
     if (!rows.length) { el.append(h("p", { class: "muted" }, "No sessions logged yet.")); return; }
     const max = rows[0][1];
@@ -198,10 +201,10 @@ const Stats = {
     const el = document.getElementById("st-table");
     const rows = Store.resourceList().map((r) => {
       const logs = Store.logsFor(r.id);
-      const mins = logs.reduce((s, l) => s + l.minutes, 0);
+      const mins = Store.minutesFor(r.id);
       const focus = logs.filter((l) => l.focus);
       return { r, logs, mins, avgFocus: focus.length ? focus.reduce((s, l) => s + l.focus, 0) / focus.length : null };
-    }).filter((x) => x.logs.length || x.r.estHours || Store.kindOf(x.r.status) !== "todo")
+    }).filter((x) => x.mins || x.logs.length || x.r.estHours || Store.kindOf(x.r.status) !== "todo")
       .sort((a, b) => b.mins - a.mins);
 
     el.innerHTML = "";
@@ -219,7 +222,7 @@ const Stats = {
         h("td", { class: "num" }, r.estHours ? r.estHours + "h" : "—"),
         h("td", { class: "num" }, fmtMinutes(mins)),
         h("td", { class: "num" }, pct == null ? "—" : pct + "%"),
-        h("td", { class: "num" }, logs.length),
+        h("td", { class: "num" }, Store.sessionsFor(r.id)),
         h("td", { class: "num" }, avgFocus == null ? "—" : avgFocus.toFixed(1)),
         h("td", {}, logs.length ? fmtDate(logs[logs.length - 1].date) : "—"),
         h("td", {}, this.projectFinish(r, mins)));

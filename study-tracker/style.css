@@ -702,7 +702,10 @@ h2 .small { font-weight: 400; }
 .field input, .field select { width: 100%; }
 .field-label { font-family: var(--font-mono); font-size: 11px; text-transform: uppercase; letter-spacing: 0.06em; color: var(--muted); }
 .field-hint { font-size: 11px; color: var(--tok-comment); }
-.form-row { display: flex; gap: 10px; flex-wrap: wrap; align-items: flex-end; }
+/* Top-align so a hint under one field never pushes its neighbours out of line. */
+.form-row { display: flex; gap: 10px; flex-wrap: wrap; align-items: flex-start; }
+.form-row > .check { align-self: flex-end; }
+.form-note { margin: -6px 0 0; }
 .form-row > .field { min-width: 120px; }
 .form-actions { display: flex; justify-content: space-between; margin-top: 4px; }
 .check { display: flex; align-items: center; gap: 6px; padding-bottom: 8px; }

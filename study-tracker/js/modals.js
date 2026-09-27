@@ -76,25 +76,27 @@ function openResourceEditor(resourceId) {
     cat.value = id;
   });
 
-  let stats = null;
-  if (existing) {
-    const mins = Store.minutesFor(r.id);
-    const logs = Store.logsFor(r.id);
-    stats = h("div", { class: "resource-stats" },
-      h("span", {}, h("strong", {}, fmtMinutes(mins)), " studied"),
-      h("span", {}, h("strong", {}, logs.length), " sessions"),
-      logs.length ? h("span", {}, "first ", h("strong", {}, fmtShortDate(logs[0].date)),
-        " · last ", h("strong", {}, fmtShortDate(logs[logs.length - 1].date))) : null);
-  }
+  // Studied time / sessions: logged sessions plus a manual adjustment.
+  const logs = existing ? Store.logsFor(r.id) : [];
+  const loggedMin = logs.reduce((s, l) => s + l.minutes, 0);
+  const initHours = String(Math.round((loggedMin + (r.extraMinutes || 0)) / 60 * 100) / 100);
+  const initSessions = String(logs.length + (r.extraSessions || 0));
+  const studied = h("input", { name: "studiedHours", type: "number", min: "0", step: "0.25", value: initHours });
+  const sessions = h("input", { name: "sessions", type: "number", min: "0", step: "1", value: initSessions });
+  const loggedHint = logs.length
+    ? `${fmtMinutes(loggedMin)} in ${logs.length} logged session${logs.length === 1 ? "" : "s"} (${fmtShortDate(logs[0].date)} – ${fmtShortDate(logs[logs.length - 1].date)}); the rest is a manual adjustment`
+    : "Nothing logged yet; set time you studied before tracking";
 
   const form = h("form", { class: "form" },
     h("h2", {}, existing ? "Edit resource" : "Add resource"),
-    stats,
     field("Title", title),
     h("div", { class: "form-row" }, field("Type", type), field("Category", cat), field("Priority", priority)),
     h("div", { class: "form-row" }, field("Status", status), field("Platform", platform), platformList),
-    h("div", { class: "form-row" }, field("Study estimate (h)", est, "Used for progress"), field("Course length (h)", lengthH), field("Pages", pages)),
-    h("div", { class: "form-row" }, field("Planned start", ps), field("Planned end", pe, "Drawn as the plan bar on the Gantt")),
+    h("div", { class: "form-row" }, field("Hours studied", studied), field("Sessions", sessions), field("Study estimate (h)", est)),
+    h("p", { class: "field-hint form-note" }, loggedHint + ". The estimate drives the progress bar."),
+    h("div", { class: "form-row" }, field("Course length (h)", lengthH), field("Pages", pages)),
+    h("div", { class: "form-row" }, field("Planned start", ps), field("Planned end", pe)),
+    h("p", { class: "field-hint form-note" }, "Planned dates are drawn as the plan bar on the Gantt."),
     field("Link", url),
     field("Notes", notes),
     h("div", { class: "form-actions" },
@@ -128,6 +130,13 @@ function openResourceEditor(resourceId) {
       plannedEnd: fd.get("plannedEnd"),
       notes: fd.get("notes"),
     };
+    // Only touch the adjustments if the user changed the numbers (avoids rounding drift).
+    if (fd.get("studiedHours") !== initHours) {
+      next.extraMinutes = Math.round((Number(fd.get("studiedHours")) || 0) * 60) - loggedMin;
+    }
+    if (fd.get("sessions") !== initSessions) {
+      next.extraSessions = Math.round(Number(fd.get("sessions")) || 0) - logs.length;
+    }
     const newStatus = next.status;
     delete next.status;
     Store.commit((s) => {
