@@ -69,10 +69,23 @@ Then run `systemctl --user enable --now study-tracker`.
 
 Live at https://andrebiasuz.github.io/Computer_engineering/study-tracker/
 
-Pages only serves static files, so the app runs in "this browser only" mode:
-each device/browser keeps its own data in `localStorage`. Nothing you log is
-uploaded to GitHub. Move data between devices with **Data ▸ Export** /
-**Restore backup**.
+Pages only serves static files, so by default each browser keeps its own data
+in `localStorage`, and another machine starts empty. To share one data set:
+
+1. Create a GitHub token with **only the `gist` scope**:
+   <https://github.com/settings/tokens/new?scopes=gist&description=Study%20Tracker%20sync>
+2. In the app, open **Data ▾ → Sync across machines (GitHub)…** (or click
+   "this browser only" in the status bar), paste the token and connect. The
+   first browser uploads its data to a new **secret gist**
+   (`study-tracker-data.json`).
+3. On each other machine, do the same with a token for the same account. It
+   finds the gist and loads your data.
+
+Changes upload about 1.5 s after you make them. Other machines pick them up
+on load and whenever you switch back to the tab. If two machines edit at the
+same moment, the latest save wins. The token is stored only in that
+browser and is sent only to `api.github.com`. A secret gist is unlisted but
+readable by anyone who has its link, so keep confidential notes out of it.
 
 To (re)configure: repo **Settings ▸ Pages ▸ Build and deployment**, Source
 "Deploy from a branch", pick the branch that has `study-tracker/` and the

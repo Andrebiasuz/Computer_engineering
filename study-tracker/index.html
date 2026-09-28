@@ -30,6 +30,8 @@
     <details class="menu">
       <summary class="btn btn-ghost btn-small">Data ▾</summary>
       <div class="menu-panel">
+        <button id="sync-btn" class="menu-item">Sync across machines (GitHub)…</button>
+        <hr>
         <button id="bulk-import-btn" class="menu-item">Import backlog (paste from Excel / CSV)…</button>
         <button id="export-json-btn" class="menu-item">Export full backup (.json)</button>
         <label class="menu-item">Restore backup (.json)…
@@ -175,6 +177,7 @@
 
 <script src="js/util.js"></script>
 <script src="js/store.js"></script>
+<script src="js/sync.js"></script>
 <script src="js/modals.js"></script>
 <script src="js/backlog.js"></script>
 <script src="js/logger.js"></script>

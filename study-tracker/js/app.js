@@ -7,6 +7,7 @@ const App = {
 
   async init() {
     await Store.load();
+    await Sync.init();
 
     Backlog.init();
     Logger.init();
@@ -14,6 +15,8 @@ const App = {
     Timer.init();
 
     document.getElementById("bulk-import-btn").addEventListener("click", () => { this.closeMenu(); openImporter(); });
+    document.getElementById("sync-btn").addEventListener("click", () => { this.closeMenu(); openSyncDialog(); });
+    document.getElementById("sync-status").addEventListener("click", () => { if (Store.mode !== "server") openSyncDialog(); });
     document.getElementById("export-json-btn").addEventListener("click", () => { this.closeMenu(); exportJSON(); });
     document.getElementById("export-csv-btn").addEventListener("click", () => { this.closeMenu(); exportLogCSV(); });
     document.getElementById("import-json-input").addEventListener("change", (e) => {
@@ -93,14 +96,21 @@ const App = {
 
   renderSyncStatus() {
     const el = document.getElementById("sync-status");
+    if (Store.mode !== "server" && Sync.status !== "off") {
+      const label = { syncing: "● syncing…", ok: "● synced to GitHub", error: "● sync error" }[Sync.status];
+      el.textContent = label;
+      el.className = "sb-item " + (Sync.status === "error" ? "bad" : Sync.status === "ok" ? "good" : "");
+      el.title = Sync.status === "error" ? Sync.error + " (click to fix)" : "Data is shared across machines through a secret gist (click for details)";
+      return;
+    }
     if (Store.mode === "server") {
       el.textContent = Store.serverError ? "● not saved" : "● saved to server";
       el.className = "sb-item " + (Store.serverError ? "bad" : "good");
       el.title = Store.serverError ? "Could not reach server.py — changes are kept in this browser and will be sent on the next change." : "Data is stored in data/study-data.json on the server";
     } else {
-      el.textContent = "● this browser only";
+      el.textContent = "● this browser only · set up sync";
       el.className = "sb-item";
-      el.title = "Running without server.py: data lives in this browser's localStorage. Use Data ▸ Export to back it up.";
+      el.title = "Data lives only in this browser. Click to sync it across machines via GitHub.";
     }
   },
 };

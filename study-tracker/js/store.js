@@ -12,6 +12,7 @@
  *               todo (not started) | doing (in progress) | hold (paused) | done (finished)
  *   priorities: [{ id, label, color }]        highest first; resource.priority holds an id
  *   settings:   { dailyGoal, theme, uiVersion }
+ *   meta:       { updatedAt }  ISO time of the last change (used by cloud sync)
  *
  * Persistence: always cached in localStorage. When the page is served by
  * server.py, the JSON file on the server is the source of truth.
@@ -94,6 +95,7 @@ function normalizeState(s) {
     priorities: Array.isArray(s.priorities) && s.priorities.length ? s.priorities : base.priorities,
     resources: s.resources && typeof s.resources === "object" ? s.resources : {},
     logs: s.logs && typeof s.logs === "object" ? s.logs : {},
+    meta: s.meta && typeof s.meta === "object" ? s.meta : { updatedAt: "" },
   };
 }
 
@@ -147,7 +149,7 @@ const Store = {
 
   save(immediate) {
     this.cacheLocally();
-    if (this.mode !== "server") return;
+    if (this.mode !== "server") { Sync.schedulePush(); return; }
     clearTimeout(this.saveTimer);
     const push = async () => {
       try {
@@ -168,14 +170,18 @@ const Store = {
 
   subscribe(fn) { this.listeners.push(fn); },
 
+  touch() { this.state.meta = { updatedAt: new Date().toISOString() }; },
+
   commit(mutator) {
     mutator(this.state);
+    this.touch();
     this.save();
     this.listeners.forEach((fn) => fn());
   },
 
   replaceAll(newState) {
     this.state = normalizeState(newState);
+    this.touch();
     this.save(true);
     this.listeners.forEach((fn) => fn());
   },
