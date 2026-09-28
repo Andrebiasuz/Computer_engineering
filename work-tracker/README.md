@@ -22,7 +22,10 @@ study tracker:
 - **Local only by default.** The server listens on `127.0.0.1`, so only this
   computer can open it. It prints a warning if you bind it to anything else.
 - The data folder can't be downloaded through the web server, including with
-  `../` path tricks.
+  `../` or URL-encoded path tricks, or through `HEAD` requests.
+- It refuses requests made under a hostname it doesn't know, so a malicious
+  website can't use your browser to read or overwrite your data (DNS
+  rebinding). See `--allow-host` below.
 
 Keep backups on company-approved storage (e.g. your work laptop's encrypted
 disk or the company's file share), not in personal cloud drives.
@@ -64,6 +67,13 @@ file somewhere else, e.g. an encrypted folder.
 The server has **no authentication**, so leave `--host` at its default. Only
 use `--host 0.0.0.0` if your company allows it, on a trusted network, ideally
 behind a reverse proxy with login (or over the company VPN).
+
+The app only answers when it's opened by IP address or as `localhost`, which
+stops a malicious website from reaching it through your browser (DNS
+rebinding). To open it by a name instead (this machine's hostname, or a
+reverse proxy's domain), allow that name explicitly, e.g.
+`python3 server.py --allow-host mypc.local`. Otherwise you'll get
+"403 Host not allowed".
 
 To run it as a service on Linux, create `~/.config/systemd/user/work-tracker.service`:
 
