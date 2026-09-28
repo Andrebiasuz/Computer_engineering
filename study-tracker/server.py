@@ -17,6 +17,7 @@ API
 """
 
 import argparse
+import ipaddress
 import json
 import os
 import shutil
@@ -29,18 +30,27 @@ from http.server import SimpleHTTPRequestHandler, ThreadingHTTPServer
 APP_DIR = os.path.dirname(os.path.abspath(__file__))
 MAX_BODY = 20 * 1024 * 1024  # 20 MB is far more than a study log will ever need
 BACKUPS_KEPT = 14
+CSP = ("default-src 'self'; script-src 'self'; "
+       "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' https://fonts.gstatic.com; "
+       "img-src 'self' data: blob:; connect-src 'self' https://api.github.com https://gist.githubusercontent.com; "
+       "form-action 'none'; frame-ancestors 'none'; base-uri 'none'; object-src 'none'")
 
 _lock = threading.Lock()
 
 
 class Handler(SimpleHTTPRequestHandler):
     data_path = ""
+    allowed_hosts = set()
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, directory=APP_DIR, **kwargs)
 
     def end_headers(self):
         self.send_header("Cache-Control", "no-store")
+        # Only the origins the app really needs may be contacted.
+        self.send_header("Content-Security-Policy", CSP)
+        self.send_header("X-Content-Type-Options", "nosniff")
+        self.send_header("Referrer-Policy", "no-referrer")
         super().end_headers()
 
     def _send_json(self, code, payload):
@@ -51,7 +61,54 @@ class Handler(SimpleHTTPRequestHandler):
         self.end_headers()
         self.wfile.write(body)
 
+    def _host_allowed(self):
+        """Block DNS rebinding: a hostile web page that points its own domain
+        at this server so the browser lets it read /api/state. The browser
+        always sends the name it used in the Host header, so only accept IP
+        addresses, localhost and names passed with --allow-host."""
+        host = (self.headers.get("Host") or "").strip().lower()
+        if host.startswith("["):  # [::1]:8080
+            name = host[1:host.find("]")] if "]" in host else ""
+        else:
+            name = host.rsplit(":", 1)[0] if host.count(":") == 1 else host
+        if not name:
+            return False
+        if name == "localhost" or name in self.allowed_hosts:
+            return True
+        try:
+            ipaddress.ip_address(name)
+            return True
+        except ValueError:
+            return False
+
+    def _reject_bad_host(self):
+        if self._host_allowed():
+            return False
+        self.send_error(403, "Host not allowed (see --allow-host)")
+        return True
+
+    def send_head(self):
+        # Shared by GET and HEAD for static files. Never serve anything in the
+        # data folder, however the path is spelled ("/js/../data/...",
+        # "/%64ata/...", symlinks), by checking where it really resolves.
+        target = os.path.realpath(self.translate_path(self.path))
+        data_dir = os.path.realpath(os.path.dirname(self.data_path))
+        blocked = [os.path.realpath(self.data_path), os.path.join(data_dir, "backups")]
+        if data_dir != os.path.realpath(APP_DIR):
+            blocked.append(data_dir)
+        if any(target == b or target.startswith(b + os.sep) for b in blocked):
+            self.send_error(404)
+            return None
+        return super().send_head()
+
+    def do_HEAD(self):
+        if self._reject_bad_host():
+            return
+        super().do_HEAD()
+
     def do_GET(self):
+        if self._reject_bad_host():
+            return
         if self.path.split("?")[0] == "/api/state":
             with _lock:
                 if not os.path.exists(self.data_path):
@@ -65,13 +122,11 @@ class Handler(SimpleHTTPRequestHandler):
             self.end_headers()
             self.wfile.write(body)
             return
-        # Never serve the data folder as a static file.
-        if self.path.startswith("/data/"):
-            self.send_error(404)
-            return
         super().do_GET()
 
     def do_PUT(self):
+        if self._reject_bad_host():
+            return
         if self.path.split("?")[0] != "/api/state":
             self.send_error(404)
             return
@@ -118,11 +173,16 @@ def main():
                         help="use 0.0.0.0 to reach it from other devices on your LAN")
     parser.add_argument("--port", type=int, default=8080)
     parser.add_argument("--data", default=os.path.join(APP_DIR, "data", "study-data.json"))
+    parser.add_argument("--allow-host", action="append", default=[], metavar="NAME",
+                        help="extra hostname the app may be opened under, e.g. this machine's "
+                             "name or a reverse proxy's domain (repeatable); IP addresses and "
+                             "localhost always work")
     parser.add_argument("--no-browser", action="store_true",
                         help="don't open the app in a browser on startup")
     args = parser.parse_args()
 
     Handler.data_path = os.path.abspath(args.data)
+    Handler.allowed_hosts = {h.strip().lower() for h in args.allow_host if h.strip()}
     server = ThreadingHTTPServer((args.host, args.port), Handler)
     print(f"Study Tracker running on http://{args.host}:{args.port}")
     print(f"Data file: {Handler.data_path}")

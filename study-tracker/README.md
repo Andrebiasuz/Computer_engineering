@@ -48,6 +48,17 @@ The server has **no authentication**. Keep it on your home network, or put it
 behind a reverse proxy with auth (Caddy, nginx + basic auth, or Tailscale) if
 you want to reach it from outside.
 
+The app only answers when it's opened by IP address or as `localhost`, which
+stops a malicious website from reaching it through your browser (DNS
+rebinding). To open it by a name instead (this machine's hostname, or a
+reverse proxy's domain), allow that name explicitly, e.g.
+`python3 server.py --allow-host mypc.local`. Otherwise you'll get
+"403 Host not allowed".
+
+The server also never serves the `data/` folder, however the path is written
+(`/js/../data/...` included), and sends a Content-Security-Policy that only
+lets the page contact itself, Google Fonts and the GitHub API used by sync.
+
 To run it as a service on Linux, create `~/.config/systemd/user/study-tracker.service`:
 
 ```ini
