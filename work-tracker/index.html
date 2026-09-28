@@ -1,0 +1,184 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="dark">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Work Tracker</title>
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+
+<header id="app-header">
+  <div class="brand"><span class="brand-mark">{&thinsp;}</span> work<span class="brand-dot">.</span>tracker</div>
+  <nav id="tabs" class="tabs" aria-label="Pages">
+    <a href="#backlog" data-page="backlog"><span class="tab-icon ic-backlog">≡</span>backlog</a>
+    <a href="#logger" data-page="logger"><span class="tab-icon ic-logger">◷</span>daily.log</a>
+    <a href="#gantt" data-page="gantt"><span class="tab-icon ic-gantt">▤</span>gantt</a>
+    <a href="#stats" data-page="stats"><span class="tab-icon ic-stats">Σ</span>stats</a>
+  </nav>
+  <div class="header-right">
+    <div id="timer" class="timer" title="Drop a task here, or pick one, then start">
+      <select id="timer-resource" aria-label="Task to time"></select>
+      <span id="timer-display" class="timer-display">00:00</span>
+      <button id="timer-start" class="btn btn-primary btn-small">Start</button>
+      <button id="timer-pomo" class="btn btn-ghost btn-small" title="25-minute focus countdown">25m</button>
+      <button id="timer-stop" class="btn btn-ghost btn-small" disabled title="Stop and log the time">Log</button>
+    </div>
+    <details class="menu">
+      <summary class="btn btn-ghost btn-small">Data ▾</summary>
+      <div class="menu-panel">
+        <button id="bulk-import-btn" class="menu-item">Import backlog (paste from Excel / CSV)…</button>
+        <button id="export-json-btn" class="menu-item">Export full backup (.json)</button>
+        <label class="menu-item">Restore backup (.json)…
+          <input id="import-json-input" type="file" accept="application/json,.json" hidden>
+        </label>
+        <button id="export-csv-btn" class="menu-item">Export work log (.csv)</button>
+        <hr>
+        <label class="menu-item menu-inline">Daily goal
+          <input id="goal-input" type="number" min="0" step="5"> min
+        </label>
+        <label class="menu-item menu-inline">Theme
+          <select id="theme-select">
+            <option value="dark">Dark</option>
+            <option value="light">Light</option>
+            <option value="auto">Follow system</option>
+          </select>
+        </label>
+      </div>
+    </details>
+  </div>
+</header>
+
+<!-- ============ BACKLOG ============ -->
+<main id="page-backlog" class="page" hidden>
+  <div class="toolbar">
+    <input id="bl-search" type="search" placeholder="Search tasks…" autocomplete="off">
+    <select id="bl-category" aria-label="Filter by category"></select>
+    <select id="bl-type" aria-label="Filter by type"></select>
+    <select id="bl-platform" aria-label="Filter by platform"></select>
+    <select id="bl-priority" aria-label="Filter by priority"></select>
+    <span class="sort-group">
+      <select id="bl-sort" aria-label="Sort cards by"></select>
+      <button id="bl-sort-dir" class="btn btn-ghost btn-small" title="Toggle ascending / descending">↓</button>
+    </span>
+    <button id="bl-clear-filters" class="btn btn-ghost btn-small" hidden>Clear filters</button>
+  </div>
+  <div class="toolbar">
+    <button id="bl-add" class="btn btn-primary">+ Add task</button>
+    <button id="bl-manage-cats" class="btn btn-ghost">Categories</button>
+    <button id="bl-board-settings" class="btn btn-ghost" title="Add, rename, reorder or remove columns and priority levels">Columns &amp; priorities</button>
+    <button id="bl-select" class="btn btn-ghost" title="Select several cards (or Ctrl/Cmd+click a card)">Select</button>
+    <span class="toolbar-hint">Drag cards between columns · Ctrl/Cmd+click to multi-select</span>
+  </div>
+  <div id="bl-bulk" class="bulk-bar" hidden>
+    <strong id="bl-bulk-count">0 selected</strong>
+    <button id="bl-bulk-all" class="btn btn-ghost btn-small">Select all shown</button>
+    <button id="bl-bulk-none" class="btn btn-ghost btn-small">Clear</button>
+    <span class="bulk-sep"></span>
+    <select id="bl-bulk-status" aria-label="Move selected to status"></select>
+    <select id="bl-bulk-category" aria-label="Set category of selected"></select>
+    <select id="bl-bulk-priority" aria-label="Set priority of selected"></select>
+    <button id="bl-bulk-delete" class="btn btn-danger btn-small">Delete selected</button>
+    <button id="bl-bulk-done" class="btn btn-ghost btn-small" title="Exit selection (Esc)">Done</button>
+  </div>
+  <div id="bl-board" class="kanban"></div>
+</main>
+
+<!-- ============ DAILY LOG ============ -->
+<main id="page-logger" class="page page-logger" hidden>
+  <aside class="sidebar">
+    <div class="sidebar-head">
+      <strong>Backlog</strong>
+      <span class="muted small">drag onto a day</span>
+    </div>
+    <input id="lg-search" type="search" placeholder="Filter…" autocomplete="off">
+    <label class="small muted"><input id="lg-show-done" type="checkbox"> show finished</label>
+    <div id="lg-resources" class="sidebar-list"></div>
+  </aside>
+  <section class="logger-main">
+    <div class="toolbar">
+      <button id="lg-prev" class="btn btn-ghost" aria-label="Previous week">‹</button>
+      <button id="lg-today" class="btn btn-ghost">This week</button>
+      <button id="lg-next" class="btn btn-ghost" aria-label="Next week">›</button>
+      <strong id="lg-range"></strong>
+      <span id="lg-week-total" class="muted"></span>
+    </div>
+    <div id="lg-week" class="week-grid"></div>
+  </section>
+</main>
+
+<!-- ============ GANTT ============ -->
+<main id="page-gantt" class="page" hidden>
+  <div class="toolbar">
+    <select id="gt-range" aria-label="Time range">
+      <option value="30">Last 30 days + plan</option>
+      <option value="90" selected>Last 90 days + plan</option>
+      <option value="365">Last year + plan</option>
+      <option value="all">Everything</option>
+    </select>
+    <select id="gt-zoom" aria-label="Zoom">
+      <option value="10">Compact</option>
+      <option value="18" selected>Normal</option>
+      <option value="30">Wide</option>
+    </select>
+    <select id="gt-category" aria-label="Filter by category"></select>
+    <label class="small"><input id="gt-show-planned" type="checkbox" checked> planned dates</label>
+    <label class="small"><input id="gt-hide-done" type="checkbox"> hide finished</label>
+  </div>
+  <div id="gt-legend" class="legend"></div>
+  <div id="gt-chart" class="gantt"></div>
+</main>
+
+<!-- ============ STATS ============ -->
+<main id="page-stats" class="page" hidden>
+  <div id="st-tiles" class="tiles"></div>
+  <section class="panel">
+    <h2>Minutes per day <span class="muted small">last 30 days · dashed line = daily goal</span></h2>
+    <div id="st-daily" class="chart-box"></div>
+  </section>
+  <div class="panel-row">
+    <section class="panel">
+      <h2>Hours by category</h2>
+      <div id="st-cats"></div>
+    </section>
+    <section class="panel">
+      <h2>Consistency <span class="muted small">last 26 weeks</span></h2>
+      <div id="st-heatmap"></div>
+    </section>
+  </div>
+  <section class="panel">
+    <h2>Tasks <span class="muted small">estimated vs actual</span></h2>
+    <div class="table-wrap"><table id="st-table" class="data-table"></table></div>
+  </section>
+</main>
+
+<!-- ============ MODALS ============ -->
+<div id="modal-overlay" class="modal-overlay" hidden>
+  <div id="modal" class="modal" role="dialog" aria-modal="true"></div>
+</div>
+
+<footer id="status-bar" class="status-bar" aria-label="Status">
+  <span id="sync-status" class="sb-item" title="Where your data is saved"></span>
+  <span id="sb-timer" class="sb-item" hidden></span>
+  <span class="sb-spacer"></span>
+  <span id="sb-today" class="sb-item"></span>
+  <span id="sb-week" class="sb-item"></span>
+  <span id="sb-streak" class="sb-item"></span>
+  <span id="sb-count" class="sb-item"></span>
+</footer>
+
+<div id="tooltip" class="tooltip" hidden></div>
+<div id="toast" class="toast" hidden></div>
+
+<script src="js/util.js"></script>
+<script src="js/store.js"></script>
+<script src="js/modals.js"></script>
+<script src="js/backlog.js"></script>
+<script src="js/logger.js"></script>
+<script src="js/timer.js"></script>
+<script src="js/gantt.js"></script>
+<script src="js/stats.js"></script>
+<script src="js/importer.js"></script>
+<script src="js/app.js"></script>
+</body>
+</html>
