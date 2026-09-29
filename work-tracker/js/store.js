@@ -228,6 +228,9 @@ const Store = {
 
   isDone(r) { return this.kindOf(r.status) === "done"; },
 
+  // Moving a card into a Paused (on hold) or Done (finished) column asks for the work done.
+  asksForWork(statusId) { const k = this.kindOf(statusId); return k === "hold" || k === "done"; },
+
   firstColumnOfKind(kind) { const c = this.state.columns.find((x) => x.kind === kind); return c ? c.id : null; },
 
   /* ---------- priorities ---------- */

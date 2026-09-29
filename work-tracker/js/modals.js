@@ -157,10 +157,10 @@ function openResourceEditor(resourceId) {
     const date = fd.get("workDate") || todayISO();
     const newStatus = next.status;
     delete next.status;
-    // Moving an existing task to another column asks how much work was done,
-    // unless the hours were just entered here.
+    // Moving an existing task to a Paused/Done column asks how much work was
+    // done, unless the hours were just entered here.
     const columnChanged = existing && Store.column(r.status).id !== newStatus;
-    const askOnMove = columnChanged && !hoursChanged && !sessionsChanged;
+    const askOnMove = columnChanged && Store.asksForWork(newStatus) && !hoursChanged && !sessionsChanged;
     Store.commit((s) => {
       s.resources[r.id] = Object.assign(r, next);
       Store.setStatusNote(r, fd.get("statusNote"));
@@ -252,10 +252,20 @@ function taskLog(resourceId, canLeave) {
 
 /* ---------- moving cards between columns ---------- */
 
-// Moves tasks to a column, asking for each one how much work was done.
-// `extra(state, resource)` runs inside the same commit (e.g. reordering).
+// Moves tasks to a column. Moving into a Paused (on hold) or Done (finished)
+// column asks, for each task, how much work was done; other columns move
+// straight away. `extra(state, resource)` runs inside the same commit
+// (e.g. reordering).
 function moveWithPrompt(ids, toStatus, extra, done) {
   const queue = ids.filter((id) => Store.state.resources[id] && Store.column(Store.state.resources[id].status).id !== toStatus);
+  if (!Store.asksForWork(toStatus)) {
+    Store.commit((s) => queue.forEach((id) => {
+      Store.setStatus(s.resources[id], toStatus);
+      if (extra) extra(s, s.resources[id]);
+    }));
+    if (done) done(queue.length, queue.length);
+    return;
+  }
   let i = 0, moved = 0;
   const next = () => {
     if (i >= queue.length) { if (done) done(moved, queue.length); return; }

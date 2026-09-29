@@ -41,13 +41,15 @@ disk or the company's file share), not in personal cloud drives.
 
 Work-tracker additions:
 
-- **Asked on every column change**: dragging a card to another column, using
-  the bulk **Move to…**, or changing **Column** in the editor opens a dialog
+- **Asked when pausing or finishing**: moving a card into **Paused** or
+  **Done** (any column whose behavior is *On hold* or *Finished*), by
+  dragging, the bulk **Move to…**, or the editor's **Column**, opens a dialog
   asking how many hours you worked since the last update, in how many
   sessions, on which date, with an optional note. You can update the status
   text there too. Leave the hours empty to just move the card. **Cancel**
   (or Esc) leaves the card where it was. Moving several cards asks for each
-  one in turn. Reordering cards inside a column doesn't ask.
+  one in turn. Moves to other columns (Backlog, In progress) happen straight
+  away, and are still recorded in the card's work log.
 - **Work log on each card**: the task editor lists every session day by day
   (hours, focus, note), together with the card's column moves and status
   updates. Click a session to edit it, or **+ Log session** to add one.
