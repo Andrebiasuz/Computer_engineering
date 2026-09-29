@@ -6,7 +6,9 @@
  *   categories: [{ id, name, slot }]          slot = fixed color slot 0..7 (8+ = "other" gray)
  *   resources:  { id: { id, title, type, platform, categoryId, url, estHours, lengthHours, pages, priority,
  *                        extraSessions (sessions counted without time; hours are always real logs),
- *                        status, plannedStart, plannedEnd, notes, createdAt, doneAt, order } }
+ *                        status, plannedStart, plannedEnd, notes, createdAt, doneAt, order,
+ *                        statusNote, statusUpdatedAt (free-text "where this stands", shown on the card),
+ *                        history: [{ at, date, kind: "move", from, to } | { at, date, kind: "status", text }] } }
  *   logs:       { id: { id, resourceId, date, minutes, note, focus } }
  *   columns:    [{ id, label, kind, color }]  board columns, in order. kind drives behaviour:
  *               todo (not started) | doing (in progress) | hold (paused) | done (finished)
@@ -243,12 +245,37 @@ const Store = {
   defaultPriority() { const ps = this.state.priorities; return ps[Math.floor((ps.length - 1) / 2)].id; },
 
   // Moves a resource to another column, stamping/clearing the finish date.
-  setStatus(r, statusId) {
+  // Column changes are kept in the task's history unless record === false.
+  setStatus(r, statusId, record) {
     const wasDone = this.isDone(r);
+    const from = this.column(r.status), to = this.column(statusId);
+    if (record !== false && from.id !== to.id) this.addHistory(r, { kind: "move", from: from.label, to: to.label });
     r.status = statusId;
     const isDone = this.isDone(r);
     if (isDone && !wasDone) r.doneAt = todayISO();
     if (!isDone) r.doneAt = "";
+  },
+
+  addHistory(r, entry) {
+    if (!Array.isArray(r.history)) r.history = [];
+    r.history.push(Object.assign({ at: new Date().toISOString(), date: todayISO() }, entry));
+  },
+
+  // Free-text status shown on the card. Each change is kept in the history.
+  setStatusNote(r, text) {
+    text = String(text || "").trim();
+    if (text === (r.statusNote || "")) return;
+    r.statusNote = text;
+    r.statusUpdatedAt = todayISO();
+    this.addHistory(r, { kind: "status", text });
+  },
+
+  // Logs time reported for a task as `sessions` sessions on `date`.
+  // keepStatus stops a To-do task from being moved to In progress.
+  logWork(state, resourceId, minutes, sessions, date, note, keepStatus) {
+    if (!(minutes > 0)) return;
+    const n = Math.max(1, Math.min(Math.round(sessions) || 1, minutes));
+    splitMinutes(minutes, n).forEach((m) => this.addLog(state, { resourceId, date, minutes: m, note: note || "" }, keepStatus));
   },
 
   /* ---------- resources ---------- */
@@ -274,6 +301,9 @@ const Store = {
       plannedStart: "",
       plannedEnd: "",
       notes: "",
+      statusNote: "",
+      statusUpdatedAt: "",
+      history: [],
       createdAt: todayISO(),
       doneAt: "",
       order: maxOrder + 1,
@@ -306,13 +336,13 @@ const Store = {
   },
 
   // Adding a log to a backlog item implicitly starts it.
-  addLog(state, fields) {
+  addLog(state, fields, keepStatus) {
     const log = Object.assign({ id: uid(), minutes: 30, note: "", focus: null, createdAt: new Date().toISOString() }, fields);
     state.logs[log.id] = log;
     const r = state.resources[log.resourceId];
-    if (r && this.kindOf(r.status) === "todo") {
+    if (r && !keepStatus && this.kindOf(r.status) === "todo") {
       const doing = this.firstColumnOfKind("doing");
-      if (doing) r.status = doing;
+      if (doing) this.setStatus(r, doing);
     }
     return log;
   },

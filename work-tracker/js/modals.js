@@ -47,7 +47,7 @@ function openResourceEditor(resourceId) {
   const existing = resourceId ? Store.state.resources[resourceId] : null;
   const r = existing ? Object.assign({}, existing) : Store.newResource({});
 
-  const title = h("input", { name: "title", value: existing ? r.title : "", placeholder: "e.g. CS50 Introduction to Computer Science", required: true });
+  const title = h("input", { name: "title", value: existing ? r.title : "", placeholder: "e.g. Prepare Q4 report", required: true });
   const type = h("select", { name: "type" }, RESOURCE_TYPES.map((t) => h("option", { selected: t === r.type }, t)));
   const cat = categorySelect(r.categoryId, true);
   const curCol = Store.column(r.status).id, curPrio = Store.priority(r.priority).id;
@@ -64,6 +64,7 @@ function openResourceEditor(resourceId) {
   const ps = h("input", { name: "plannedStart", type: "date", value: r.plannedStart });
   const pe = h("input", { name: "plannedEnd", type: "date", value: r.plannedEnd });
   const notes = h("textarea", { name: "notes", rows: "4", placeholder: "Context, acceptance criteria, next steps…" }, r.notes);
+  const statusNote = h("textarea", { name: "statusNote", rows: "2", placeholder: "Where this stands: waiting on review, blocked by X, next step…" }, r.statusNote || "");
 
   cat.addEventListener("change", () => {
     if (cat.value !== "__new") return;
@@ -105,8 +106,9 @@ function openResourceEditor(resourceId) {
   const form = h("form", { class: "form" },
     h("h2", {}, existing ? "Edit task" : "Add task"),
     field("Title", title),
+    field("Status", statusNote, r.statusUpdatedAt ? "Shown on the card · updated " + fmtDate(r.statusUpdatedAt) : "Shown on the card"),
     h("div", { class: "form-row" }, field("Type", type), field("Category", cat), field("Priority", priority)),
-    h("div", { class: "form-row" }, field("Status", status), field("Platform", platform), platformList),
+    h("div", { class: "form-row" }, field("Column", status), field("Platform", platform), platformList),
     h("div", { class: "form-row" }, field("Hours worked", studied), field("Sessions", sessions), workDateField),
     studiedHint,
     h("div", { class: "form-row" }, field("Work estimate (h)", est, "Drives the progress bar"), field("Course length (h)", lengthH), field("Pages", pages)),
@@ -114,6 +116,7 @@ function openResourceEditor(resourceId) {
     h("p", { class: "field-hint form-note" }, "Planned dates are drawn as the plan bar on the Gantt."),
     field("Link", url),
     field("Notes", notes),
+    existing ? taskLog(r.id, () => leaveEditor()) : null,
     h("div", { class: "form-actions" },
       existing ? h("button", { type: "button", class: "btn btn-danger", onclick: () => {
         const n = Store.logsFor(r.id).length;
@@ -154,9 +157,15 @@ function openResourceEditor(resourceId) {
     const date = fd.get("workDate") || todayISO();
     const newStatus = next.status;
     delete next.status;
+    // Moving an existing task to another column asks how much work was done,
+    // unless the hours were just entered here.
+    const columnChanged = existing && Store.column(r.status).id !== newStatus;
+    const askOnMove = columnChanged && !hoursChanged && !sessionsChanged;
     Store.commit((s) => {
       s.resources[r.id] = Object.assign(r, next);
-      if (!existing || Store.column(r.status).id !== newStatus) Store.setStatus(r, newStatus);
+      Store.setStatusNote(r, fd.get("statusNote"));
+      if (!existing) Store.setStatus(r, newStatus, false);
+      else if (columnChanged && !askOnMove) Store.setStatus(r, newStatus);
       if (deltaMin > 0) {
         // New sessions = how many the session count went up by (at least one).
         const n = Math.max(1, Math.min(deltaMin, sessionsChanged ? wantSessions - Number(initSessions) : 1));
@@ -180,14 +189,154 @@ function openResourceEditor(resourceId) {
       else r.extraSessions = Math.max(0, (r.extraSessions || 0));
     });
     Modal.close();
+    if (askOnMove) moveWithPrompt([r.id], newStatus);
   });
+
+  // Opening a session from the task log leaves this editor; don't lose edits silently.
+  const snapshot = () => JSON.stringify([...new FormData(form)]);
+  const clean = snapshot();
+  const leaveEditor = () => snapshot() === clean || confirm("Discard your unsaved changes to this task?");
 
   Modal.open(form);
 }
 
+/* ---------- per-task log: sessions by day, plus column moves and status updates ---------- */
+
+function taskLog(resourceId, canLeave) {
+  const reopen = () => { if (Store.state.resources[resourceId]) openResourceEditor(resourceId); };
+  const logs = Store.logsFor(resourceId);
+  const r = Store.state.resources[resourceId];
+  // Group by day; within a day, newest entry first.
+  const byDate = {};
+  const add = (date, at, item) => (byDate[date] = byDate[date] || []).push({ at: at || "", item });
+  logs.forEach((l) => add(l.date, l.createdAt, { log: l }));
+  (r.history || []).forEach((e) => add(e.date, e.at, { event: e }));
+  const dates = Object.keys(byDate).sort().reverse();
+
+  const addBtn = h("button", { type: "button", class: "btn btn-ghost btn-small", onclick: () => {
+    if (canLeave()) openLogEditor(null, { resourceId, date: todayISO() }, reopen);
+  } }, "+ Log session");
+  const total = logs.reduce((s, l) => s + l.minutes, 0);
+  const box = h("div", { class: "task-log" },
+    h("div", { class: "task-log-head" },
+      h("span", { class: "field-label" }, "Work log"),
+      h("span", { class: "muted small" }, logs.length ? `${fmtMinutes(total)} · ${logs.length} session${logs.length === 1 ? "" : "s"}` : ""),
+      addBtn));
+  if (!dates.length) {
+    box.append(h("div", { class: "empty" }, "No sessions yet. They're added when you log time, move the card, or use the timer."));
+    return box;
+  }
+  for (const d of dates) {
+    const entries = byDate[d].sort((a, b) => b.at.localeCompare(a.at)).map((x) => x.item);
+    const dayMin = entries.reduce((s, x) => s + (x.log ? x.log.minutes : 0), 0);
+    const rows = h("div", { class: "task-log-day" },
+      h("div", { class: "task-log-date" }, h("span", {}, fmtDate(d)), dayMin ? h("span", { class: "tok-num" }, fmtMinutes(dayMin)) : null));
+    for (const { log: l, event: e } of entries) {
+      if (e) {
+        rows.append(h("div", { class: "task-log-event" }, e.kind === "move"
+          ? [h("span", { class: "tok-keyword" }, "moved"), ` ${e.from} → ${e.to}`]
+          : [h("span", { class: "tok-keyword" }, "status"), " ", e.text ? `"${e.text}"` : "cleared"]));
+        continue;
+      }
+      rows.append(h("button", { type: "button", class: "task-log-row", title: "Edit this session", onclick: () => {
+        if (canLeave()) openLogEditor(l.id, null, reopen);
+      } },
+        h("span", { class: "tok-num" }, fmtMinutes(l.minutes)),
+        l.focus ? h("span", { class: "tok-const", title: "Focus" }, "focus " + l.focus) : null,
+        h("span", { class: "task-log-note" }, l.note || "")));
+    }
+    box.append(rows);
+  }
+  return box;
+}
+
+/* ---------- moving cards between columns ---------- */
+
+// Moves tasks to a column, asking for each one how much work was done.
+// `extra(state, resource)` runs inside the same commit (e.g. reordering).
+function moveWithPrompt(ids, toStatus, extra, done) {
+  const queue = ids.filter((id) => Store.state.resources[id] && Store.column(Store.state.resources[id].status).id !== toStatus);
+  let i = 0, moved = 0;
+  const next = () => {
+    if (i >= queue.length) { if (done) done(moved, queue.length); return; }
+    const id = queue[i++];
+    openMoveDialog(id, toStatus, { index: i, total: queue.length, extra }, (ok) => { if (ok) moved++; next(); });
+  };
+  next();
+}
+
+function openMoveDialog(resourceId, toStatus, opts, after) {
+  const r = Store.state.resources[resourceId];
+  const from = Store.column(r.status), to = Store.column(toStatus);
+  const logs = Store.logsFor(r.id);
+  const loggedMin = logs.reduce((s, l) => s + l.minutes, 0);
+  const loggedSessions = Store.sessionsFor(r.id);
+  let moved = false;
+
+  const hours = h("input", { name: "hours", type: "number", min: "0", step: "0.25", placeholder: "0" });
+  const sessions = h("input", { name: "sessions", type: "number", min: "1", step: "1", value: "1" });
+  const date = h("input", { name: "date", type: "date", value: todayISO(), required: true });
+  const note = h("textarea", { name: "note", rows: "2", placeholder: "What did you do?" });
+  const statusNote = h("textarea", { name: "statusNote", rows: "2", placeholder: "Where this stands now…" }, r.statusNote || "");
+  const quick = h("div", { class: "chips" }, [0.5, 1, 2, 4, 8].map((v) =>
+    h("button", { type: "button", class: "chip", onclick: () => { hours.value = v; update(); } }, fmtMinutes(v * 60))));
+  const summary = h("p", { class: "field-hint form-note" });
+  const submit = h("button", { type: "submit", class: "btn btn-primary" });
+
+  const minutes = () => Math.round((Number(hours.value) || 0) * 60);
+  const update = () => {
+    const m = minutes(), n = Math.max(1, Math.round(Number(sessions.value) || 1));
+    summary.textContent = m > 0
+      ? `After this: ${fmtMinutes(loggedMin + m)} in ${loggedSessions + n} session${loggedSessions + n === 1 ? "" : "s"}.`
+      : "No time entered: the card moves without logging any work.";
+    submit.textContent = m > 0 ? `Log ${fmtMinutes(m)} & move` : "Move";
+  };
+  hours.addEventListener("input", update);
+  sessions.addEventListener("input", update);
+  update();
+
+  const form = h("form", { class: "form" },
+    h("h2", {}, `Move to ${to.label}` + (opts.total > 1 ? ` (${opts.index} of ${opts.total})` : "")),
+    h("div", { class: "log-res" }, h("span", { class: "swatch", style: { background: Store.categoryColor(r.categoryId) } }), r.title),
+    h("p", { class: "muted small move-from" }, `${from.label} → ${to.label} · so far ${loggedMin ? fmtMinutes(loggedMin) : "0m"} in ${loggedSessions} session${loggedSessions === 1 ? "" : "s"}` +
+      (logs.length ? ` · last worked ${fmtShortDate(logs[logs.length - 1].date)}` : "")),
+    h("div", { class: "form-row" },
+      field("Hours worked", hours, "Since the last update"),
+      field("Sessions", sessions),
+      field("Date", date)),
+    quick,
+    summary,
+    field("Session note", note),
+    field("Status", statusNote, "Shown on the card"),
+    h("div", { class: "form-actions" },
+      h("button", { type: "button", class: "btn btn-ghost", onclick: () => Modal.close() }, "Cancel (don't move)"),
+      submit));
+
+  form.addEventListener("submit", (e) => {
+    e.preventDefault();
+    const fd = new FormData(form);
+    const m = minutes();
+    if (m < 0) { toast("Hours can't be negative."); return; }
+    Store.commit((s) => {
+      const res = s.resources[resourceId];
+      if (!res) return;
+      Store.setStatus(res, toStatus);
+      // Keep the chosen column even when moving back to a To-do column.
+      Store.logWork(s, res.id, m, Number(fd.get("sessions")), fd.get("date") || todayISO(), fd.get("note").trim(), true);
+      Store.setStatusNote(res, fd.get("statusNote"));
+      if (opts.extra) opts.extra(s, res);
+    });
+    moved = true;
+    Modal.close();
+  });
+
+  Modal.open(form, { onClose: () => { if (after) after(moved); } });
+  hours.focus();
+}
+
 /* ---------- log (work session) editor ---------- */
 
-function openLogEditor(logId, draft) {
+function openLogEditor(logId, draft, onClose) {
   const existing = logId ? Store.state.logs[logId] : null;
   const l = existing ? Object.assign({}, existing) : Object.assign({ minutes: 30, note: "", focus: null }, draft);
   const res = Store.state.resources[l.resourceId];
@@ -199,7 +348,7 @@ function openLogEditor(logId, draft) {
     h("button", { type: "button", class: "chip", onclick: () => { hours.value = Math.floor(m / 60); mins.value = m % 60; } }, fmtMinutes(m))));
   const focus = h("div", { class: "focus-picker", role: "radiogroup" }, [1, 2, 3, 4, 5].map((n) =>
     h("label", { class: "focus-opt" }, h("input", { type: "radio", name: "focus", value: n, checked: Number(l.focus) === n }), String(n))));
-  const note = h("textarea", { name: "note", rows: "3", placeholder: "What did you cover? What should you review next time?" }, l.note);
+  const note = h("textarea", { name: "note", rows: "3", placeholder: "What did you do? What's next?" }, l.note);
   const doneCol = Store.firstColumnOfKind("done");
   const markDone = res && doneCol && !Store.isDone(res)
     ? h("label", { class: "small" }, h("input", { type: "checkbox", name: "markDone" }), " I finished this task")
@@ -237,7 +386,7 @@ function openLogEditor(logId, draft) {
     Modal.close();
   });
 
-  Modal.open(form);
+  Modal.open(form, onClose ? { onClose } : null);
 }
 
 /* ---------- category manager ---------- */

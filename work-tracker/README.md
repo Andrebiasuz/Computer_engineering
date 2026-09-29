@@ -34,10 +34,23 @@ disk or the company's file share), not in personal cloud drives.
 
 | Page | What it does |
 |---|---|
-| **Backlog** | Kanban of tasks (Backlog → In progress → Paused → Done). Each card has a category, type, platform (use it for client / team / system), priority, link, estimated hours, planned start/end and notes. Drag cards between columns to change status. Click **Select** (or Ctrl/Cmd+click a card) to multi-select: Shift+click selects a range, the checkbox in a column header selects the whole column, and the bulk bar can move, re-categorise, re-prioritise or **delete** everything selected (Delete key works too, and deletions can be undone from the pop-up). |
+| **Backlog** | Kanban of tasks (Backlog → In progress → Paused → Done). Each card has a **status** (a few words on where it stands, highlighted on the card with the date you last changed it), category, type, platform (use it for client / team / system), priority, link, estimated hours, planned start/end and notes. Drag cards between columns to move them. Click **Select** (or Ctrl/Cmd+click a card) to multi-select: Shift+click selects a range, the checkbox in a column header selects the whole column, and the bulk bar can move, re-categorise, re-prioritise or **delete** everything selected (Delete key works too, and deletions can be undone from the pop-up). |
 | **Daily log** | Your backlog sits in a sidebar next to a Mon–Sun week. Drag a task onto a day to log a session (duration, focus 1–5, notes). Drag a session to another day to move it (hold Ctrl/Alt to copy it). On a phone, tap a task to log it for today. |
 | **Gantt** | Built from the log. The dashed outline is the planned window, the light bar is the actual span (first → last session), and the ticks are the individual work days (taller = more minutes). Also shows a today line, ✓ on finished items and an "overdue" flag. |
 | **Stats** | Today vs daily goal, this week vs last week, current/best streak, 30-day totals, minutes-per-day chart, hours by category, a 26-week consistency heatmap, and a per-task table (estimate vs actual, sessions, average focus, projected finish date). |
+
+Work-tracker additions:
+
+- **Asked on every column change**: dragging a card to another column, using
+  the bulk **Move to…**, or changing **Column** in the editor opens a dialog
+  asking how many hours you worked since the last update, in how many
+  sessions, on which date, with an optional note. You can update the status
+  text there too. Leave the hours empty to just move the card. **Cancel**
+  (or Esc) leaves the card where it was. Moving several cards asks for each
+  one in turn. Reordering cards inside a column doesn't ask.
+- **Work log on each card**: the task editor lists every session day by day
+  (hours, focus, note), together with the card's column moves and status
+  updates. Click a session to edit it, or **+ Log session** to add one.
 
 Also included (same as the study tracker):
 

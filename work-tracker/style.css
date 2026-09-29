@@ -840,3 +840,61 @@ code { font-family: var(--font-mono); font-size: 12px; background: var(--surface
 
 /* Long resource titles shouldn't push the stats table's other columns off-screen. */
 #st-table td:first-child { max-width: 380px; overflow: hidden; text-overflow: ellipsis; }
+
+/* ---------- status note on cards + per-task work log ---------- */
+
+.res-status {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  margin: -2px 0 7px;
+  padding: 4px 8px;
+  border-left: 2px solid var(--tok-keyword);
+  border-radius: 0 3px 3px 0;
+  background: color-mix(in srgb, var(--tok-keyword) 13%, transparent);
+  font-size: 12px;
+  line-height: 1.4;
+  color: var(--text);
+}
+.res-status-text {
+  flex: 1;
+  min-width: 0;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  display: -webkit-box;
+  -webkit-line-clamp: 3;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+.res-status-date { font-family: var(--font-mono); font-size: 10.5px; color: var(--muted); white-space: nowrap; }
+
+.move-from { margin: -4px 0 0; font-family: var(--font-mono); }
+
+.task-log { display: flex; flex-direction: column; gap: 8px; border-top: 1px solid var(--border); padding-top: 12px; }
+.task-log-head { display: flex; align-items: center; gap: 10px; }
+.task-log-head .small { flex: 1; font-family: var(--font-mono); }
+.task-log-day { display: flex; flex-direction: column; gap: 2px; }
+.task-log-date { display: flex; justify-content: space-between; font-family: var(--font-mono); font-size: 11.5px; color: var(--text-2); padding: 2px 0; border-bottom: 1px dashed var(--border); }
+.task-log-row, .task-log-event {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+  padding: 3px 6px;
+  font-size: 12.5px;
+  text-align: left;
+}
+.task-log-row {
+  width: 100%;
+  background: none;
+  border: 0;
+  border-radius: 3px;
+  color: var(--text);
+  font: inherit;
+  font-size: 12.5px;
+  cursor: pointer;
+}
+.task-log-row:hover { background: var(--surface-3); }
+.task-log-row > span:first-child { font-family: var(--font-mono); min-width: 52px; }
+.task-log-note { flex: 1; min-width: 0; white-space: pre-wrap; overflow-wrap: anywhere; color: var(--text-2); }
+.task-log-event { color: var(--muted); font-size: 12px; }
+.task-log-event .tok-keyword { font-family: var(--font-mono); font-size: 11px; min-width: 52px; }
