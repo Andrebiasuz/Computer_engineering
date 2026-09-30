@@ -15,6 +15,7 @@
     <a href="#logger" data-page="logger"><span class="tab-icon ic-logger">◷</span>daily.log</a>
     <a href="#gantt" data-page="gantt"><span class="tab-icon ic-gantt">▤</span>gantt</a>
     <a href="#stats" data-page="stats"><span class="tab-icon ic-stats">Σ</span>stats</a>
+    <a href="#archive" data-page="archive"><span class="tab-icon ic-archive">▣</span>archive</a>
   </nav>
   <div class="header-right">
     <div id="timer" class="timer" title="Drop a task here, or pick one, then start">
@@ -152,6 +153,18 @@
   </section>
 </main>
 
+<!-- ============ ARCHIVE ============ -->
+<main id="page-archive" class="page" hidden>
+  <div class="toolbar">
+    <input id="ar-search" type="search" placeholder="Search archived tasks…" autocomplete="off">
+    <span id="ar-summary" class="muted small"></span>
+  </div>
+  <section class="panel">
+    <h2>Archived tasks <span class="muted small">finished work taken off the board · click a row to see its work log</span></h2>
+    <div class="table-wrap"><table id="ar-table" class="data-table"></table></div>
+  </section>
+</main>
+
 <!-- ============ MODALS ============ -->
 <div id="modal-overlay" class="modal-overlay" hidden>
   <div id="modal" class="modal" role="dialog" aria-modal="true"></div>
@@ -179,6 +192,7 @@
 <script src="js/gantt.js"></script>
 <script src="js/stats.js"></script>
 <script src="js/importer.js"></script>
+<script src="js/archive.js"></script>
 <script src="js/app.js"></script>
 </body>
 </html>

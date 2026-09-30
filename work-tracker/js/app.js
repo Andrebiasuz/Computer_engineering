@@ -1,6 +1,6 @@
 "use strict";
 
-const PAGES = ["backlog", "logger", "gantt", "stats"];
+const PAGES = ["backlog", "logger", "gantt", "stats", "archive"];
 
 const App = {
   page: "backlog",
@@ -12,6 +12,7 @@ const App = {
     Logger.init();
     Gantt.init();
     Timer.init();
+    Archive.init();
 
     document.getElementById("bulk-import-btn").addEventListener("click", () => { this.closeMenu(); openImporter(); });
     document.getElementById("export-json-btn").addEventListener("click", () => { this.closeMenu(); exportJSON(); });
@@ -72,6 +73,7 @@ const App = {
     else if (this.page === "logger") Logger.render();
     else if (this.page === "gantt") Gantt.render();
     else if (this.page === "stats") Stats.render();
+    else if (this.page === "archive") Archive.render();
   },
 
   // IDE-style bottom bar: quick numbers that are useful on every page.

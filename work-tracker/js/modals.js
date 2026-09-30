@@ -105,6 +105,7 @@ function openResourceEditor(resourceId) {
 
   const form = h("form", { class: "form" },
     h("h2", {}, existing ? "Edit task" : "Add task"),
+    existing && r.archived ? h("p", { class: "archived-note" }, "Archived on " + fmtDate(r.archivedAt) + ". It's off the board; restore it to put it back in " + Store.column(r.status).label + ".") : null,
     field("Title", title),
     field("Status", statusNote, r.statusUpdatedAt ? "Shown on the card · updated " + fmtDate(r.statusUpdatedAt) : "Shown on the card"),
     h("div", { class: "form-row" }, field("Type", type), field("Category", cat), field("Priority", priority)),
@@ -127,7 +128,19 @@ function openResourceEditor(resourceId) {
         });
         Modal.close();
       } }, "Delete") : h("span"),
-      h("button", { type: "submit", class: "btn btn-primary" }, existing ? "Save" : "Add")));
+      h("span", { class: "form-actions-right" },
+        existing && r.archived ? h("button", { type: "button", class: "btn btn-ghost", onclick: () => {
+          if (!leaveEditor()) return;
+          Store.commit((s) => Store.restore(s.resources[r.id]));
+          Modal.close();
+          toast("Restored to " + Store.column(r.status).label + ".");
+        } }, "Restore to board") : null,
+        existing && !r.archived && Store.isDone(existing) ? h("button", { type: "button", class: "btn btn-ghost", onclick: () => {
+          if (!leaveEditor()) return;
+          archiveTask(r.id);
+          Modal.close();
+        } }, "Send to archive") : null,
+        h("button", { type: "submit", class: "btn btn-primary" }, existing ? "Save" : "Add"))));
 
   form.addEventListener("submit", (e) => {
     e.preventDefault();
@@ -233,9 +246,7 @@ function taskLog(resourceId, canLeave) {
       h("div", { class: "task-log-date" }, h("span", {}, fmtDate(d)), dayMin ? h("span", { class: "tok-num" }, fmtMinutes(dayMin)) : null));
     for (const { log: l, event: e } of entries) {
       if (e) {
-        rows.append(h("div", { class: "task-log-event" }, e.kind === "move"
-          ? [h("span", { class: "tok-keyword" }, "moved"), ` ${e.from} → ${e.to}`]
-          : [h("span", { class: "tok-keyword" }, "status"), " ", e.text ? `"${e.text}"` : "cleared"]));
+        rows.append(h("div", { class: "task-log-event" }, logEventText(e)));
         continue;
       }
       rows.append(h("button", { type: "button", class: "task-log-row", title: "Edit this session", onclick: () => {
@@ -248,6 +259,28 @@ function taskLog(resourceId, canLeave) {
     box.append(rows);
   }
   return box;
+}
+
+function logEventText(e) {
+  const k = (word) => h("span", { class: "tok-keyword" }, word);
+  if (e.kind === "move") return [k("moved"), ` ${e.from} → ${e.to}`];
+  if (e.kind === "status") return [k("status"), " ", e.text ? `"${e.text}"` : "cleared"];
+  if (e.kind === "sessions") return [k("0h"), ` ${e.count} session${e.count === 1 ? "" : "s"}, no time logged`, e.text ? ` · ${e.text}` : ""];
+  if (e.kind === "archive") return [k("archived")];
+  if (e.kind === "restore") return [k("restored"), " back to the board"];
+  return [k(e.kind || "event")];
+}
+
+// Archives a Done task, with an undo in the toast.
+function archiveTask(id) {
+  Store.commit((s) => Store.archive(s.resources[id]));
+  toast("Sent to archive.", { action: "Undo", onAction: () => Store.commit((s) => {
+    const r = s.resources[id];
+    if (!r) return;
+    r.archived = false;
+    r.archivedAt = "";
+    if (Array.isArray(r.history) && r.history.length && r.history[r.history.length - 1].kind === "archive") r.history.pop();
+  }) });
 }
 
 /* ---------- moving cards between columns ---------- */
@@ -284,7 +317,7 @@ function openMoveDialog(resourceId, toStatus, opts, after) {
   let moved = false;
 
   const hours = h("input", { name: "hours", type: "number", min: "0", step: "0.25", placeholder: "0" });
-  const sessions = h("input", { name: "sessions", type: "number", min: "1", step: "1", value: "1" });
+  const sessions = h("input", { name: "sessions", type: "number", min: "0", step: "1", placeholder: "0" });
   const date = h("input", { name: "date", type: "date", value: todayISO(), required: true });
   const note = h("textarea", { name: "note", rows: "2", placeholder: "What did you do?" });
   const statusNote = h("textarea", { name: "statusNote", rows: "2", placeholder: "Where this stands now…" }, r.statusNote || "");
@@ -294,12 +327,17 @@ function openMoveDialog(resourceId, toStatus, opts, after) {
   const submit = h("button", { type: "submit", class: "btn btn-primary" });
 
   const minutes = () => Math.round((Number(hours.value) || 0) * 60);
+  const count = () => Math.max(0, Math.round(Number(sessions.value) || 0));
+  const plural = (n) => n + " session" + (n === 1 ? "" : "s");
   const update = () => {
-    const m = minutes(), n = Math.max(1, Math.round(Number(sessions.value) || 1));
-    summary.textContent = m > 0
-      ? `After this: ${fmtMinutes(loggedMin + m)} in ${loggedSessions + n} session${loggedSessions + n === 1 ? "" : "s"}.`
-      : "No time entered: the card moves without logging any work.";
-    submit.textContent = m > 0 ? `Log ${fmtMinutes(m)} & move` : "Move";
+    const m = minutes(), n = count();
+    // Time needs at least one session; sessions may have no time (0h).
+    const added = m > 0 ? Math.max(1, n) : n;
+    summary.textContent = m > 0 || n > 0
+      ? `After this: ${fmtMinutes(loggedMin + m) || "0m"} in ${plural(loggedSessions + added)}` +
+        (m > 0 && !n ? " (the time counts as one session)." : m === 0 ? " (no hours added)." : ".")
+      : "Nothing entered: the card just moves. Both fields are optional.";
+    submit.textContent = m > 0 ? `Log ${fmtMinutes(m)} & move` : n > 0 ? `Log ${plural(n)} & move` : "Move";
   };
   hours.addEventListener("input", update);
   sessions.addEventListener("input", update);
@@ -311,8 +349,8 @@ function openMoveDialog(resourceId, toStatus, opts, after) {
     h("p", { class: "muted small move-from" }, `${from.label} → ${to.label} · so far ${loggedMin ? fmtMinutes(loggedMin) : "0m"} in ${loggedSessions} session${loggedSessions === 1 ? "" : "s"}` +
       (logs.length ? ` · last worked ${fmtShortDate(logs[logs.length - 1].date)}` : "")),
     h("div", { class: "form-row" },
-      field("Hours worked", hours, "Since the last update"),
-      field("Sessions", sessions),
+      field("Hours worked", hours, "Since the last update · optional"),
+      field("Sessions", sessions, "Optional · 0h sessions are fine"),
       field("Date", date)),
     quick,
     summary,
@@ -326,7 +364,7 @@ function openMoveDialog(resourceId, toStatus, opts, after) {
     e.preventDefault();
     const fd = new FormData(form);
     const m = minutes();
-    if (m < 0) { toast("Hours can't be negative."); return; }
+    if (m < 0 || Number(sessions.value) < 0) { toast("Hours and sessions can't be negative."); return; }
     Store.commit((s) => {
       const res = s.resources[resourceId];
       if (!res) return;

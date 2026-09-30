@@ -312,7 +312,11 @@ const Backlog = {
           : (r.estHours ? h("span", { class: "tok-num" }, "~" + r.estHours + "h") : null),
         r.plannedEnd ? h("span", { class: overdue ? "overdue" : "tok-const" }, (overdue ? "⚠ due " : "due ") + fmtShortDate(r.plannedEnd)) : null,
         r.url ? h("a", { class: "tok-fn", href: r.url, target: "_blank", rel: "noopener", onclick: (e) => e.stopPropagation(), title: r.url }, "link ↗") : null),
-      pct != null ? h("div", { class: "progress", title: pct + "% of estimate" }, h("div", { style: { width: pct + "%" } })) : null);
+      pct != null ? h("div", { class: "progress", title: pct + "% of estimate" }, h("div", { style: { width: pct + "%" } })) : null,
+      // Only finished cards can be archived.
+      Store.isDone(r) && !this.selecting ? h("div", { class: "res-actions" },
+        h("button", { type: "button", class: "btn btn-ghost btn-small card-archive", draggable: "false", title: "Move this card to the Archive tab",
+          onclick: (e) => { e.stopPropagation(); archiveTask(r.id); } }, "Send to archive")) : null);
 
     node.addEventListener("click", (e) => {
       if (e.target.closest("a")) return;
@@ -324,6 +328,7 @@ const Backlog = {
       openResourceEditor(r.id);
     });
     node.addEventListener("keydown", (e) => {
+      if (e.target !== node) return; // e.g. Enter on the archive button
       if (e.key === "Enter") openResourceEditor(r.id);
       else if (e.key === " " && this.selecting) { e.preventDefault(); this.toggleSelect(r.id, e); }
     });

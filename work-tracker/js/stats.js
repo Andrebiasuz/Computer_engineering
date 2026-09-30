@@ -41,7 +41,7 @@ const Stats = {
     const last30 = this.sumRange(addDays(today, -29), today);
     const studyDays30 = Object.entries(Store.minutesByDate()).filter(([d]) => d >= addDays(today, -29)).length;
     const { current, best } = this.streaks();
-    const res = Store.resourceList();
+    const res = Store.resourceList(true);
     const done = res.filter((r) => Store.isDone(r)).length;
     const todayMin = this.sumRange(today, today);
     const goal = Number(Store.state.settings.dailyGoal) || 0;
@@ -60,7 +60,7 @@ const Stats = {
         delta > 0 ? "good" : delta < 0 ? "bad" : ""),
       tile("Streak", current + (current === 1 ? " day" : " days"), "best: " + best + " days"),
       tile("Last 30 days", fmtHours(last30), studyDays30 + " work days · avg " + fmtMinutes(studyDays30 ? last30 / studyDays30 : 0) + "/day"),
-      tile("All time", fmtHours(total), Store.resourceList().reduce((s, r) => s + Store.sessionsFor(r.id), 0) + " sessions"),
+      tile("All time", fmtHours(total), Store.resourceList(true).reduce((s, r) => s + Store.sessionsFor(r.id), 0) + " sessions"),
       tile("Finished", done + " / " + res.length, "tasks"));
   },
 
@@ -206,7 +206,7 @@ const Stats = {
 
   table() {
     const el = document.getElementById("st-table");
-    const rows = Store.resourceList().map((r) => {
+    const rows = Store.resourceList(true).map((r) => {
       const logs = Store.logsFor(r.id);
       const mins = Store.minutesFor(r.id);
       const focus = logs.filter((l) => l.focus);

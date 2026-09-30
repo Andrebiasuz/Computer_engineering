@@ -37,6 +37,7 @@ disk or the company's file share), not in personal cloud drives.
 | **Backlog** | Kanban of tasks (Backlog → In progress → Paused → Done). Each card has a **status** (a few words on where it stands, highlighted on the card with the date you last changed it), category, type, platform (use it for client / team / system), priority, link, estimated hours, planned start/end and notes. Drag cards between columns to move them. Click **Select** (or Ctrl/Cmd+click a card) to multi-select: Shift+click selects a range, the checkbox in a column header selects the whole column, and the bulk bar can move, re-categorise, re-prioritise or **delete** everything selected (Delete key works too, and deletions can be undone from the pop-up). |
 | **Daily log** | Your backlog sits in a sidebar next to a Mon–Sun week. Drag a task onto a day to log a session (duration, focus 1–5, notes). Drag a session to another day to move it (hold Ctrl/Alt to copy it). On a phone, tap a task to log it for today. |
 | **Gantt** | Built from the log. The dashed outline is the planned window, the light bar is the actual span (first → last session), and the ticks are the individual work days (taller = more minutes). Also shows a today line, ✓ on finished items and an "overdue" flag. |
+| **Archive** | Finished tasks you've sent to the archive, newest first, with search, Restore and Delete. |
 | **Stats** | Today vs daily goal, this week vs last week, current/best streak, 30-day totals, minutes-per-day chart, hours by category, a 26-week consistency heatmap, and a per-task table (estimate vs actual, sessions, average focus, projected finish date). |
 
 Work-tracker additions:
@@ -46,13 +47,22 @@ Work-tracker additions:
   dragging, the bulk **Move to…**, or the editor's **Column**, opens a dialog
   asking how many hours you worked since the last update, in how many
   sessions, on which date, with an optional note. You can update the status
-  text there too. Leave the hours empty to just move the card. **Cancel**
-  (or Esc) leaves the card where it was. Moving several cards asks for each
+  text there too. Both numbers are optional: leave them empty to just move
+  the card, enter sessions with 0 hours to count them without adding time
+  (they show in the card's work log), or enter hours without sessions to log
+  them as one session. **Cancel** (or Esc) leaves the card where it was. Moving several cards asks for each
   one in turn. Moves to other columns (Backlog, In progress) happen straight
   away, and are still recorded in the card's work log.
 - **Work log on each card**: the task editor lists every session day by day
   (hours, focus, note), together with the card's column moves and status
   updates. Click a session to edit it, or **+ Log session** to add one.
+- **Archive**: cards in a Done column get a **Send to archive** button (also
+  in the task editor). Archived cards leave the board, the Daily log sidebar,
+  the timer and the Gantt, but their time still counts in Stats. The
+  **archive** tab lists them with hours, sessions, finish and archive dates;
+  search them, click one to open it with its full work log, **Restore** it to
+  the board, or **Delete** it for good. Archiving can be undone from the
+  pop-up.
 
 Also included (same as the study tracker):
 
@@ -136,5 +146,6 @@ work-tracker/
     ├── gantt.js    Gantt chart
     ├── stats.js    tiles, charts, heatmap, table
     ├── importer.js Excel/CSV import, JSON backup, CSV export
+    ├── archive.js  Archive tab
     └── app.js      routing + wiring
 ```

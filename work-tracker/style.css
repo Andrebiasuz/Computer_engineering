@@ -276,6 +276,7 @@ h2 .small { font-weight: 400; }
 .ic-logger { color: var(--tok-fn); }
 .ic-gantt { color: var(--tok-num); }
 .ic-stats { color: var(--tok-str); }
+.ic-archive { color: var(--tok-const); }
 .header-right { margin-left: auto; display: flex; align-items: center; gap: 10px; flex-wrap: wrap; padding: 6px 0; }
 
 .timer {
@@ -898,3 +899,23 @@ code { font-family: var(--font-mono); font-size: 12px; background: var(--surface
 .task-log-note { flex: 1; min-width: 0; white-space: pre-wrap; overflow-wrap: anywhere; color: var(--text-2); }
 .task-log-event { color: var(--muted); font-size: 12px; }
 .task-log-event .tok-keyword { font-family: var(--font-mono); font-size: 11px; min-width: 52px; }
+
+/* ---------- archive ---------- */
+
+.res-actions { display: flex; justify-content: flex-end; margin-top: 8px; }
+.card-archive { font-family: var(--font-mono); font-size: 11px; color: var(--tok-const); }
+.card-archive:hover { border-color: var(--tok-const); }
+.form-actions-right { display: flex; gap: 8px; margin-left: auto; }
+.archived-note {
+  margin: -4px 0 0;
+  padding: 6px 10px;
+  border-left: 2px solid var(--tok-const);
+  background: color-mix(in srgb, var(--tok-const) 12%, transparent);
+  font-size: 12.5px;
+}
+.data-table td.ar-title { white-space: normal; min-width: 220px; }
+.ar-status { font-size: 12px; color: var(--text-2); margin-top: 2px; }
+.data-table td.ar-actions { text-align: right; }
+.ar-actions .btn + .btn { margin-left: 6px; }
+.btn-danger-text { color: var(--bad); }
+.btn-danger-text:hover { border-color: var(--bad); }

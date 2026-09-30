@@ -8,7 +8,9 @@
  *                        extraSessions (sessions counted without time; hours are always real logs),
  *                        status, plannedStart, plannedEnd, notes, createdAt, doneAt, order,
  *                        statusNote, statusUpdatedAt (free-text "where this stands", shown on the card),
- *                        history: [{ at, date, kind: "move", from, to } | { at, date, kind: "status", text }] } }
+ *                        archived, archivedAt (archived tasks leave the board; they live on the Archive page),
+ *                        history: [{ at, date, kind: "move", from, to } | { at, date, kind: "status", text }
+ *                                  | { at, date, kind: "sessions", count, text } | { at, date, kind: "archive" | "restore" }] } }
  *   logs:       { id: { id, resourceId, date, minutes, note, focus } }
  *   columns:    [{ id, label, kind, color }]  board columns, in order. kind drives behaviour:
  *               todo (not started) | doing (in progress) | hold (paused) | done (finished)
@@ -274,17 +276,47 @@ const Store = {
   },
 
   // Logs time reported for a task as `sessions` sessions on `date`.
+  // Time with no session count is one session. Sessions with no time (0h) are
+  // counted without adding logged hours, and noted in the task's history.
   // keepStatus stops a To-do task from being moved to In progress.
   logWork(state, resourceId, minutes, sessions, date, note, keepStatus) {
-    if (!(minutes > 0)) return;
-    const n = Math.max(1, Math.min(Math.round(sessions) || 1, minutes));
-    splitMinutes(minutes, n).forEach((m) => this.addLog(state, { resourceId, date, minutes: m, note: note || "" }, keepStatus));
+    sessions = Math.max(0, Math.round(sessions) || 0);
+    if (minutes > 0) {
+      const n = Math.max(1, Math.min(sessions || 1, minutes));
+      splitMinutes(minutes, n).forEach((m) => this.addLog(state, { resourceId, date, minutes: m, note: note || "" }, keepStatus));
+      return;
+    }
+    const r = state.resources[resourceId];
+    if (!sessions || !r) return;
+    r.extraSessions = Math.max(0, r.extraSessions || 0) + sessions;
+    this.addHistory(r, { kind: "sessions", count: sessions, text: note || "", date });
+  },
+
+  archive(r) {
+    if (r.archived) return;
+    r.archived = true;
+    r.archivedAt = todayISO();
+    this.addHistory(r, { kind: "archive" });
+  },
+
+  restore(r) {
+    if (!r.archived) return;
+    r.archived = false;
+    r.archivedAt = "";
+    this.addHistory(r, { kind: "restore" });
   },
 
   /* ---------- resources ---------- */
 
-  resourceList() {
-    return Object.values(this.state.resources).sort((a, b) => (a.order || 0) - (b.order || 0));
+  // Tasks on the board. Pass true to include archived ones (Stats counts all work).
+  resourceList(includeArchived) {
+    return Object.values(this.state.resources).filter((r) => includeArchived || !r.archived)
+      .sort((a, b) => (a.order || 0) - (b.order || 0));
+  },
+
+  archivedList() {
+    return Object.values(this.state.resources).filter((r) => r.archived)
+      .sort((a, b) => (b.archivedAt || "").localeCompare(a.archivedAt || "") || (b.doneAt || "").localeCompare(a.doneAt || ""));
   },
 
   newResource(fields) {
