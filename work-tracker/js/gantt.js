@@ -13,12 +13,31 @@ const Gantt = {
   rangeSel: document.getElementById("gt-range"),
   zoomSel: document.getElementById("gt-zoom"),
   catSel: document.getElementById("gt-category"),
+  sortSel: document.getElementById("gt-sort"),
   showPlanned: document.getElementById("gt-show-planned"),
   hideDone: document.getElementById("gt-hide-done"),
 
   init() {
     [this.rangeSel, this.zoomSel, this.catSel, this.showPlanned, this.hideDone]
       .forEach((c) => c.addEventListener("change", () => this.render()));
+    try { this.sortSel.value = localStorage.getItem("work-tracker-gantt-sort") || "category"; } catch (e) { /* ignore */ }
+    if (!this.sortSel.value) this.sortSel.value = "category";
+    this.sortSel.addEventListener("change", () => {
+      try { localStorage.setItem("work-tracker-gantt-sort", this.sortSel.value); } catch (e) { /* ignore */ }
+      this.render();
+    });
+  },
+
+  byPlatform() { return this.sortSel.value === "platform"; },
+
+  // Group key and header for a row: its category, or its platform when sorting by platform.
+  groupOf(r) {
+    if (!this.byPlatform()) {
+      const cat = Store.category(r.categoryId);
+      return { key: "c:" + (r.categoryId || ""), label: cat ? cat.name : "Uncategorised", color: Store.categoryColor(r.categoryId) };
+    }
+    const p = (r.platform || "").trim();
+    return { key: "p:" + p.toLowerCase(), label: p || "No platform", color: null };
   },
 
   rows() {
@@ -44,8 +63,20 @@ const Gantt = {
       });
     }
     // Group by category (in category order), then by when the work starts.
+    // Sorting by platform groups by platform A→Z (none last), then category, then start.
     const catIndex = (id) => { const i = Store.state.categories.findIndex((c) => c.id === id); return i < 0 ? 1e9 : i; };
-    out.sort((a, b) => catIndex(a.r.categoryId) - catIndex(b.r.categoryId) || (a.first || a.ps).localeCompare(b.first || b.ps));
+    const byStart = (a, b) => (a.first || a.ps).localeCompare(b.first || b.ps);
+    const byCat = (a, b) => catIndex(a.r.categoryId) - catIndex(b.r.categoryId);
+    if (this.byPlatform()) {
+      const plat = (r) => (r.platform || "").trim();
+      out.sort((a, b) => {
+        const pa = plat(a.r), pb = plat(b.r);
+        if (!pa !== !pb) return pa ? -1 : 1;
+        return pa.localeCompare(pb, undefined, { sensitivity: "base" }) || byCat(a, b) || byStart(a, b);
+      });
+    } else {
+      out.sort((a, b) => byCat(a, b) || byStart(a, b));
+    }
     return out;
   },
 
@@ -104,15 +135,15 @@ const Gantt = {
 
     const gridStyle = { width: width + "px", "--dw": dw + "px" };
     const maxDay = Math.max(1, ...rows.flatMap((row) => Object.values(row.byDay).map((v) => v.minutes)));
-    let lastCat;
+    let lastGroup;
 
     for (const row of rows) {
       const r = row.r;
-      if (r.categoryId !== lastCat) {
-        lastCat = r.categoryId;
-        const cat = Store.category(r.categoryId);
+      const g = this.groupOf(r);
+      if (g.key !== lastGroup) {
+        lastGroup = g.key;
         inner.append(h("div", { class: "gt-row gt-group" },
-          h("div", { class: "gt-label" }, h("span", { class: "swatch", style: { background: Store.categoryColor(r.categoryId) } }), cat ? cat.name : "Uncategorised"),
+          h("div", { class: "gt-label" }, g.color ? h("span", { class: "swatch", style: { background: g.color } }) : h("span", { class: "tok-str" }, "▸"), g.label),
           h("div", { class: "gt-track", style: gridStyle })));
       }
       const color = Store.categoryColor(r.categoryId);
