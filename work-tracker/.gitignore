@@ -1,0 +1,5 @@
+# Work data is confidential and must never be committed.
+data/
+# Backups/exports if you save them next to the app.
+*.json
+*.csv
