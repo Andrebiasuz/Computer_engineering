@@ -16,12 +16,25 @@ const Gantt = {
   sortSel: document.getElementById("gt-sort"),
   showPlanned: document.getElementById("gt-show-planned"),
   hideDone: document.getElementById("gt-hide-done"),
+  showWeekends: document.getElementById("gt-weekends"),
+  showArchived: document.getElementById("gt-archived"),
+  VIEW_KEY: "work-tracker-gantt-view",
 
   init() {
     [this.rangeSel, this.zoomSel, this.catSel, this.showPlanned, this.hideDone]
       .forEach((c) => c.addEventListener("change", () => this.render()));
     try { this.sortSel.value = localStorage.getItem("work-tracker-gantt-sort") || "category"; } catch (e) { /* ignore */ }
     if (!this.sortSel.value) this.sortSel.value = "category";
+    // Weekends / archived toggles are remembered.
+    try {
+      const v = JSON.parse(localStorage.getItem(this.VIEW_KEY)) || {};
+      if (typeof v.weekends === "boolean") this.showWeekends.checked = v.weekends;
+      if (typeof v.archived === "boolean") this.showArchived.checked = v.archived;
+    } catch (e) { /* ignore */ }
+    [this.showWeekends, this.showArchived].forEach((c) => c.addEventListener("change", () => {
+      try { localStorage.setItem(this.VIEW_KEY, JSON.stringify({ weekends: this.showWeekends.checked, archived: this.showArchived.checked })); } catch (e) { /* ignore */ }
+      this.render();
+    }));
     this.sortSel.addEventListener("change", () => {
       try { localStorage.setItem("work-tracker-gantt-sort", this.sortSel.value); } catch (e) { /* ignore */ }
       this.render();
@@ -44,8 +57,9 @@ const Gantt = {
     const cat = this.catSel.value;
     const planned = this.showPlanned.checked;
     const out = [];
-    for (const r of Store.resourceList()) {
-      if (this.hideDone.checked && Store.isDone(r)) continue;
+    // Archived tasks only appear when "archived" is ticked ("hide finished" doesn't apply to them).
+    for (const r of Store.resourceList(this.showArchived.checked)) {
+      if (this.hideDone.checked && Store.isDone(r) && !r.archived) continue;
       if (cat && (r.categoryId || "") !== (cat === "__none" ? "" : cat)) continue;
       const logs = Store.logsFor(r.id);
       const byDay = {};
@@ -109,8 +123,22 @@ const Gantt = {
     const end = addDays(max > today ? max : today, 7);
     const days = daysBetween(start, end) + 1;
     const dw = Number(this.zoomSel.value);
-    const width = days * dw;
-    const x = (iso) => daysBetween(start, iso) * dw;
+    // With weekends hidden, Saturday and Sunday take no columns. `start` is a
+    // Monday, so each whole week is 5 columns, and a weekend date sits on the
+    // boundary before the next Monday.
+    const weekends = this.showWeekends.checked;
+    const isWeekend = (iso) => { const g = fromISO(iso).getDay(); return g === 0 || g === 6; };
+    const shown = (iso) => weekends || !isWeekend(iso);
+    const col = (iso) => {
+      const n = daysBetween(start, iso);
+      if (weekends) return n;
+      const w = Math.floor(n / 7);
+      return w * 5 + Math.min(n - w * 7, 5);
+    };
+    const x = (iso) => col(iso) * dw;                          // left edge of a day
+    const xEnd = (iso) => (col(iso) + (shown(iso) ? 1 : 0)) * dw; // right edge (boundary if hidden)
+    const xMid = (iso) => (shown(iso) ? x(iso) + dw / 2 : x(iso));
+    const width = xEnd(end);
 
     const scroller = h("div", { class: "gt-scroll" });
     const inner = h("div", { class: "gt-inner" });
@@ -119,21 +147,27 @@ const Gantt = {
     // Header: months + days (or week starts when compact).
     const months = h("div", { class: "gt-track gt-months", style: { width: width + "px" } });
     const dayRow = h("div", { class: "gt-track gt-days", style: { width: width + "px" } });
+    let lastMonth = -1;
     for (let i = 0; i < days; i++) {
       const iso = addDays(start, i), d = fromISO(iso);
-      // Skip the first month label if its month is nearly over (it would be clipped).
-      if (d.getDate() === 1 || (i === 0 && d.getDate() < 22)) {
-        months.append(h("span", { class: "gt-month", style: { left: i * dw + "px" } }, MONTHS[d.getMonth()] + " " + d.getFullYear()));
+      if (!shown(iso)) continue;
+      // Label each month at its first visible day; skip the first label if
+      // that month is nearly over (it would be clipped).
+      if (d.getMonth() !== lastMonth) {
+        lastMonth = d.getMonth();
+        if (i > 0 || d.getDate() < 22) {
+          months.append(h("span", { class: "gt-month", style: { left: x(iso) + "px" } }, MONTHS[d.getMonth()] + " " + d.getFullYear()));
+        }
       }
       const isMonday = d.getDay() === 1;
       if (dw >= 18 || isMonday) {
         dayRow.append(h("span", { class: "gt-day" + (iso === today ? " is-today" : "") + (d.getDay() % 6 === 0 ? " is-weekend" : ""),
-          style: { left: i * dw + "px", width: (dw >= 18 ? dw : dw * 7) + "px" } }, String(d.getDate())));
+          style: { left: x(iso) + "px", width: (dw >= 18 ? dw : dw * (weekends ? 7 : 5)) + "px" } }, String(d.getDate())));
       }
     }
     inner.append(h("div", { class: "gt-row gt-head" }, h("div", { class: "gt-label" }, ""), h("div", {}, months, dayRow)));
 
-    const gridStyle = { width: width + "px", "--dw": dw + "px" };
+    const gridStyle = { width: width + "px", "--dw": dw + "px", "--wk": weekends ? 7 : 5 };
     const maxDay = Math.max(1, ...rows.flatMap((row) => Object.values(row.byDay).map((v) => v.minutes)));
     let lastGroup;
 
@@ -150,29 +184,32 @@ const Gantt = {
       const track = h("div", { class: "gt-track gt-grid", style: gridStyle });
 
       if (row.ps) {
-        const bar = h("div", { class: "gt-plan", style: { left: x(row.ps) + "px", width: (daysBetween(row.ps, row.pe) + 1) * dw + "px", "--c": color } });
+        const bar = h("div", { class: "gt-plan", style: { left: x(row.ps) + "px", width: Math.max(3, xEnd(row.pe) - x(row.ps)) + "px", "--c": color } });
         bindTooltip(bar, () => this.tip(row));
         track.append(bar);
       }
       if (row.first) {
-        const span = h("div", { class: "gt-span", style: { left: x(row.first) + "px", width: (daysBetween(row.first, row.last) + 1) * dw + "px", "--c": color } });
+        const span = h("div", { class: "gt-span", style: { left: x(row.first) + "px", width: Math.max(3, xEnd(row.last) - x(row.first)) + "px", "--c": color } });
         bindTooltip(span, () => this.tip(row));
         track.append(span);
         for (const [date, v] of Object.entries(row.byDay)) {
           if (date < start) continue;
           const hgt = Math.max(4, Math.round(v.minutes / maxDay * 22));
-          const tick = h("div", { class: "gt-tick", style: { left: x(date) + 1 + "px", width: Math.max(2, dw - 2) + "px", height: hgt + "px", "--c": color } });
+          // Weekend work with weekends hidden: a thin mark between Friday and Monday.
+          const tick = shown(date)
+            ? h("div", { class: "gt-tick", style: { left: x(date) + 1 + "px", width: Math.max(2, dw - 2) + "px", height: hgt + "px", "--c": color } })
+            : h("div", { class: "gt-tick is-weekend-work", style: { left: x(date) - 1 + "px", width: "3px", height: hgt + "px", "--c": color } });
           bindTooltip(tick, () => `<strong>${esc(r.title)}</strong><br>${fmtDate(date)} · ${fmtMinutes(v.minutes)}` +
             (v.notes.length ? `<div class="tip-note">${v.notes.map(esc).join("<br>")}</div>` : ""));
           track.append(tick);
         }
       }
       if (Store.isDone(r) && r.doneAt && r.doneAt >= start) {
-        track.append(h("div", { class: "gt-done", style: { left: x(r.doneAt) + dw / 2 + "px" }, title: "Finished " + fmtDate(r.doneAt) }, "✓"));
+        track.append(h("div", { class: "gt-done", style: { left: xMid(r.doneAt) + "px" }, title: "Finished " + fmtDate(r.doneAt) }, "✓"));
       }
       const overdue = r.plannedEnd && !Store.isDone(r) && r.plannedEnd < today;
-      const label = h("div", { class: "gt-label gt-res", title: "Edit " + r.title, tabindex: "0" },
-        h("span", { class: "gt-res-title" }, r.title),
+      const label = h("div", { class: "gt-label gt-res" + (r.archived ? " is-archived" : ""), title: (r.archived ? "Archived · " : "Edit ") + r.title, tabindex: "0" },
+        h("span", { class: "gt-res-title" }, r.archived ? h("span", { class: "gt-archived-tag" }, "archived") : null, r.title),
         h("span", { class: "muted small" + (overdue ? " overdue" : "") }, overdue ? "overdue" : (row.total ? fmtHours(row.total) : "")));
       label.addEventListener("click", () => openResourceEditor(r.id));
       inner.append(h("div", { class: "gt-row" }, label, track));
@@ -183,7 +220,7 @@ const Gantt = {
     this.chart.append(scroller);
     // The label column is narrower on small screens, so measure it.
     const labelW = inner.querySelector(".gt-label").offsetWidth;
-    todayLine.style.left = labelW + x(today) + dw / 2 + "px";
+    todayLine.style.left = labelW + xMid(today) + "px";
 
     // Start scrolled so today is visible with some history on screen.
     scroller.scrollLeft = Math.max(0, x(today) - scroller.clientWidth * 0.6);
@@ -201,7 +238,7 @@ const Gantt = {
 
   renderLegend() {
     this.legend.innerHTML = "";
-    const used = new Set(Store.resourceList().map((r) => r.categoryId));
+    const used = new Set(Store.resourceList(this.showArchived.checked).map((r) => r.categoryId));
     for (const c of Store.state.categories.filter((c) => used.has(c.id))) {
       this.legend.append(h("span", { class: "legend-item" }, h("span", { class: "swatch", style: { background: Store.categoryColor(c.id) } }), c.name));
     }
