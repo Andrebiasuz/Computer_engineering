@@ -276,6 +276,7 @@ h2 .small { font-weight: 400; }
 .ic-logger { color: var(--tok-fn); }
 .ic-gantt { color: var(--tok-num); }
 .ic-stats { color: var(--tok-str); }
+.ic-archive { color: var(--tok-const); }
 .header-right { margin-left: auto; display: flex; align-items: center; gap: 10px; flex-wrap: wrap; padding: 6px 0; }
 
 .timer {
@@ -602,7 +603,8 @@ code { font-family: var(--font-mono); font-size: 12px; background: var(--surface
 .gt-head .gt-label { z-index: 6; }
 .gt-track { position: relative; height: 32px; flex: none; overflow: hidden; }
 .gt-grid {
-  background-image: repeating-linear-gradient(to right, transparent 0, transparent calc(var(--dw) * 7 - 1px), var(--grid) calc(var(--dw) * 7 - 1px), var(--grid) calc(var(--dw) * 7));
+  /* --wk = columns per week: 7, or 5 with weekends hidden */
+  background-image: repeating-linear-gradient(to right, transparent 0, transparent calc(var(--dw) * var(--wk, 7) - 1px), var(--grid) calc(var(--dw) * var(--wk, 7) - 1px), var(--grid) calc(var(--dw) * var(--wk, 7)));
 }
 .gt-months, .gt-days { height: 22px; }
 .gt-month, .gt-day { position: absolute; top: 4px; font-family: var(--font-mono); font-size: 10.5px; color: var(--muted); white-space: nowrap; }
@@ -613,6 +615,9 @@ code { font-family: var(--font-mono); font-size: 12px; background: var(--surface
 .gt-plan { position: absolute; top: 5px; height: 22px; border: 1.5px dashed var(--c); border-radius: 4px; }
 .gt-span { position: absolute; top: 5px; height: 22px; background: color-mix(in srgb, var(--c) 22%, transparent); border-radius: 4px; }
 .gt-tick { position: absolute; bottom: 5px; background: var(--c); border-radius: 2px 2px 0 0; }
+.gt-tick.is-weekend-work { border-radius: 1px; opacity: 0.85; }
+.gt-res.is-archived .gt-res-title { color: var(--muted); }
+.gt-archived-tag { font-family: var(--font-mono); font-size: 10px; color: var(--tok-const); border: 1px solid currentColor; border-radius: 3px; padding: 0 4px; margin-right: 6px; }
 .gt-done { position: absolute; top: 7px; transform: translateX(-50%); font-weight: 700; color: var(--good); font-size: 13px; }
 .gt-today { position: absolute; top: 0; bottom: 0; width: 2px; background: var(--bad); opacity: 0.7; pointer-events: none; z-index: 2; }
 
@@ -840,3 +845,81 @@ code { font-family: var(--font-mono); font-size: 12px; background: var(--surface
 
 /* Long resource titles shouldn't push the stats table's other columns off-screen. */
 #st-table td:first-child { max-width: 380px; overflow: hidden; text-overflow: ellipsis; }
+
+/* ---------- status note on cards + per-task work log ---------- */
+
+.res-status {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  margin: -2px 0 7px;
+  padding: 4px 8px;
+  border-left: 2px solid var(--tok-keyword);
+  border-radius: 0 3px 3px 0;
+  background: color-mix(in srgb, var(--tok-keyword) 13%, transparent);
+  font-size: 12px;
+  line-height: 1.4;
+  color: var(--text);
+}
+.res-status-text {
+  flex: 1;
+  min-width: 0;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  display: -webkit-box;
+  -webkit-line-clamp: 3;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+.res-status-date { font-family: var(--font-mono); font-size: 10.5px; color: var(--muted); white-space: nowrap; }
+
+.move-from { margin: -4px 0 0; font-family: var(--font-mono); }
+
+.task-log { display: flex; flex-direction: column; gap: 8px; border-top: 1px solid var(--border); padding-top: 12px; }
+.task-log-head { display: flex; align-items: center; gap: 10px; }
+.task-log-head .small { flex: 1; font-family: var(--font-mono); }
+.task-log-day { display: flex; flex-direction: column; gap: 2px; }
+.task-log-date { display: flex; justify-content: space-between; font-family: var(--font-mono); font-size: 11.5px; color: var(--text-2); padding: 2px 0; border-bottom: 1px dashed var(--border); }
+.task-log-row, .task-log-event {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+  padding: 3px 6px;
+  font-size: 12.5px;
+  text-align: left;
+}
+.task-log-row {
+  width: 100%;
+  background: none;
+  border: 0;
+  border-radius: 3px;
+  color: var(--text);
+  font: inherit;
+  font-size: 12.5px;
+  cursor: pointer;
+}
+.task-log-row:hover { background: var(--surface-3); }
+.task-log-row > span:first-child { font-family: var(--font-mono); min-width: 52px; }
+.task-log-note { flex: 1; min-width: 0; white-space: pre-wrap; overflow-wrap: anywhere; color: var(--text-2); }
+.task-log-event { color: var(--muted); font-size: 12px; }
+.task-log-event .tok-keyword { font-family: var(--font-mono); font-size: 11px; min-width: 52px; }
+
+/* ---------- archive ---------- */
+
+.res-actions { display: flex; justify-content: flex-end; margin-top: 8px; }
+.card-archive { font-family: var(--font-mono); font-size: 11px; color: var(--tok-const); }
+.card-archive:hover { border-color: var(--tok-const); }
+.form-actions-right { display: flex; gap: 8px; margin-left: auto; }
+.archived-note {
+  margin: -4px 0 0;
+  padding: 6px 10px;
+  border-left: 2px solid var(--tok-const);
+  background: color-mix(in srgb, var(--tok-const) 12%, transparent);
+  font-size: 12.5px;
+}
+.data-table td.ar-title { white-space: normal; min-width: 220px; }
+.ar-status { font-size: 12px; color: var(--text-2); margin-top: 2px; }
+.data-table td.ar-actions { text-align: right; }
+.ar-actions .btn + .btn { margin-left: 6px; }
+.btn-danger-text { color: var(--bad); }
+.btn-danger-text:hover { border-color: var(--bad); }

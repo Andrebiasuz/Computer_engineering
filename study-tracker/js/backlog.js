@@ -39,7 +39,7 @@ const Backlog = {
       const v = status.value;
       status.value = "";
       if (!v) return;
-      this.applyToSelected((r) => Store.setStatus(r, v), "Moved");
+      this.moveSelected(v);
     });
     const cat = $id("bl-bulk-category");
     cat.addEventListener("change", () => {
@@ -110,6 +110,13 @@ const Backlog = {
     cat.append(h("option", { value: "" }, "Set category…"),
       ...Store.state.categories.map((c) => h("option", { value: c.id }, c.name)),
       h("option", { value: "__none" }, "Uncategorised"));
+  },
+
+  // Moves into Paused/Done ask how much was studied (see moveWithPrompt).
+  moveSelected(status) {
+    moveWithPrompt([...this.selected], status, null, (moved, asked) => {
+      if (asked) toast(`Moved ${moved} of ${asked} resource${asked === 1 ? "" : "s"}.`);
+    });
   },
 
   applyToSelected(fn, verb) {
@@ -231,7 +238,7 @@ const Backlog = {
     if (prio && Store.priority(r.priority).id !== Number(prio)) return false;
     if (!q) return true;
     const catName = (Store.category(r.categoryId) || {}).name || "";
-    return (r.title + " " + r.notes + " " + r.type + " " + (r.platform || "") + " " + catName + " " + (r.url || "")).toLowerCase().includes(q);
+    return (r.title + " " + r.notes + " " + (r.statusNote || "") + " " + r.type + " " + (r.platform || "") + " " + catName + " " + (r.url || "")).toLowerCase().includes(q);
   },
 
   sorted(items) {
@@ -294,6 +301,9 @@ const Backlog = {
         h("span", { class: "cat-tag" }, cat ? cat.name : "uncategorised"),
         h("span", { class: "prio", style: { "--pc": "var(--tok-" + prio.color + ")" } }, prio.label)),
       h("div", { class: "res-title" }, r.title),
+      r.statusNote ? h("div", { class: "res-status", title: "Status" + (r.statusUpdatedAt ? " · updated " + fmtDate(r.statusUpdatedAt) : "") },
+        h("span", { class: "res-status-text" }, r.statusNote),
+        r.statusUpdatedAt ? h("span", { class: "res-status-date" }, fmtShortDate(r.statusUpdatedAt)) : null) : null,
       h("div", { class: "res-meta" },
         h("span", { class: "tok-type" }, r.type),
         showPlatform ? h("span", { class: "tok-str" }, r.platform) : null,
@@ -302,7 +312,11 @@ const Backlog = {
           : (r.estHours ? h("span", { class: "tok-num" }, "~" + r.estHours + "h") : null),
         r.plannedEnd ? h("span", { class: overdue ? "overdue" : "tok-const" }, (overdue ? "⚠ due " : "due ") + fmtShortDate(r.plannedEnd)) : null,
         r.url ? h("a", { class: "tok-fn", href: r.url, target: "_blank", rel: "noopener", onclick: (e) => e.stopPropagation(), title: r.url }, "link ↗") : null),
-      pct != null ? h("div", { class: "progress", title: pct + "% of estimate" }, h("div", { style: { width: pct + "%" } })) : null);
+      pct != null ? h("div", { class: "progress", title: pct + "% of estimate" }, h("div", { style: { width: pct + "%" } })) : null,
+      // Only finished cards can be archived.
+      Store.isDone(r) && !this.selecting ? h("div", { class: "res-actions" },
+        h("button", { type: "button", class: "btn btn-ghost btn-small card-archive", draggable: "false", title: "Move this card to the Archive tab",
+          onclick: (e) => { e.stopPropagation(); archiveTask(r.id); } }, "Send to archive")) : null);
 
     node.addEventListener("click", (e) => {
       if (e.target.closest("a")) return;
@@ -314,6 +328,7 @@ const Backlog = {
       openResourceEditor(r.id);
     });
     node.addEventListener("keydown", (e) => {
+      if (e.target !== node) return; // e.g. Enter on the archive button
       if (e.key === "Enter") openResourceEditor(r.id);
       else if (e.key === " " && this.selecting) { e.preventDefault(); this.toggleSelect(r.id, e); }
     });
@@ -342,7 +357,7 @@ const Backlog = {
       if (!id) return;
       // Dragging one of several selected cards moves the whole selection.
       if (this.selected.size > 1 && this.selected.has(id)) {
-        this.applyToSelected((r) => Store.setStatus(r, status), "Moved");
+        this.moveSelected(status);
         return;
       }
 
@@ -353,18 +368,20 @@ const Backlog = {
         return e.clientY < box.top + box.height / 2;
       });
 
-      Store.commit((s) => {
-        const r = s.resources[id];
-        if (!r) return;
-        if (Store.column(r.status).id !== status) Store.setStatus(r, status);
+      const place = (s, r) => {
         // With a sort active the position is decided by the sort, so only the column changes.
         if (this.view.sort !== "manual") return;
-        const ordered = cards.map((c) => s.resources[c.dataset.id]);
+        const ordered = cards.map((c) => s.resources[c.dataset.id]).filter(Boolean);
         const idx = after ? ordered.indexOf(s.resources[after.dataset.id]) : ordered.length;
-        ordered.splice(idx, 0, r);
+        ordered.splice(idx < 0 ? ordered.length : idx, 0, r);
         // Order only matters within a column, so re-number just this one.
         ordered.forEach((x, i) => { x.order = i + 1; });
-      });
+      };
+      const r = Store.state.resources[id];
+      if (!r) return;
+      // A new column asks how much work was done first; reordering in place doesn't.
+      if (Store.column(r.status).id !== status) moveWithPrompt([id], status, place);
+      else Store.commit((s) => place(s, s.resources[id]));
     });
   },
 };

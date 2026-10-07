@@ -18,6 +18,7 @@
     <a href="#logger" data-page="logger"><span class="tab-icon ic-logger">◷</span>daily.log</a>
     <a href="#gantt" data-page="gantt"><span class="tab-icon ic-gantt">▤</span>gantt</a>
     <a href="#stats" data-page="stats"><span class="tab-icon ic-stats">Σ</span>stats</a>
+    <a href="#archive" data-page="archive"><span class="tab-icon ic-archive">▣</span>archive</a>
   </nav>
   <div class="header-right">
     <div id="timer" class="timer" title="Drop a resource here, or pick one, then start">
@@ -126,9 +127,15 @@
       <option value="18" selected>Normal</option>
       <option value="30">Wide</option>
     </select>
+    <select id="gt-sort" aria-label="Sort and group rows">
+      <option value="category">Sort: Category</option>
+      <option value="platform">Sort: Platform</option>
+    </select>
     <select id="gt-category" aria-label="Filter by category"></select>
     <label class="small"><input id="gt-show-planned" type="checkbox" checked> planned dates</label>
     <label class="small"><input id="gt-hide-done" type="checkbox"> hide finished</label>
+    <label class="small" title="Show Saturday and Sunday columns"><input id="gt-weekends" type="checkbox" checked> weekends</label>
+    <label class="small" title="Also show resources sent to the archive"><input id="gt-archived" type="checkbox"> archived</label>
   </div>
   <div id="gt-legend" class="legend"></div>
   <div id="gt-chart" class="gantt"></div>
@@ -154,6 +161,18 @@
   <section class="panel">
     <h2>Resources <span class="muted small">estimated vs actual</span></h2>
     <div class="table-wrap"><table id="st-table" class="data-table"></table></div>
+  </section>
+</main>
+
+<!-- ============ ARCHIVE ============ -->
+<main id="page-archive" class="page" hidden>
+  <div class="toolbar">
+    <input id="ar-search" type="search" placeholder="Search archived resources…" autocomplete="off">
+    <span id="ar-summary" class="muted small"></span>
+  </div>
+  <section class="panel">
+    <h2>Archived resources <span class="muted small">finished resources taken off the board · click a row to see its study log</span></h2>
+    <div class="table-wrap"><table id="ar-table" class="data-table"></table></div>
   </section>
 </main>
 
@@ -185,6 +204,7 @@
 <script src="js/gantt.js"></script>
 <script src="js/stats.js"></script>
 <script src="js/importer.js"></script>
+<script src="js/archive.js"></script>
 <script src="js/app.js"></script>
 </body>
 </html>
