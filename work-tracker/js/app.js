@@ -16,6 +16,7 @@ const App = {
 
     document.getElementById("bulk-import-btn").addEventListener("click", () => { this.closeMenu(); openImporter(); });
     document.getElementById("export-json-btn").addEventListener("click", () => { this.closeMenu(); exportJSON(); });
+    document.getElementById("convert-hours-btn").addEventListener("click", () => { this.closeMenu(); openConvertHours(); });
     document.getElementById("export-csv-btn").addEventListener("click", () => { this.closeMenu(); exportLogCSV(); });
     document.getElementById("import-json-input").addEventListener("change", (e) => {
       this.closeMenu();

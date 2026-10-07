@@ -925,3 +925,7 @@ code { font-family: var(--font-mono); font-size: 12px; background: var(--surface
 .ar-actions .btn + .btn { margin-left: 6px; }
 .btn-danger-text { color: var(--bad); }
 .btn-danger-text:hover { border-color: var(--bad); }
+
+/* ---------- one-time hours conversion ---------- */
+.convert-table .factor-input { width: 80px; text-align: right; }
+.convert-table td { vertical-align: middle; }

@@ -72,6 +72,12 @@ Also included (same as the study tracker):
 - **Sort and filter the backlog** by any field, plus free-text search.
 - **Editable totals**: change **Hours worked** and **Sessions** in a task's editor; the difference is logged as real sessions.
 - **Backup**: export and restore everything as JSON, or export the work log as CSV.
+- **Convert logged hours (one-time)** (**Data ▾**): multiplies the hours of
+  every session up to a cutoff date (default 6 Oct 2026, inclusive) by a factor
+  you enter per category, so older logs match timesheet hours. Shows a
+  before/after preview per category, downloads a full backup first, keeps each
+  session's original minutes, and marks converted sessions so they are never
+  converted twice. Categories left at 1.00 are not touched.
 - Dark IDE-style theme by default (light and "follow system" in **Data ▾ → Theme**).
 
 Task types: Task, Feature, Bug, Project, Meeting, Review, Documentation,
