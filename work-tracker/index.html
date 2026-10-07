@@ -16,6 +16,7 @@
     <a href="#gantt" data-page="gantt"><span class="tab-icon ic-gantt">▤</span>gantt</a>
     <a href="#stats" data-page="stats"><span class="tab-icon ic-stats">Σ</span>stats</a>
     <a href="#archive" data-page="archive"><span class="tab-icon ic-archive">▣</span>archive</a>
+    <a href="#reports" data-page="reports"><span class="tab-icon ic-reports">▦</span>reports</a>
   </nav>
   <div class="header-right">
     <div id="timer" class="timer" title="Drop a task here, or pick one, then start">
@@ -57,7 +58,7 @@
     <input id="bl-search" type="search" placeholder="Search tasks…" autocomplete="off">
     <select id="bl-category" aria-label="Filter by category"></select>
     <select id="bl-type" aria-label="Filter by type"></select>
-    <select id="bl-platform" aria-label="Filter by platform"></select>
+    <select id="bl-platform" aria-label="Filter by project"></select>
     <select id="bl-priority" aria-label="Filter by priority"></select>
     <span class="sort-group">
       <select id="bl-sort" aria-label="Sort cards by"></select>
@@ -68,6 +69,7 @@
   <div class="toolbar">
     <button id="bl-add" class="btn btn-primary">+ Add task</button>
     <button id="bl-manage-cats" class="btn btn-ghost">Categories</button>
+    <button id="bl-manage-dlv" class="btn btn-ghost">Deliverables</button>
     <button id="bl-board-settings" class="btn btn-ghost" title="Add, rename, reorder or remove columns and priority levels">Columns &amp; priorities</button>
     <button id="bl-select" class="btn btn-ghost" title="Select several cards (or Ctrl/Cmd+click a card)">Select</button>
     <span class="toolbar-hint">Drag cards between columns · Ctrl/Cmd+click to multi-select</span>
@@ -104,8 +106,10 @@
       <button id="lg-next" class="btn btn-ghost" aria-label="Next week">›</button>
       <strong id="lg-range"></strong>
       <span id="lg-week-total" class="muted"></span>
+      <label class="small muted lg-sum-toggle" title="Hours per project and per category at the bottom of each day"><input id="lg-day-sum" type="checkbox" checked> day summaries</label>
     </div>
     <div id="lg-week" class="week-grid"></div>
+    <section id="lg-summary" class="panel week-summary"></section>
   </section>
 </main>
 
@@ -123,9 +127,13 @@
       <option value="18" selected>Normal</option>
       <option value="30">Wide</option>
     </select>
+    <select id="gt-show" aria-label="Show cards or deliverables">
+      <option value="cards">Show: Cards</option>
+      <option value="deliverables">Show: Deliverables</option>
+    </select>
     <select id="gt-sort" aria-label="Sort and group rows">
       <option value="category">Sort: Category</option>
-      <option value="platform">Sort: Platform</option>
+      <option value="platform">Sort: Project</option>
     </select>
     <select id="gt-category" aria-label="Filter by category"></select>
     <label class="small"><input id="gt-show-planned" type="checkbox" checked> planned dates</label>
@@ -172,6 +180,24 @@
   </section>
 </main>
 
+<!-- ============ REPORTS ============ -->
+<main id="page-reports" class="page page-reports" hidden>
+  <div class="toolbar rp-toolbar no-print">
+    <select id="rp-type" aria-label="Report">
+      <option value="weekly">Weekly status update · team manager</option>
+      <option value="project">Project status · project manager</option>
+      <option value="monthly">Monthly capacity &amp; delivery · team manager</option>
+      <option value="history">Task / deliverable history</option>
+    </select>
+    <span id="rp-controls" class="rp-controls"></span>
+    <span class="rp-actions">
+      <button id="rp-csv" class="btn btn-ghost btn-small" title="Download the report's tables as CSV">CSV</button>
+      <button id="rp-print" class="btn btn-primary btn-small" title="Print, or choose “Save as PDF” as the printer">Print / Save as PDF</button>
+    </span>
+  </div>
+  <article id="rp-sheet" class="report-sheet"></article>
+</main>
+
 <!-- ============ MODALS ============ -->
 <div id="modal-overlay" class="modal-overlay" hidden>
   <div id="modal" class="modal" role="dialog" aria-modal="true"></div>
@@ -193,6 +219,7 @@
 <script src="js/util.js"></script>
 <script src="js/store.js"></script>
 <script src="js/modals.js"></script>
+<script src="js/deliverables.js"></script>
 <script src="js/backlog.js"></script>
 <script src="js/logger.js"></script>
 <script src="js/timer.js"></script>
@@ -201,6 +228,7 @@
 <script src="js/importer.js"></script>
 <script src="js/archive.js"></script>
 <script src="js/convert.js"></script>
+<script src="js/reports.js"></script>
 <script src="js/app.js"></script>
 </body>
 </html>

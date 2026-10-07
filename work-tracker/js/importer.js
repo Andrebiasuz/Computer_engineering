@@ -12,7 +12,7 @@ const IMPORT_FIELDS = [
   { id: "", label: "— ignore —" },
   { id: "title", label: "Title", match: /\b(title|name|resource|task|item|topic|course|titulo|nome|tarefa|recurso|atividade|assunto|curso)\b/ },
   { id: "status", label: "Status", match: /\b(status|state|situacao|estado)\b/ },
-  { id: "platform", label: "Platform", match: /\b(platform|plataforma|provider|vendor|school|escola)\b/ },
+  { id: "platform", label: "Project", match: /\b(project|projeto|job|platform|plataforma|provider|vendor|school|escola)\b/ },
   { id: "category", label: "Category", match: /\b(category|subject|segment|segmento|area|group|phase|module|track|categoria|materia|disciplina|grupo|fase|modulo)\b/ },
   { id: "priority", label: "Priority", match: /\b(priority|prio|prioridade)\b/ },
   { id: "pages", label: "Pages", match: /\b(pages|paginas|pgs)\b/ },
@@ -299,7 +299,7 @@ function openImporter() {
 
   Modal.open(h("div", { class: "form" },
     h("h2", {}, "Import backlog"),
-    h("p", { class: "muted small" }, "Paste rows copied from Excel / Google Sheets, or load a CSV. Recognised columns: title, status, platform, category/segment, priority (your level names, 1–3, or 0–5), pages, work hours, course hours, duration (days), start, end, % complete, link, notes — English or Portuguese headers. A column full of links is used as the Link."),
+    h("p", { class: "muted small" }, "Paste rows copied from Excel / Google Sheets, or load a CSV. Recognised columns: title, status, project, category/segment, priority (your level names, 1–3, or 0–5), pages, work hours, course hours, duration (days), start, end, % complete, link, notes — English or Portuguese headers. A column full of links is used as the Link."),
     ta,
     h("div", { class: "form-row" }, field("…or load a file", file),
       h("label", { class: "small check" }, dayFirst, " Dates are day/month/year (dd/mm/yyyy)"),

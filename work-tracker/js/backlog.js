@@ -16,6 +16,7 @@ const Backlog = {
     this.search.addEventListener("search", () => this.render());
     document.getElementById("bl-add").addEventListener("click", () => openResourceEditor(null));
     document.getElementById("bl-manage-cats").addEventListener("click", openCategoryManager);
+    document.getElementById("bl-manage-dlv").addEventListener("click", openDeliverableManager);
     document.getElementById("bl-board-settings").addEventListener("click", openBoardSettings);
     this.initBulk();
     this.initFilters();
@@ -162,7 +163,7 @@ const Backlog = {
     { id: "title", label: "Title", get: (r) => r.title.toLowerCase() },
     { id: "category", label: "Category", get: (r) => ((Store.category(r.categoryId) || {}).name || "").toLowerCase() || null },
     { id: "type", label: "Type", get: (r) => (r.type || "").toLowerCase() || null },
-    { id: "platform", label: "Platform", get: (r) => (r.platform || "").toLowerCase() || null },
+    { id: "platform", label: "Project", get: (r) => (r.platform || "").toLowerCase() || null },
     { id: "studied", label: "Hours worked", get: (r) => Store.minutesFor(r.id) || null, desc: true },
     { id: "estHours", label: "Work estimate", get: (r) => r.estHours || null },
     { id: "remaining", label: "Hours remaining", get: (r) => (r.estHours ? Math.max(0, r.estHours * 60 - Store.minutesFor(r.id)) : null) },
@@ -216,7 +217,7 @@ const Backlog = {
     };
     const uniq = (vals) => [...new Set(vals.filter(Boolean))].sort((a, b) => a.localeCompare(b));
     fill("bl-type", "All types", uniq(all.map((r) => r.type)).map((t) => [t, t]));
-    fill("bl-platform", "All platforms", uniq(all.map((r) => r.platform)).map((p) => [p, p]).concat([["__none", "No platform"]]));
+    fill("bl-platform", "All projects", uniq(all.map((r) => r.platform)).map((p) => [p, p]).concat([["__none", "No project"]]));
     fill("bl-priority", "All priorities", Store.priorities().map((p) => [String(p.id), "Priority: " + p.label]));
     this.catFilter.classList.toggle("is-filtering", !!this.catFilter.value);
     const active = this.search.value.trim() || ["bl-category", "bl-type", "bl-platform", "bl-priority"].some((id) => document.getElementById(id).value);
@@ -238,7 +239,8 @@ const Backlog = {
     if (prio && Store.priority(r.priority).id !== Number(prio)) return false;
     if (!q) return true;
     const catName = (Store.category(r.categoryId) || {}).name || "";
-    return (r.title + " " + r.notes + " " + (r.statusNote || "") + " " + r.type + " " + (r.platform || "") + " " + catName + " " + (r.url || "")).toLowerCase().includes(q);
+    const dlv = Store.deliverable(r.deliverableId);
+    return (r.title + " " + r.notes + " " + (r.statusNote || "") + " " + (dlv ? dlv.name : "") + " " + r.type + " " + (r.platform || "") + " " + catName + " " + (r.url || "")).toLowerCase().includes(q);
   },
 
   sorted(items) {
@@ -305,6 +307,7 @@ const Backlog = {
         h("span", { class: "res-status-text" }, r.statusNote),
         r.statusUpdatedAt ? h("span", { class: "res-status-date" }, fmtShortDate(r.statusUpdatedAt)) : null) : null,
       h("div", { class: "res-meta" },
+        Store.deliverable(r.deliverableId) ? h("span", { class: "tok-keyword", title: "Deliverable" }, "◆ " + Store.deliverable(r.deliverableId).name) : null,
         h("span", { class: "tok-type" }, r.type),
         showPlatform ? h("span", { class: "tok-str" }, r.platform) : null,
         r.pages ? h("span", { class: "tok-num" }, r.pages + "p") : null,

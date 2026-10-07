@@ -28,7 +28,7 @@ const Archive = {
     const el = this.table;
     el.innerHTML = "";
     el.append(h("thead", {}, h("tr", {},
-      ["Task", "Category", "Type", "Platform", "Hours", "Sessions", "Finished", "Archived", ""].map((c) =>
+      ["Task", "Category", "Type", "Project", "Hours", "Sessions", "Finished", "Archived", ""].map((c) =>
         h("th", { class: ["Hours", "Sessions"].includes(c) ? "num" : "" }, c)))));
     const body = h("tbody");
     if (!rows.length) {

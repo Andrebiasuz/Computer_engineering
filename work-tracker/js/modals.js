@@ -57,8 +57,18 @@ function openResourceEditor(resourceId) {
   const url = h("input", { name: "url", value: r.url, placeholder: "https://…", type: "url" });
   const est = h("input", { name: "estHours", type: "number", min: "0", step: "0.25", value: r.estHours == null ? "" : r.estHours });
   const platforms = [...new Set(Object.values(Store.state.resources).map((x) => x.platform).filter(Boolean))].sort();
-  const platform = h("input", { name: "platform", value: r.platform || "", placeholder: "Client, team, system…", list: "platform-list" });
+  const platform = h("input", { name: "platform", value: r.platform || "", placeholder: "e.g. P-2317 Substation", list: "platform-list" });
   const platformList = h("datalist", { id: "platform-list" }, platforms.map((p) => h("option", { value: p })));
+  // Deliverable: pick one of this project's deliverables, or type a new name to create it on save.
+  const curDlv = Store.deliverable(r.deliverableId);
+  const deliverable = h("input", { name: "deliverable", value: curDlv ? curDlv.name : "", placeholder: "optional · groups cards", list: "deliverable-list", autocomplete: "off" });
+  const deliverableList = h("datalist", { id: "deliverable-list" });
+  const fillDeliverables = () => {
+    const key = platform.value.trim().toLowerCase();
+    deliverableList.replaceChildren(...Store.deliverableList(key).map((d) => h("option", { value: d.name })));
+  };
+  platform.addEventListener("input", fillDeliverables);
+  fillDeliverables();
   const lengthH = h("input", { name: "lengthHours", type: "number", min: "0", step: "0.25", value: r.lengthHours == null ? "" : r.lengthHours });
   const pages = h("input", { name: "pages", type: "number", min: "0", step: "1", value: r.pages == null ? "" : r.pages });
   const ps = h("input", { name: "plannedStart", type: "date", value: r.plannedStart });
@@ -109,7 +119,7 @@ function openResourceEditor(resourceId) {
     field("Title", title),
     field("Status", statusNote, r.statusUpdatedAt ? "Shown on the card · updated " + fmtDate(r.statusUpdatedAt) : "Shown on the card"),
     h("div", { class: "form-row" }, field("Type", type), field("Category", cat), field("Priority", priority)),
-    h("div", { class: "form-row" }, field("Column", status), field("Platform", platform), platformList),
+    h("div", { class: "form-row" }, field("Column", status), field("Project", platform), field("Deliverable", deliverable), platformList, deliverableList),
     h("div", { class: "form-row" }, field("Hours worked", studied), field("Sessions", sessions), workDateField),
     studiedHint,
     h("div", { class: "form-row" }, field("Work estimate (h)", est, "Drives the progress bar"), field("Course length (h)", lengthH), field("Pages", pages)),
@@ -176,6 +186,7 @@ function openResourceEditor(resourceId) {
     const askOnMove = columnChanged && Store.asksForWork(newStatus) && !hoursChanged && !sessionsChanged;
     Store.commit((s) => {
       s.resources[r.id] = Object.assign(r, next);
+      r.deliverableId = Store.findOrCreateDeliverable(s, Store.projectKey(r), fd.get("deliverable"));
       Store.setStatusNote(r, fd.get("statusNote"));
       if (!existing) Store.setStatus(r, newStatus, false);
       else if (columnChanged && !askOnMove) Store.setStatus(r, newStatus);
@@ -223,7 +234,8 @@ function taskLog(resourceId, canLeave) {
   const byDate = {};
   const add = (date, at, item) => (byDate[date] = byDate[date] || []).push({ at: at || "", item });
   logs.forEach((l) => add(l.date, l.createdAt, { log: l }));
-  (r.history || []).forEach((e) => add(e.date, e.at, { event: e }));
+  // Column moves are kept in the history (they measure waiting time in reports) but not shown here.
+  (r.history || []).filter((e) => e.kind !== "move").forEach((e) => add(e.date, e.at, { event: e }));
   const dates = Object.keys(byDate).sort().reverse();
 
   const addBtn = h("button", { type: "button", class: "btn btn-ghost btn-small", onclick: () => {

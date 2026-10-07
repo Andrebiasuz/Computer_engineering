@@ -4,7 +4,7 @@
  * Data model
  *
  *   categories: [{ id, name, slot }]          slot = fixed color slot 0..7 (8+ = "other" gray)
- *   resources:  { id: { id, title, type, platform, categoryId, url, estHours, lengthHours, pages, priority,
+ *   resources:  { id: { id, title, type, platform (shown as "Project"), categoryId, url, estHours, lengthHours, pages, priority,
  *                        extraSessions (sessions counted without time; hours are always real logs),
  *                        status, plannedStart, plannedEnd, notes, createdAt, doneAt, order,
  *                        statusNote, statusUpdatedAt (free-text "where this stands", shown on the card),
@@ -12,6 +12,8 @@
  *                        history: [{ at, date, kind: "move", from, to } | { at, date, kind: "status", text }
  *                                  | { at, date, kind: "sessions", count, text } | { at, date, kind: "archive" | "restore" }] } }
  *   logs:       { id: { id, resourceId, date, minutes, note, focus } }
+ *   deliverables: { id: { id, project (lower-case project key), name, estHours, dueDate, issuedAt, createdAt } }
+ *               a deliverable groups several cards (resource.deliverableId) of one project
  *   columns:    [{ id, label, kind, color }]  board columns, in order. kind drives behaviour:
  *               todo (not started) | doing (in progress) | hold (paused) | done (finished)
  *   priorities: [{ id, label, color }]        highest first; resource.priority holds an id
@@ -54,6 +56,7 @@ function defaultState() {
     priorities: DEFAULT_PRIORITIES.map((p) => Object.assign({}, p)),
     resources: {},
     logs: {},
+    deliverables: {},
   };
 }
 
@@ -99,6 +102,7 @@ function normalizeState(s) {
     priorities: Array.isArray(s.priorities) && s.priorities.length ? s.priorities : base.priorities,
     resources: s.resources && typeof s.resources === "object" ? s.resources : {},
     logs: s.logs && typeof s.logs === "object" ? s.logs : {},
+    deliverables: s.deliverables && typeof s.deliverables === "object" ? s.deliverables : {},
     meta: s.meta && typeof s.meta === "object" ? s.meta : { updatedAt: "" },
   };
 }
@@ -304,6 +308,88 @@ const Store = {
     r.archived = false;
     r.archivedAt = "";
     this.addHistory(r, { kind: "restore" });
+  },
+
+  /* ---------- projects (stored in resource.platform, shown as "Project") ---------- */
+
+  projectName(r) { return ((r && r.platform) || "").trim(); },
+
+  // Projects grouped case-insensitively; label is the first spelling seen (A→Z order).
+  projects() {
+    const seen = new Map();
+    for (const r of Object.values(this.state.resources)) {
+      const n = this.projectName(r);
+      if (n && !seen.has(n.toLowerCase())) seen.set(n.toLowerCase(), n);
+    }
+    return [...seen.entries()].sort((a, b) => a[1].localeCompare(b[1], undefined, { sensitivity: "base" })).map(([key, label]) => ({ key, label }));
+  },
+
+  projectKey(r) { return this.projectName(r).toLowerCase(); },
+
+  projectLabel(key) {
+    if (!key) return "No project";
+    const p = this.projects().find((x) => x.key === key);
+    return p ? p.label : key;
+  },
+
+  projectColor(key) {
+    if (!key) return "var(--cat-other)";
+    const i = this.projects().findIndex((x) => x.key === key);
+    return i < 0 ? "var(--cat-other)" : "var(--cat-" + (i % CATEGORY_SLOTS) + ")";
+  },
+
+  /* ---------- deliverables (several cards of one project) ---------- */
+
+  deliverable(id) { return (id && this.state.deliverables[id]) || null; },
+
+  deliverableList(projectKey) {
+    return Object.values(this.state.deliverables)
+      .filter((d) => projectKey == null || d.project === projectKey)
+      .sort((a, b) => a.name.localeCompare(b.name, undefined, { numeric: true, sensitivity: "base" }));
+  },
+
+  cardsOf(deliverableId) {
+    return Object.values(this.state.resources).filter((r) => r.deliverableId === deliverableId)
+      .sort((a, b) => (a.order || 0) - (b.order || 0));
+  },
+
+  // Must be called inside commit(). Same name (any case) in the same project = same deliverable.
+  findOrCreateDeliverable(state, projectKey, name) {
+    name = (name || "").trim();
+    if (!name) return null;
+    const hit = Object.values(state.deliverables).find((d) => d.project === projectKey && d.name.toLowerCase() === name.toLowerCase());
+    if (hit) return hit.id;
+    const d = { id: uid(), project: projectKey, name, estHours: null, dueDate: "", issuedAt: "", createdAt: todayISO() };
+    state.deliverables[d.id] = d;
+    return d.id;
+  },
+
+  // Rolled-up view of a deliverable. Estimate and due date fall back to its cards;
+  // it counts as issued when marked, or when every card is done.
+  deliverableSummary(d) {
+    const cards = this.cardsOf(d.id);
+    const logs = cards.flatMap((r) => this.logsFor(r.id)).sort((a, b) => a.date.localeCompare(b.date));
+    const cardEst = cards.reduce((s, r) => s + (Number(r.estHours) || 0), 0);
+    const doneCards = cards.filter((r) => this.isDone(r));
+    const allDone = cards.length > 0 && doneCards.length === cards.length;
+    const latest = (key) => cards.map((r) => r[key]).filter(Boolean).sort().pop() || "";
+    const earliest = (key) => cards.map((r) => r[key]).filter(Boolean).sort()[0] || "";
+    const noted = cards.filter((r) => r.statusNote).sort((a, b) => (b.statusUpdatedAt || "").localeCompare(a.statusUpdatedAt || ""))[0];
+    return {
+      d, cards, logs,
+      minutes: logs.reduce((s, l) => s + l.minutes, 0),
+      sessions: cards.reduce((s, r) => s + this.sessionsFor(r.id), 0),
+      estHours: d.estHours != null && d.estHours !== "" ? Number(d.estHours) : (cardEst || null),
+      dueDate: d.dueDate || latest("plannedEnd"),
+      startDate: earliest("plannedStart"),
+      issued: !!d.issuedAt || allDone,
+      issuedAt: d.issuedAt || (allDone ? latest("doneAt") : ""),
+      doneCards: doneCards.length,
+      statusNote: noted ? noted.statusNote : "",
+      statusUpdatedAt: noted ? noted.statusUpdatedAt : "",
+      onHold: cards.filter((r) => !this.isDone(r) && this.kindOf(r.status) === "hold"),
+      archived: cards.length > 0 && cards.every((r) => r.archived),
+    };
   },
 
   /* ---------- resources ---------- */

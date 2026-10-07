@@ -8,6 +8,10 @@ const Logger = {
   weekEl: document.getElementById("lg-week"),
   search: document.getElementById("lg-search"),
   showDone: document.getElementById("lg-show-done"),
+  daySum: document.getElementById("lg-day-sum"),
+  summaryEl: document.getElementById("lg-summary"),
+  summaryBy: "project", // week summary rows: "project" | "category"
+  VIEW_KEY: "work-tracker-logger-view",
 
   init() {
     this.search.addEventListener("input", () => this.renderSidebar());
@@ -15,6 +19,81 @@ const Logger = {
     document.getElementById("lg-prev").addEventListener("click", () => { this.weekStart = addDays(this.weekStart, -7); this.renderWeek(); });
     document.getElementById("lg-next").addEventListener("click", () => { this.weekStart = addDays(this.weekStart, 7); this.renderWeek(); });
     document.getElementById("lg-today").addEventListener("click", () => { this.weekStart = startOfWeek(todayISO()); this.renderWeek(); });
+    try {
+      const v = JSON.parse(localStorage.getItem(this.VIEW_KEY)) || {};
+      if (typeof v.daySum === "boolean") this.daySum.checked = v.daySum;
+      if (v.summaryBy === "category" || v.summaryBy === "project") this.summaryBy = v.summaryBy;
+    } catch (e) { /* ignore */ }
+    this.daySum.addEventListener("change", () => { this.saveView(); this.renderWeek(); });
+  },
+
+  saveView() {
+    try { localStorage.setItem(this.VIEW_KEY, JSON.stringify({ daySum: this.daySum.checked, summaryBy: this.summaryBy })); } catch (e) { /* ignore */ }
+  },
+
+  // Hours of some sessions grouped by project or by category: [{ key, label, color, minutes }], largest first.
+  groupLogs(logs, by) {
+    const groups = new Map();
+    for (const l of logs) {
+      const r = Store.state.resources[l.resourceId];
+      let key, label, color;
+      if (by === "category") {
+        const cat = r && Store.category(r.categoryId);
+        key = cat ? cat.id : "";
+        label = cat ? cat.name : "Uncategorised";
+        color = Store.categoryColor(cat ? cat.id : null);
+      } else {
+        key = Store.projectKey(r);
+        label = Store.projectLabel(key);
+        color = Store.projectColor(key);
+      }
+      const g = groups.get(key) || { key, label, color, minutes: 0 };
+      g.minutes += l.minutes;
+      groups.set(key, g);
+    }
+    return [...groups.values()].sort((a, b) => b.minutes - a.minutes || a.label.localeCompare(b.label));
+  },
+
+  daySummary(logs) {
+    const block = (title, groups) => h("div", { class: "day-sum-group" },
+      h("div", { class: "day-sum-title" }, title),
+      groups.map((g) => h("div", { class: "day-sum-row", title: g.label + " · " + fmtMinutes(g.minutes) },
+        h("span", { class: "swatch", style: { background: g.color } }),
+        h("span", { class: "day-sum-name" }, g.label),
+        h("span", { class: "day-sum-h" }, fmtMinutes(g.minutes)))));
+    return h("div", { class: "day-sum" }, block("by project", this.groupLogs(logs, "project")), block("by category", this.groupLogs(logs, "category")));
+  },
+
+  // Week summary below the grid: projects (or categories) × days.
+  renderSummary(byDay) {
+    const el = this.summaryEl;
+    el.innerHTML = "";
+    const days = Array.from({ length: 7 }, (_, i) => addDays(this.weekStart, i));
+    const all = days.flatMap((d) => byDay[d] || []);
+    const toggle = h("span", { class: "seg" }, [["project", "By project"], ["category", "By category"]].map(([v, label]) =>
+      h("button", { type: "button", class: "seg-btn" + (this.summaryBy === v ? " active" : ""), onclick: () => { this.summaryBy = v; this.saveView(); this.renderSummary(byDay); } }, label)));
+    el.append(h("div", { class: "week-summary-head" }, h("h2", {}, "Week summary"), toggle));
+    if (!all.length) {
+      el.append(h("div", { class: "empty" }, "No sessions this week."));
+      return;
+    }
+    const rows = this.groupLogs(all, this.summaryBy);
+    const per = {}; // key -> date -> minutes
+    for (const d of days) for (const g of this.groupLogs(byDay[d] || [], this.summaryBy)) (per[g.key] = per[g.key] || {})[d] = g.minutes;
+    const total = all.reduce((s, l) => s + l.minutes, 0);
+    const dayTot = days.map((d) => (byDay[d] || []).reduce((s, l) => s + l.minutes, 0));
+    const cell = (m) => h("td", { class: "num" }, m ? fmtMinutes(m) : "·");
+    el.append(h("div", { class: "table-wrap" }, h("table", { class: "data-table week-sum-table" },
+      h("thead", {}, h("tr", {}, h("th", {}, this.summaryBy === "project" ? "Project" : "Category"),
+        days.map((d, i) => h("th", { class: "num" + (d === todayISO() ? " is-today" : "") }, WEEKDAYS[i] + " " + fromISO(d).getDate())),
+        h("th", { class: "num" }, "Total"), h("th", { class: "num" }, "Share"))),
+      h("tbody", {}, rows.map((g) => h("tr", {},
+        h("td", {}, h("span", { class: "swatch", style: { background: g.color } }), " ", g.label),
+        days.map((d) => cell((per[g.key] || {})[d])),
+        h("td", { class: "num strong" }, fmtMinutes(g.minutes)),
+        h("td", { class: "num" }, Math.round(g.minutes / total * 100) + "%")))),
+      h("tfoot", {}, h("tr", {}, h("td", {}, "Day total"), dayTot.map((m) => cell(m)),
+        h("td", { class: "num strong" }, fmtMinutes(total)), h("td", { class: "num" }, "100%"))))));
   },
 
   render() {
@@ -83,6 +162,7 @@ const Logger = {
       const body = h("div", { class: "day-body" });
       logs.forEach((l) => body.append(this.entry(l)));
       body.append(h("div", { class: "day-drop-hint" }, logs.length ? "+ drop to add" : "Drop a task here"));
+      if (this.daySum.checked && logs.length) body.append(this.daySummary(logs));
 
       const col = h("section", { class: "day" + (date === today ? " is-today" : "") + (date > today ? " is-future" : "") },
         h("header", { class: "day-head" },
@@ -94,6 +174,7 @@ const Logger = {
       this.bindDrop(col, date);
       this.weekEl.append(col);
     }
+    this.renderSummary(byDay);
   },
 
   entry(l) {

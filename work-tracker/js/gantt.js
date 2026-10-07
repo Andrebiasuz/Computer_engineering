@@ -18,6 +18,7 @@ const Gantt = {
   hideDone: document.getElementById("gt-hide-done"),
   showWeekends: document.getElementById("gt-weekends"),
   showArchived: document.getElementById("gt-archived"),
+  showSel: document.getElementById("gt-show"),
   VIEW_KEY: "work-tracker-gantt-view",
 
   init() {
@@ -30,9 +31,10 @@ const Gantt = {
       const v = JSON.parse(localStorage.getItem(this.VIEW_KEY)) || {};
       if (typeof v.weekends === "boolean") this.showWeekends.checked = v.weekends;
       if (typeof v.archived === "boolean") this.showArchived.checked = v.archived;
+      if (v.show === "deliverables" || v.show === "cards") this.showSel.value = v.show;
     } catch (e) { /* ignore */ }
-    [this.showWeekends, this.showArchived].forEach((c) => c.addEventListener("change", () => {
-      try { localStorage.setItem(this.VIEW_KEY, JSON.stringify({ weekends: this.showWeekends.checked, archived: this.showArchived.checked })); } catch (e) { /* ignore */ }
+    [this.showWeekends, this.showArchived, this.showSel].forEach((c) => c.addEventListener("change", () => {
+      try { localStorage.setItem(this.VIEW_KEY, JSON.stringify({ weekends: this.showWeekends.checked, archived: this.showArchived.checked, show: this.showSel.value })); } catch (e) { /* ignore */ }
       this.render();
     }));
     this.sortSel.addEventListener("change", () => {
@@ -43,25 +45,50 @@ const Gantt = {
 
   byPlatform() { return this.sortSel.value === "platform"; },
 
-  // Group key and header for a row: its category, or its platform when sorting by platform.
+  // With "Show: Deliverables", a deliverable's cards become one rolled-up row.
+  // Rows then carry a card-like object; these helpers work for both.
+  isDone(r) { return r._dlvId ? r._done : Store.isDone(r); },
+  logsOf(r) { return r._dlvId ? r._logs : Store.logsFor(r.id); },
+  sessionsOf(r) { return r._dlvId ? r._sessions : Store.sessionsFor(r.id); },
+
+  deliverableRow(d) {
+    const sm = Store.deliverableSummary(d);
+    const first = sm.cards[0] || {};
+    return {
+      id: "dlv:" + d.id, _dlvId: d.id, _done: sm.issued, _logs: sm.logs, _sessions: sm.sessions,
+      title: "◆ " + d.name + " · " + sm.cards.length + " card" + (sm.cards.length === 1 ? "" : "s"),
+      categoryId: first.categoryId || null, platform: first.platform || Store.projectLabel(d.project),
+      plannedStart: sm.startDate, plannedEnd: sm.dueDate, doneAt: sm.issuedAt, archived: sm.archived,
+    };
+  },
+
+  // Group key and header for a row: its category, or its project (stored as `platform`) when sorting by project.
   groupOf(r) {
     if (!this.byPlatform()) {
       const cat = Store.category(r.categoryId);
       return { key: "c:" + (r.categoryId || ""), label: cat ? cat.name : "Uncategorised", color: Store.categoryColor(r.categoryId) };
     }
     const p = (r.platform || "").trim();
-    return { key: "p:" + p.toLowerCase(), label: p || "No platform", color: null };
+    return { key: "p:" + p.toLowerCase(), label: p || "No project", color: null };
   },
 
   rows() {
     const cat = this.catSel.value;
     const planned = this.showPlanned.checked;
     const out = [];
+    const items = [];
+    const seen = new Set();
+    for (const r of Store.resourceList(true)) {
+      const d = this.showSel.value === "deliverables" && Store.deliverable(r.deliverableId);
+      if (!d) { items.push(r); continue; }
+      if (!seen.has(d.id)) { seen.add(d.id); items.push(this.deliverableRow(d)); }
+    }
     // Archived tasks only appear when "archived" is ticked ("hide finished" doesn't apply to them).
-    for (const r of Store.resourceList(this.showArchived.checked)) {
-      if (this.hideDone.checked && Store.isDone(r) && !r.archived) continue;
+    for (const r of items) {
+      if (r.archived && !this.showArchived.checked) continue;
+      if (this.hideDone.checked && this.isDone(r) && !r.archived) continue;
       if (cat && (r.categoryId || "") !== (cat === "__none" ? "" : cat)) continue;
-      const logs = Store.logsFor(r.id);
+      const logs = this.logsOf(r);
       const byDay = {};
       logs.forEach((l) => { byDay[l.date] = byDay[l.date] || { minutes: 0, notes: [] }; byDay[l.date].minutes += l.minutes; if (l.note) byDay[l.date].notes.push(l.note); });
       let ps = planned ? r.plannedStart : "", pe = planned ? r.plannedEnd : "";
@@ -73,7 +100,7 @@ const Gantt = {
         r, byDay, logs, ps, pe,
         first: logs.length ? logs[0].date : "",
         last: logs.length ? logs[logs.length - 1].date : "",
-        total: Store.minutesFor(r.id),
+        total: logs.reduce((s, l) => s + l.minutes, 0),
       });
     }
     // Group by category (in category order), then by when the work starts.
@@ -176,7 +203,7 @@ const Gantt = {
       const t = (groupTotals[this.groupOf(row.r).key] = groupTotals[this.groupOf(row.r).key] || { minutes: 0, tasks: 0, sessions: 0 });
       t.minutes += row.total;
       t.tasks += 1;
-      t.sessions += Store.sessionsFor(row.r.id);
+      t.sessions += this.sessionsOf(row.r);
     }
 
     for (const row of rows) {
@@ -216,14 +243,14 @@ const Gantt = {
           track.append(tick);
         }
       }
-      if (Store.isDone(r) && r.doneAt && r.doneAt >= start) {
+      if (this.isDone(r) && r.doneAt && r.doneAt >= start) {
         track.append(h("div", { class: "gt-done", style: { left: xMid(r.doneAt) + "px" }, title: "Finished " + fmtDate(r.doneAt) }, "✓"));
       }
-      const overdue = r.plannedEnd && !Store.isDone(r) && r.plannedEnd < today;
+      const overdue = r.plannedEnd && !this.isDone(r) && r.plannedEnd < today;
       const label = h("div", { class: "gt-label gt-res" + (r.archived ? " is-archived" : ""), title: (r.archived ? "Archived · " : "Edit ") + r.title, tabindex: "0" },
         h("span", { class: "gt-res-title" }, r.archived ? h("span", { class: "gt-archived-tag" }, "archived") : null, r.title),
         h("span", { class: "muted small" + (overdue ? " overdue" : "") }, overdue ? "overdue" : (row.total ? fmtHours(row.total) : "")));
-      label.addEventListener("click", () => openResourceEditor(r.id));
+      label.addEventListener("click", () => (r._dlvId ? openDeliverableEditor(r._dlvId) : openResourceEditor(r.id)));
       inner.append(h("div", { class: "gt-row" }, label, track));
     }
 
