@@ -170,14 +170,26 @@ const Gantt = {
     const gridStyle = { width: width + "px", "--dw": dw + "px", "--wk": weekends ? 7 : 5 };
     const maxDay = Math.max(1, ...rows.flatMap((row) => Object.values(row.byDay).map((v) => v.minutes)));
     let lastGroup;
+    // Hours per group (category, or platform when sorted by platform), over the rows shown.
+    const groupTotals = {};
+    for (const row of rows) {
+      const t = (groupTotals[this.groupOf(row.r).key] = groupTotals[this.groupOf(row.r).key] || { minutes: 0, tasks: 0, sessions: 0 });
+      t.minutes += row.total;
+      t.tasks += 1;
+      t.sessions += Store.sessionsFor(row.r.id);
+    }
 
     for (const row of rows) {
       const r = row.r;
       const g = this.groupOf(r);
       if (g.key !== lastGroup) {
         lastGroup = g.key;
+        const t = groupTotals[g.key];
         inner.append(h("div", { class: "gt-row gt-group" },
-          h("div", { class: "gt-label" }, g.color ? h("span", { class: "swatch", style: { background: g.color } }) : h("span", { class: "tok-str" }, "▸"), g.label),
+          h("div", { class: "gt-label" }, g.color ? h("span", { class: "swatch", style: { background: g.color } }) : h("span", { class: "tok-str" }, "▸"),
+            h("span", { class: "gt-group-name", title: g.label }, g.label),
+            h("span", { class: "gt-group-total", title: `${fmtMinutes(t.minutes)} across ${t.tasks} task${t.tasks === 1 ? "" : "s"} · ${t.sessions} session${t.sessions === 1 ? "" : "s"}` },
+              fmtHours(t.minutes))),
           h("div", { class: "gt-track", style: gridStyle })));
       }
       const color = Store.categoryColor(r.categoryId);
