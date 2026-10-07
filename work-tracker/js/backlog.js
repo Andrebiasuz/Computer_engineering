@@ -157,24 +157,25 @@ const Backlog = {
   /* ---------- filters + sorting ---------- */
 
   // A field sorts ascending by `get`; empty values always sink to the bottom.
+  // `show` is the card's value for that field, shown in the sort ribbon on each card.
   SORTS: [
     { id: "manual", label: "Manual order", get: (r) => r.order || 0 },
-    { id: "priority", label: "Priority", get: (r) => Store.priorityRank(r.priority) },
-    { id: "title", label: "Title", get: (r) => r.title.toLowerCase() },
-    { id: "category", label: "Category", get: (r) => ((Store.category(r.categoryId) || {}).name || "").toLowerCase() || null },
-    { id: "type", label: "Type", get: (r) => (r.type || "").toLowerCase() || null },
-    { id: "platform", label: "Project", get: (r) => (r.platform || "").toLowerCase() || null },
-    { id: "studied", label: "Hours worked", get: (r) => Store.minutesFor(r.id) || null, desc: true },
-    { id: "estHours", label: "Work estimate", get: (r) => r.estHours || null },
-    { id: "remaining", label: "Hours remaining", get: (r) => (r.estHours ? Math.max(0, r.estHours * 60 - Store.minutesFor(r.id)) : null) },
-    { id: "progress", label: "Progress %", get: (r) => (r.estHours ? Store.minutesFor(r.id) / (r.estHours * 60) : null), desc: true },
-    { id: "lengthHours", label: "Course length", get: (r) => r.lengthHours || null },
-    { id: "pages", label: "Pages", get: (r) => r.pages || null },
-    { id: "sessions", label: "Sessions", get: (r) => Store.sessionsFor(r.id) || null, desc: true },
-    { id: "lastStudied", label: "Last worked", get: (r) => { const l = Store.logsFor(r.id); return l.length ? l[l.length - 1].date : null; }, desc: true },
-    { id: "plannedStart", label: "Planned start", get: (r) => r.plannedStart || null },
-    { id: "plannedEnd", label: "Planned end / due", get: (r) => r.plannedEnd || null },
-    { id: "createdAt", label: "Date added", get: (r) => r.createdAt || null, desc: true },
+    { id: "priority", label: "Priority", get: (r) => Store.priorityRank(r.priority), show: (r) => Store.priority(r.priority).label },
+    { id: "title", label: "Title", get: (r) => r.title.toLowerCase(), show: (r) => (r.title.trim()[0] || "").toUpperCase() },
+    { id: "category", label: "Category", get: (r) => ((Store.category(r.categoryId) || {}).name || "").toLowerCase() || null, show: (r) => (Store.category(r.categoryId) || {}).name },
+    { id: "type", label: "Type", get: (r) => (r.type || "").toLowerCase() || null, show: (r) => r.type },
+    { id: "platform", label: "Project", get: (r) => (r.platform || "").toLowerCase() || null, show: (r) => r.platform },
+    { id: "studied", label: "Hours worked", get: (r) => Store.minutesFor(r.id) || null, desc: true, show: (r) => Store.minutesFor(r.id) && fmtMinutes(Store.minutesFor(r.id)) },
+    { id: "estHours", label: "Work estimate", get: (r) => r.estHours || null, show: (r) => r.estHours && r.estHours + "h" },
+    { id: "remaining", label: "Hours remaining", get: (r) => (r.estHours ? Math.max(0, r.estHours * 60 - Store.minutesFor(r.id)) : null), show: (r) => r.estHours && fmtMinutes(Math.max(0, r.estHours * 60 - Store.minutesFor(r.id))) },
+    { id: "progress", label: "Progress", get: (r) => (r.estHours ? Store.minutesFor(r.id) / (r.estHours * 60) : null), desc: true, show: (r) => r.estHours && Math.round((Store.minutesFor(r.id) / (r.estHours * 60)) * 100) + "%" },
+    { id: "lengthHours", label: "Course length", get: (r) => r.lengthHours || null, show: (r) => r.lengthHours && r.lengthHours + "h" },
+    { id: "pages", label: "Pages", get: (r) => r.pages || null, show: (r) => r.pages },
+    { id: "sessions", label: "Sessions", get: (r) => Store.sessionsFor(r.id) || null, desc: true, show: (r) => Store.sessionsFor(r.id) },
+    { id: "lastStudied", label: "Last worked", get: (r) => { const l = Store.logsFor(r.id); return l.length ? l[l.length - 1].date : null; }, desc: true, show: (r) => { const l = Store.logsFor(r.id); return l.length && fmtShortDate(l[l.length - 1].date); } },
+    { id: "plannedStart", label: "Planned start", get: (r) => r.plannedStart || null, show: (r) => r.plannedStart && fmtShortDate(r.plannedStart) },
+    { id: "plannedEnd", label: "Due", get: (r) => r.plannedEnd || null, show: (r) => r.plannedEnd && fmtShortDate(r.plannedEnd) },
+    { id: "createdAt", label: "Date added", get: (r) => r.createdAt || null, desc: true, show: (r) => r.createdAt && fmtShortDate(r.createdAt) },
   ],
 
   view: { sort: "manual", desc: false },
@@ -296,8 +297,14 @@ const Backlog = {
     const sel = this.selected.has(r.id);
     const showPlatform = r.platform && r.platform.toLowerCase() !== r.type.toLowerCase();
 
+    // With a sort active, a ribbon names the sort field and this card's value for it.
+    const sort = this.view.sort !== "manual" && this.SORTS.find((x) => x.id === this.view.sort);
+    const sortVal = sort && sort.show ? sort.show(r) : null;
     const node = h("article", { class: "res-card" + (sel ? " is-selected" : ""), draggable: "true", tabindex: "0", "data-id": r.id,
       style: { "--c": Store.categoryColor(r.categoryId) } },
+      sort ? h("div", { class: "sort-ribbon" + (sortVal || sortVal === 0 ? "" : " is-empty"), title: "Sorted by " + sort.label },
+        h("span", { class: "sort-ribbon-key" }, (this.view.desc ? "↓ " : "↑ ") + sort.label),
+        h("span", { class: "sort-ribbon-val" }, sortVal || sortVal === 0 ? String(sortVal) : "—")) : null,
       h("div", { class: "res-top" },
         this.selecting ? h("input", { type: "checkbox", class: "card-check", checked: sel, tabindex: "-1", "aria-label": "Select " + r.title }) : null,
         h("span", { class: "cat-tag" }, cat ? cat.name : "uncategorised"),

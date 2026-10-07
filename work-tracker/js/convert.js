@@ -1,15 +1,19 @@
 "use strict";
 
 /*
- * One-time conversion: multiply the hours of sessions logged up to a cutoff
- * date by a factor per category, so old logs are in the same "timesheet
- * hours" as everything logged from now on. A backup is downloaded first, and
- * converted sessions are marked (log.convertedFactor) so they are never
- * converted twice.
+ * Convert logged hours: multiply the hours of sessions in a chosen date range
+ * by a factor per category (e.g. to turn logged time into timesheet hours).
+ * A backup is downloaded first. Converted sessions are marked
+ * (log.convertedFactor, log.originalMinutes) and left out of later runs unless
+ * "also convert sessions converted before" is ticked.
  */
 
 function openConvertHours() {
-  const cutoff = h("input", { type: "date", name: "cutoff", value: "2026-10-06", required: true });
+  // Default range: last week, Monday to Sunday.
+  const lastMon = addDays(startOfWeek(todayISO()), -7);
+  const fromD = h("input", { type: "date", name: "from", value: lastMon, required: true });
+  const toD = h("input", { type: "date", name: "to", value: addDays(lastMon, 6), required: true });
+  const again = h("input", { type: "checkbox", name: "again" });
   const rounding = h("select", { name: "rounding" },
     h("option", { value: "1" }, "nearest minute"),
     h("option", { value: "5" }, "nearest 5 minutes"),
@@ -23,7 +27,9 @@ function openConvertHours() {
     const r = Store.state.resources[l.resourceId];
     return (r && r.categoryId && Store.category(r.categoryId)) ? r.categoryId : "";
   };
-  const eligible = () => Store.logList().filter((l) => l.date <= cutoff.value && !l.convertedFactor && l.minutes > 0);
+  const inRange = (l) => (!fromD.value || l.date >= fromD.value) && (!toD.value || l.date <= toD.value);
+  const eligible = () => Store.logList().filter((l) => inRange(l) && (again.checked || !l.convertedFactor) && l.minutes > 0);
+  const rangeText = () => `${fromD.value ? fmtDate(fromD.value) : "the start"} – ${toD.value ? fmtDate(toD.value) : "today"}`;
   const step = () => Number(rounding.value) || 1;
   const convert = (min, f) => {
     const s = step();
@@ -35,7 +41,7 @@ function openConvertHours() {
     return v > 0 ? v : NaN;
   };
 
-  // Rows: every category with eligible sessions (rebuilt when the cutoff changes; factors are kept).
+  // Rows: every category with eligible sessions (rebuilt when the range changes; factors are kept).
   const kept = {};
   const build = () => {
     for (const [k, inp] of Object.entries(factors)) kept[k] = inp.value;
@@ -51,7 +57,7 @@ function openConvertHours() {
       h("th", {}, "Category"), h("th", { class: "num" }, "Sessions"), h("th", { class: "num" }, "Logged now"),
       h("th", { class: "num" }, "Factor"), h("th", { class: "num" }, "After"))));
     const body = h("tbody");
-    if (!keys.length) body.append(h("tr", {}, h("td", { colspan: 5, class: "muted" }, "No unconverted sessions on or before this date.")));
+    if (!keys.length) body.append(h("tr", {}, h("td", { colspan: 5, class: "muted" }, again.checked ? "No sessions in this date range." : "No unconverted sessions in this date range.")));
     for (const k of keys) {
       const cat = Store.category(k);
       const inp = h("input", { type: "number", min: "0.1", max: "5", step: "0.01", value: kept[k] || "1.00", class: "factor-input", "aria-label": "Factor for " + (cat ? cat.name : "Uncategorised") });
@@ -94,20 +100,29 @@ function openConvertHours() {
     summary.textContent = bad
       ? "Every factor must be a number above 0."
       : changed
-        ? `${changed} of ${logs.length} session${logs.length === 1 ? "" : "s"} on or before ${fmtDate(cutoff.value)} will be converted: ${fmtMinutes(before)} → ${fmtMinutes(after)} in total. Categories left at 1.00 and sessions after that date are not touched.`
+        ? `${changed} of ${logs.length} session${logs.length === 1 ? "" : "s"} from ${rangeText()} will be converted: ${fmtMinutes(before)} → ${fmtMinutes(after)} in total. Categories left at 1.00 and sessions outside the range are not touched.`
         : "Nothing would change. Set a factor other than 1.00 for at least one category.";
   }
 
-  cutoff.addEventListener("change", build);
+  fromD.addEventListener("change", build);
+  toD.addEventListener("change", build);
+  again.addEventListener("change", build);
   rounding.addEventListener("change", update);
 
-  const done = Store.logList().filter((l) => l.convertedFactor).length;
+  const done = () => Store.logList().filter((l) => l.convertedFactor && inRange(l)).length;
+  const doneNote = h("p", { class: "field-hint form-note" });
+  const updateDone = () => {
+    const n = done();
+    doneNote.textContent = n && !again.checked ? `${n} session${n === 1 ? " in this range was" : "s in this range were"} converted before and ${n === 1 ? "is" : "are"} left out.` : "";
+  };
+  [fromD, toD, again].forEach((x) => x.addEventListener("change", updateDone));
   const form = h("form", { class: "form" },
-    h("h2", {}, "Convert logged hours (one-time)"),
-    h("p", { class: "small" }, "Multiplies the hours of every session dated on or before the cutoff by its task's category factor, so past logs match your timesheet hours. ",
-      "A full backup (.json) is downloaded first. Converted sessions are marked and are never converted again, so running this twice is safe."),
-    done ? h("p", { class: "field-hint form-note" }, `${done} session${done === 1 ? " was" : "s were"} already converted earlier and ${done === 1 ? "is" : "are"} left out.`) : null,
-    h("div", { class: "form-row" }, field("Convert sessions up to and including", cutoff), field("Round each session to", rounding)),
+    h("h2", {}, "Convert logged hours"),
+    h("p", { class: "small" }, "Multiplies the hours of every session in the date range by its task's category factor, e.g. to turn logged time into timesheet hours. ",
+      "A full backup (.json) is downloaded first. Converted sessions are marked and left out of later runs, so converting the same range twice is safe."),
+    h("div", { class: "form-row" }, field("From", fromD), field("To (inclusive)", toD), field("Round each session to", rounding)),
+    h("label", { class: "small" }, again, " Also convert sessions converted before (multiplies them again)"),
+    doneNote,
     h("div", { class: "table-wrap" }, table),
     summary,
     h("div", { class: "form-actions" },
@@ -122,21 +137,21 @@ function openConvertHours() {
     const plan = all.filter((p) => p.f !== 1).map((p) => ({ id: p.l.id, f: p.f, min: p.l.minutes }));
     if (!plan.length) return;
     const before = plan.reduce((s, p) => s + p.min, 0);
-    if (!confirm(`Convert ${plan.length} sessions on or before ${fmtDate(cutoff.value)}? A backup will be downloaded first.`)) return;
+    if (!confirm(`Convert ${plan.length} sessions from ${rangeText()}? A backup will be downloaded first.`)) return;
     exportJSON();
     let after = 0;
     Store.commit((s) => {
       for (const { id, f } of plan) {
         const l = s.logs[id];
         if (!l) continue;
-        l.originalMinutes = l.minutes;
+        if (l.originalMinutes == null) l.originalMinutes = l.minutes;
         l.minutes = convert(l.minutes, f);
-        l.convertedFactor = f;
+        l.convertedFactor = Math.round((l.convertedFactor || 1) * f * 10000) / 10000;
         after += l.minutes;
       }
       const used = {};
       for (const [k, inp] of Object.entries(factors)) used[(Store.category(k) || {}).name || "Uncategorised"] = Number(inp.value);
-      s.settings.hourConversions = (s.settings.hourConversions || []).concat([{ at: new Date().toISOString(), cutoff: cutoff.value, rounding: step(), factors: used, sessions: plan.length }]);
+      s.settings.hourConversions = (s.settings.hourConversions || []).concat([{ at: new Date().toISOString(), from: fromD.value, to: toD.value, rounding: step(), factors: used, sessions: plan.length }]);
     });
     Modal.close();
     toast(`Converted ${plan.length} sessions: ${fmtMinutes(before)} → ${fmtMinutes(after)}.`);
@@ -144,4 +159,5 @@ function openConvertHours() {
 
   Modal.open(form, { wide: true });
   build();
+  updateDone();
 }

@@ -618,8 +618,6 @@ code { font-family: var(--font-mono); font-size: 12px; background: var(--surface
 .gt-span { position: absolute; top: 5px; height: 22px; background: color-mix(in srgb, var(--c) 22%, transparent); border-radius: 4px; }
 .gt-tick { position: absolute; bottom: 5px; background: var(--c); border-radius: 2px 2px 0 0; }
 .gt-tick.is-weekend-work { border-radius: 1px; opacity: 0.85; }
-.gt-res.is-archived .gt-res-title { color: var(--muted); }
-.gt-archived-tag { font-family: var(--font-mono); font-size: 10px; color: var(--tok-const); border: 1px solid currentColor; border-radius: 3px; padding: 0 4px; margin-right: 6px; }
 .gt-done { position: absolute; top: 7px; transform: translateX(-50%); font-weight: 700; color: var(--good); font-size: 13px; }
 .gt-today { position: absolute; top: 0; bottom: 0; width: 2px; background: var(--bad); opacity: 0.7; pointer-events: none; z-index: 2; }
 
@@ -1079,3 +1077,17 @@ code { font-family: var(--font-mono); font-size: 12px; background: var(--surface
   .rp-kpis { grid-template-columns: repeat(2, 1fr); }
   .rp-two, .rp-two.w60 { grid-template-columns: 1fr; }
 }
+
+/* ---------- board: sort ribbon on each card ---------- */
+.sort-ribbon {
+  display: flex; justify-content: space-between; align-items: baseline; gap: 8px;
+  margin: -8px -10px 7px; padding: 2px 10px 2px 8px;
+  background: color-mix(in srgb, var(--accent) 16%, transparent);
+  border-bottom: 1px solid color-mix(in srgb, var(--accent) 35%, transparent);
+  border-radius: 0 3px 0 0;
+  font-family: var(--font-mono); font-size: 10.5px;
+}
+.sort-ribbon-key { color: var(--accent); text-transform: uppercase; letter-spacing: 0.05em; white-space: nowrap; }
+.sort-ribbon-val { color: var(--text); font-weight: 700; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.sort-ribbon.is-empty { background: color-mix(in srgb, var(--muted) 10%, transparent); border-bottom-color: var(--border); }
+.sort-ribbon.is-empty .sort-ribbon-key, .sort-ribbon.is-empty .sort-ribbon-val { color: var(--muted); font-weight: 400; }

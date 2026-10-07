@@ -247,8 +247,8 @@ const Gantt = {
         track.append(h("div", { class: "gt-done", style: { left: xMid(r.doneAt) + "px" }, title: "Finished " + fmtDate(r.doneAt) }, "✓"));
       }
       const overdue = r.plannedEnd && !this.isDone(r) && r.plannedEnd < today;
-      const label = h("div", { class: "gt-label gt-res" + (r.archived ? " is-archived" : ""), title: (r.archived ? "Archived · " : "Edit ") + r.title, tabindex: "0" },
-        h("span", { class: "gt-res-title" }, r.archived ? h("span", { class: "gt-archived-tag" }, "archived") : null, r.title),
+      const label = h("div", { class: "gt-label gt-res", title: (r.archived ? "Archived · " : "Edit ") + r.title, tabindex: "0" },
+        h("span", { class: "gt-res-title" }, r.title),
         h("span", { class: "muted small" + (overdue ? " overdue" : "") }, overdue ? "overdue" : (row.total ? fmtHours(row.total) : "")));
       label.addEventListener("click", () => (r._dlvId ? openDeliverableEditor(r._dlvId) : openResourceEditor(r.id)));
       inner.append(h("div", { class: "gt-row" }, label, track));

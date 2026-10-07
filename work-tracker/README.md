@@ -34,9 +34,9 @@ disk or the company's file share), not in personal cloud drives.
 
 | Page | What it does |
 |---|---|
-| **Backlog** | Kanban of tasks (Backlog → In progress → Paused → Done). Each card has a **status** (a few words on where it stands, highlighted on the card with the date you last changed it), category, type, **project**, an optional **deliverable**, priority, link, estimated hours, planned start/end and notes. Drag cards between columns to move them. Click **Select** (or Ctrl/Cmd+click a card) to multi-select: Shift+click selects a range, the checkbox in a column header selects the whole column, and the bulk bar can move, re-categorise, re-prioritise or **delete** everything selected (Delete key works too, and deletions can be undone from the pop-up). |
+| **Board** | Kanban of tasks (Backlog → In progress → Paused → Done). Each card has a **status** (a few words on where it stands, highlighted on the card with the date you last changed it), category, type, **project**, an optional **deliverable**, priority, link, estimated hours, planned start/end and notes. Drag cards between columns to move them. Click **Select** (or Ctrl/Cmd+click a card) to multi-select: Shift+click selects a range, the checkbox in a column header selects the whole column, and the bulk bar can move, re-categorise, re-prioritise or **delete** everything selected (Delete key works too, and deletions can be undone from the pop-up). |
 | **Daily log** | Your backlog sits in a sidebar next to a Mon–Sun week. Drag a task onto a day to log a session (duration, focus 1–5, notes). Drag a session to another day to move it (hold Ctrl/Alt to copy it). On a phone, tap a task to log it for today. Each day ends with a **summary of hours by project and by category** (untick **day summaries** to hide them), and a **week summary** table below the days shows projects or categories × days with totals and shares. |
-| **Gantt** | Built from the log. The dashed outline is the planned window, the light bar is the actual span (first → last session), and the ticks are the individual work days (taller = more minutes). Also shows a today line, ✓ on finished items and an "overdue" flag. **Show** cards or **deliverables** (a deliverable's cards rolled into one row; click it to open the deliverable). **Sort** groups rows by category (default) or by project (A→Z, "No project" last; bars keep their category color), and works together with the category filter. Each group header shows the total hours of the tasks under it (hover for task and session counts); it follows the filter, "hide finished" and "archived". Untick **weekends** to drop Saturday/Sunday columns (weekend work still shows as a thin mark between Friday and Monday), and tick **archived** to include archived tasks (tagged "archived"). Both choices are remembered. |
+| **Gantt** | Built from the log. The dashed outline is the planned window, the light bar is the actual span (first → last session), and the ticks are the individual work days (taller = more minutes). Also shows a today line, ✓ on finished items and an "overdue" flag. **Show** cards or **deliverables** (a deliverable's cards rolled into one row; click it to open the deliverable). **Sort** groups rows by category (default) or by project (A→Z, "No project" last; bars keep their category color), and works together with the category filter. Each group header shows the total hours of the tasks under it (hover for task and session counts); it follows the filter, "hide finished" and "archived". Untick **weekends** to drop Saturday/Sunday columns (weekend work still shows as a thin mark between Friday and Monday), and tick **archived** to include archived tasks. Both choices are remembered. |
 | **Reports** | Reports for your team manager and project managers, on a white A4 sheet; **Print / Save as PDF** uses the browser's print, and **CSV** downloads the tables. **Weekly status update**: hours vs capacity, project vs internal time, your highlights note (saved per week), hours by project × day, progress per deliverable, items waiting on others, plan for next week, optional session-notes appendix. **Project status**: red/amber/green for schedule and budget, budget (set per project, otherwise the sum of estimates) vs forecast at completion, hours burn-up, decisions/inputs needed, deliverables table, next 2 weeks. **Monthly capacity & delivery**: utilization per week vs capacity, hours by project with rating, estimate accuracy, time lost waiting, by category, internal time, next month's deadlines. **Task / deliverable history**: hours vs estimate, status, time per column, work log. Set your weekly capacity and name in the report toolbar. Use the project **Internal** for non-project time. |
 | **Archive** | Finished tasks you've sent to the archive, newest first, with search, Restore and Delete. |
 | **Stats** | Today vs daily goal, this week vs last week, current/best streak, 30-day totals, minutes-per-day chart, hours by category, a 26-week consistency heatmap, and a per-task table (estimate vs actual, sessions, average focus, projected finish date). |
@@ -60,7 +60,7 @@ Work-tracker additions:
 - **Deliverables**: one deliverable (a document or drawing you issue) can be
   split into several cards. Type it in a card's **Deliverable** field (pick an
   existing one of that project, or type a new name), or manage them with
-  **Deliverables** on the Backlog page: estimate, due date and issue date, cards
+  **Deliverables** on the Board page: estimate, due date and issue date, cards
   and hours. Hours add up from the cards; estimate and due date fall back to the
   cards' values; a deliverable counts as issued when you set the date or when all
   its cards are done. Reports and the Gantt (Show: Deliverables) use them.
@@ -77,17 +77,18 @@ Work-tracker additions:
 Also included (same as the study tracker):
 
 - **Work timer** in the header, as a stopwatch or a 25-minute Pomodoro countdown. Start it, and press **Log** to turn the elapsed time into a session.
-- **Your own columns and priority levels** (**Columns & priorities** on the Backlog page), with the same *To do* / *In progress* / *On hold* / *Finished* behaviors and priority presets.
+- **Your own columns and priority levels** (**Columns & priorities** on the Board page), with the same *To do* / *In progress* / *On hold* / *Finished* behaviors and priority presets.
 - **Import backlog** from Excel / Google Sheets / CSV (**Data ▾ → Import backlog**). Task types are guessed from a Type column (bug, feature, meeting, review, …, English or Portuguese).
-- **Sort and filter the backlog** by any field, plus free-text search.
+- **Sort and filter the board** by any field, plus free-text search. With a sort active, each card shows a ribbon with the sort field and its value for that card (e.g. *Hours worked · 4h 30m*).
 - **Editable totals**: change **Hours worked** and **Sessions** in a task's editor; the difference is logged as real sessions.
 - **Backup**: export and restore everything as JSON, or export the work log as CSV.
-- **Convert logged hours (one-time)** (**Data ▾**): multiplies the hours of
-  every session up to a cutoff date (default 6 Oct 2026, inclusive) by a factor
-  you enter per category, so older logs match timesheet hours. Shows a
+- **Convert logged hours** (**Data ▾**): multiplies the hours of every
+  session in a date range you pick (default: last week) by a factor you enter
+  per category, e.g. to turn logged time into timesheet hours. Shows a
   before/after preview per category, downloads a full backup first, keeps each
-  session's original minutes, and marks converted sessions so they are never
-  converted twice. Categories left at 1.00 are not touched.
+  session's original minutes, and leaves converted sessions out of later runs
+  (tick "also convert sessions converted before" to multiply them again).
+  Categories left at 1.00 are not touched.
 - Dark IDE-style theme by default (light and "follow system" in **Data ▾ → Theme**).
 
 Task types: Task, Feature, Bug, Project, Meeting, Review, Documentation,
@@ -165,6 +166,6 @@ work-tracker/
     ├── archive.js  Archive tab
     ├── deliverables.js deliverable manager / editor
     ├── reports.js  Reports tab (weekly, project, monthly, history)
-    ├── convert.js  one-time hours conversion
+    ├── convert.js  convert logged hours over a date range
     └── app.js      routing + wiring
 ```

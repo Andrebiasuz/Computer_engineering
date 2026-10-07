@@ -11,7 +11,7 @@
 <header id="app-header">
   <div class="brand"><span class="brand-mark">{&thinsp;}</span> work<span class="brand-dot">.</span>tracker</div>
   <nav id="tabs" class="tabs" aria-label="Pages">
-    <a href="#backlog" data-page="backlog"><span class="tab-icon ic-backlog">≡</span>backlog</a>
+    <a href="#backlog" data-page="backlog"><span class="tab-icon ic-backlog">≡</span>board</a>
     <a href="#logger" data-page="logger"><span class="tab-icon ic-logger">◷</span>daily.log</a>
     <a href="#gantt" data-page="gantt"><span class="tab-icon ic-gantt">▤</span>gantt</a>
     <a href="#stats" data-page="stats"><span class="tab-icon ic-stats">Σ</span>stats</a>
@@ -35,7 +35,7 @@
           <input id="import-json-input" type="file" accept="application/json,.json" hidden>
         </label>
         <button id="export-csv-btn" class="menu-item">Export work log (.csv)</button>
-        <button id="convert-hours-btn" class="menu-item">Convert logged hours (one-time)…</button>
+        <button id="convert-hours-btn" class="menu-item">Convert logged hours…</button>
         <hr>
         <label class="menu-item menu-inline">Daily goal
           <input id="goal-input" type="number" min="0" step="5"> min

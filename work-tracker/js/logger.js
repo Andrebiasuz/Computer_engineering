@@ -114,7 +114,7 @@ const Logger = {
 
     this.listEl.innerHTML = "";
     if (!items.length) {
-      this.listEl.append(h("p", { class: "muted small" }, Store.resourceList().length ? "No matches." : "Your backlog is empty. Add tasks on the Backlog page."));
+      this.listEl.append(h("p", { class: "muted small" }, Store.resourceList().length ? "No matches." : "No tasks yet. Add tasks on the Board page."));
       return;
     }
     let lastCol = null;
