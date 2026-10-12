@@ -6,7 +6,7 @@
  *
  *   weekly   Weekly status update        (team manager)
  *   project  Project status              (project manager)
- *   monthly  Monthly capacity & delivery (team manager)
+ *   monthly  Capacity & delivery over a chosen period (team manager)
  *   history  Task / deliverable history  (on request)
  *
  * The unit of work is a deliverable (its cards rolled up) or, for cards without
@@ -26,6 +26,12 @@ const Reports = {
   init() {
     try { Object.assign(this.view, JSON.parse(localStorage.getItem(this.VIEW_KEY)) || {}); } catch (e) { /* ignore */ }
     this.view.week = startOfWeek(this.view.week || todayISO());
+    // Capacity & delivery period; older saved views only had a month.
+    if (!this.view.from || !this.view.to) {
+      const [y, m] = (this.view.month || todayISO().slice(0, 7)).split("-").map(Number);
+      this.view.from = `${y}-${pad2(m)}-01`;
+      this.view.to = toISO(new Date(y, m, 0));
+    }
     this.typeSel.value = this.view.type;
     this.typeSel.addEventListener("change", () => { this.view.type = this.typeSel.value; this.save(); this.render(); });
     document.getElementById("rp-print").addEventListener("click", () => window.print());
@@ -73,9 +79,23 @@ const Reports = {
         h("button", { class: "btn btn-ghost btn-small", onclick: () => { v.week = startOfWeek(todayISO()); this.save(); this.render(); } }, "This week"),
         this.check("Session notes appendix", "notes"));
     } else if (v.type === "monthly") {
-      const m = h("input", { type: "month", value: v.month, "aria-label": "Month" });
-      m.addEventListener("change", () => { if (m.value) { v.month = m.value; this.save(); this.render(); } });
-      c.append(m);
+      const set = (a, b) => { v.from = a; v.to = b < a ? a : b; this.save(); this.render(); };
+      const fromI = h("input", { type: "date", value: v.from, "aria-label": "From" });
+      const toI = h("input", { type: "date", value: v.to, "aria-label": "To" });
+      fromI.addEventListener("change", () => { if (fromI.value) set(fromI.value, v.to); });
+      toI.addEventListener("change", () => { if (toI.value) set(v.from, toI.value); });
+      const t = todayISO(), d = fromISO(t), y = d.getFullYear(), m = d.getMonth(), q = Math.floor(m / 3) * 3;
+      const presets = [
+        ["this-month", "This month", toISO(new Date(y, m, 1)), toISO(new Date(y, m + 1, 0))],
+        ["last-month", "Last month", toISO(new Date(y, m - 1, 1)), toISO(new Date(y, m, 0))],
+        ["last-4w", "Last 4 weeks", addDays(startOfWeek(t), -28), addDays(startOfWeek(t), -1)],
+        ["this-q", "This quarter", toISO(new Date(y, q, 1)), toISO(new Date(y, q + 3, 0))],
+        ["last-q", "Last quarter", toISO(new Date(y, q - 3, 1)), toISO(new Date(y, q, 0))],
+        ["ytd", "Year to date", `${y}-01-01`, t],
+      ];
+      const pick = h("select", { "aria-label": "Quick pick" }, h("option", { value: "" }, "Quick pick…"), presets.map(([id, label]) => h("option", { value: id }, label)));
+      pick.addEventListener("change", () => { const p = presets.find((x) => x[0] === pick.value); if (p) set(p[2], p[3]); });
+      c.append(h("label", { class: "small rp-inline" }, "From ", fromI), h("label", { class: "small rp-inline" }, "to ", toI), pick);
     } else if (v.type === "project") {
       const projects = Store.projects().filter((p) => p.key !== RP_INTERNAL);
       if (!projects.some((p) => p.key === v.project)) v.project = projects.length ? projects[0].key : "";
@@ -600,20 +620,30 @@ const Reports = {
     return out;
   },
 
-  /* ======================================================== 3. monthly capacity & delivery */
+  /* ======================================================== 3. capacity & delivery (any period) */
 
   monthly() {
     const st = this.settings();
-    const [yy, mm] = this.view.month.split("-").map(Number);
-    const from = `${yy}-${pad2(mm)}-01`;
-    const to = toISO(new Date(yy, mm, 0));
+    const from = this.view.from, to = this.view.to < this.view.from ? this.view.from : this.view.to;
     const asOf = to < todayISO() ? to : todayISO();
     const logs = Store.logList().filter((l) => l.date >= from && l.date <= to);
     const units = this.units();
+    // Columns: one per week for up to 9 weeks, otherwise one per month (each clipped to the period).
+    const byWeek = daysBetween(startOfWeek(from), to) < 63;
+    const span = (a, b) => (a.slice(0, 7) === b.slice(0, 7) ? `${fromISO(a).getDate()}–${fromISO(b).getDate()}` : `${fmtShortDate(a)}–${fmtShortDate(b)}`);
     const weeks = [];
-    for (let w = startOfWeek(from); w <= to; w = addDays(w, 7)) {
-      const a = w < from ? from : w, b = addDays(w, 6) > to ? to : addDays(w, 6);
-      weeks.push({ a, b, label: `w${isoWeek(w)} · ${fromISO(a).getDate()}–${fromISO(b).getDate()}`, cap: (st.capacity / 5) * this.workdays(a, b) });
+    if (byWeek) {
+      for (let w = startOfWeek(from); w <= to; w = addDays(w, 7)) {
+        const a = w < from ? from : w, b = addDays(w, 6) > to ? to : addDays(w, 6);
+        weeks.push({ a, b, label: `w${isoWeek(w)} · ${span(a, b)}`, short: `w${isoWeek(w)}`, cap: (st.capacity / 5) * this.workdays(a, b) });
+      }
+    } else {
+      for (let m = from.slice(0, 7) + "-01"; m <= to; m = toISO(new Date(fromISO(m).getFullYear(), fromISO(m).getMonth() + 1, 1))) {
+        const end = toISO(new Date(fromISO(m).getFullYear(), fromISO(m).getMonth() + 1, 0));
+        const a = m < from ? from : m, b = end > to ? to : end;
+        const name = MONTHS[fromISO(m).getMonth()] + (from.slice(0, 4) !== to.slice(0, 4) ? " " + m.slice(2, 4) : "");
+        weeks.push({ a, b, label: name, short: name, cap: (st.capacity / 5) * this.workdays(a, b) });
+      }
     }
     const cap = weeks.reduce((s, w) => s + w.cap, 0);
     const per = new Map();
@@ -644,49 +674,52 @@ const Reports = {
       if (!this.isInternal(Store.projectKey(r))) continue;
       intl.set(r.title, (intl.get(r.title) || 0) + l.minutes / 60);
     }
-    const nm = toISO(new Date(yy, mm, 1)), nmEnd = toISO(new Date(yy, mm + 1, 0));
+    // Upcoming deadlines: the 4 weeks after the period.
+    const nm = addDays(to, 1), nmEnd = addDays(to, 28);
     const deadlines = units.filter((u) => !u.done && !u.archived && u.dueDate >= nm && u.dueDate <= nmEnd).sort((a, b) => a.dueDate.localeCompare(b.dueDate));
-    const monthName = fromISO(from).toLocaleString("en-GB", { month: "long", year: "numeric" });
+    const wholeMonth = from.endsWith("-01") && to === toISO(new Date(fromISO(from).getFullYear(), fromISO(from).getMonth() + 1, 0));
+    const periodName = wholeMonth ? fromISO(from).toLocaleString("en-GB", { month: "long", year: "numeric" })
+      : `${from.slice(0, 4) === to.slice(0, 4) ? fmtShortDate(from) : fmtDate(from)} – ${fmtDate(to)}`;
 
     const out = [
-      this.header("Monthly capacity & delivery", monthName, [["For", "Team manager"], ["From", st.author], ["Working days", String(this.workdays(from, to))], ["Capacity", fmtH(cap * 60)]]),
+      this.header("Capacity & delivery", periodName, [["For", "Team manager"], ["From", st.author], ["Working days", String(this.workdays(from, to))], ["Capacity", fmtH(cap * 60)]]),
       this.kpis([
         ["Utilization", cap ? Math.round((total / cap) * 100) + "%" : "—", `${fmtH(total * 60)} logged of ${fmtH(cap * 60)}`],
         ["Project time", total ? Math.round(((total - internal) / total) * 100) + "%" : "—", `${fmtH((total - internal) * 60)} · internal ${fmtH(internal * 60)}`],
         ["Issued", String(issued.length), issued.map((u) => u.title).slice(0, 4).join(", ") || "—"],
         ["Estimate accuracy", acc.length ? (accAct >= accEst ? "+" : "") + Math.round(((accAct - accEst) / accEst) * 100) + "%" : "—", acc.length ? `on ${acc.length} issued with an estimate` : "no issued items with estimates", acc.length ? (accAct > accEst * 1.1 ? "warn" : "good") : ""],
       ]),
-      this.h2("Weekly load vs capacity", "bars = hours by project · dashed = capacity"),
+      this.h2(byWeek ? "Weekly load vs capacity" : "Monthly load vs capacity", "bars = hours by project · dashed = capacity"),
       this.barsSvg(weeks.map((w) => w.label), keys.map((k) => ({ label: this.projLabel(k), color: this.projColor(k), values: per.get(k) })), weeks.map((w) => w.cap), 690, 185),
       h("div", { class: "rp-legend" }, keys.map((k) => [this.chip(this.projColor(k)), this.projLabel(k) + "  "])),
-      keys.length ? this.table(["Project", ...weeks.map((w) => h("th", { class: "num" }, w.label.split(" · ")[0])), h("th", { class: "num" }, "Total"), h("th", { class: "num" }, "Share"), "Rating"],
+      keys.length ? this.table(["Project", ...weeks.map((w) => h("th", { class: "num" }, w.short)), h("th", { class: "num" }, "Total"), h("th", { class: "num" }, "Share"), "Rating"],
         keys.map((k) => {
           const v = per.get(k), sum = v.reduce((s, x) => s + x, 0);
           return h("tr", { class: this.isInternal(k) ? "intl" : "" }, h("td", {}, this.chip(this.projColor(k)), this.projLabel(k)),
             v.map((x) => this.num(x ? fmtH(x * 60) : "·")), this.num(fmtH(sum * 60), "b"), this.num(total ? Math.round((sum / total) * 100) + "%" : ""),
             h("td", {}, this.isInternal(k) || !k ? "—" : this.ragChip(this.projectRag(k, asOf).overall)));
         }),
-        h("tr", {}, h("td", {}, "Total"), weeks.map((w, i) => this.num(fmtH(keys.reduce((s, k) => s + per.get(k)[i], 0) * 60))), this.num(fmtH(total * 60)), this.num("100%"), h("td", {}))) : h("p", { class: "rp-muted" }, "No hours logged this month."),
+        h("tr", {}, h("td", {}, "Total"), weeks.map((w, i) => this.num(fmtH(keys.reduce((s, k) => s + per.get(k)[i], 0) * 60))), this.num(fmtH(total * 60)), this.num("100%"), h("td", {}))) : h("p", { class: "rp-muted" }, "No hours logged in this period."),
       h("div", { class: "rp-two" },
-        h("div", {}, this.h2("Estimate accuracy", "issued this month"),
+        h("div", {}, this.h2("Estimate accuracy", "issued in this period"),
           acc.length ? this.table(["Deliverable / task", h("th", { class: "num" }, "Est."), h("th", { class: "num" }, "Actual"), h("th", { class: "num" }, "Diff")],
             acc.map((u) => {
               const a = this.actual(u) / 60, d = Math.round(((a - u.estHours) / u.estHours) * 100);
               return h("tr", {}, h("td", {}, this.chip(this.projColor(u.project)), u.title), this.num(fmtH(u.estHours * 60)), this.num(fmtH(a * 60)), this.num((d >= 0 ? "+" : "") + d + "%", d > 0 ? "rp-red" : "rp-green"));
-            }), h("tr", {}, h("td", {}, "Total"), this.num(fmtH(accEst * 60)), this.num(fmtH(accAct * 60)), this.num((accAct >= accEst ? "+" : "") + Math.round(((accAct - accEst) / accEst) * 100) + "%"))) : h("p", { class: "rp-muted" }, "Nothing with an estimate was issued this month."),
+            }), h("tr", {}, h("td", {}, "Total"), this.num(fmtH(accEst * 60)), this.num(fmtH(accAct * 60)), this.num((accAct >= accEst ? "+" : "") + Math.round(((accAct - accEst) / accEst) * 100) + "%"))) : h("p", { class: "rp-muted" }, "Nothing with an estimate was issued in this period."),
           this.h2("By category"),
           this.hbarsSvg([...byCat.entries()].sort((a, b) => b[1] - a[1]).map(([k, v]) => ({ label: (Store.category(k) || {}).name || "Uncategorised", value: v, color: Store.categoryColor(k || null) })))),
         h("div", {}, this.h2("Time lost waiting", "days in waiting columns"),
-          waitItems.length ? this.hbarsSvg(waitItems.map((x) => ({ label: x.u.title, value: x.days, color: "#d48a00" })), "d") : h("p", { class: "rp-muted" }, "No waiting time recorded this month."),
+          waitItems.length ? this.hbarsSvg(waitItems.map((x) => ({ label: x.u.title, value: x.days, color: "#d48a00" })), "d") : h("p", { class: "rp-muted" }, "No waiting time recorded in this period."),
           this.h2("Internal time"),
           this.hbarsSvg([...intl.entries()].sort((a, b) => b[1] - a[1]).slice(0, 8).map(([k, v]) => ({ label: k, value: v, color: "#9aa1ad" }))))),
-      this.h2("Deadlines next month", fromISO(nm).toLocaleString("en-GB", { month: "long" })),
+      this.h2("Upcoming deadlines", fmtShortDate(nm) + " – " + fmtShortDate(nmEnd)),
       deadlines.length ? this.table(["Due", "Deliverable / task", "Rating"], deadlines.map((u) => h("tr", {},
         h("td", { class: "nowrap" }, fmtShortDate(u.dueDate)), h("td", {}, this.chip(this.projColor(u.project)), u.title),
-        h("td", {}, this.ragChip(this.rag(u, asOf), { G: "on track", A: "at risk", R: "late" }[this.rag(u, asOf)]))))) : h("p", { class: "rp-muted" }, "No due dates next month."),
+        h("td", {}, this.ragChip(this.rag(u, asOf), { G: "on track", A: "at risk", R: "late" }[this.rag(u, asOf)]))))) : h("p", { class: "rp-muted" }, "No due dates in the 4 weeks after this period."),
     ];
     this.csv = {
-      name: `monthly-capacity-${this.view.month}.csv`,
+      name: `capacity-delivery-${from}_${to}.csv`,
       rows: [["Project", ...weeks.map((w) => w.label), "Total (h)"],
         ...keys.map((k) => [this.projLabel(k), ...per.get(k).map((x) => hoursNum(x * 60)), hoursNum(per.get(k).reduce((s, x) => s + x, 0) * 60)]),
         ["Capacity", ...weeks.map((w) => w.cap), cap]],
