@@ -2,7 +2,7 @@
 
 /*
  * Convert logged hours: multiply the hours of sessions in a chosen date range
- * by a factor per category (e.g. to turn logged time into timesheet hours).
+ * by a factor per project (e.g. to turn logged time into timesheet hours).
  * A backup is downloaded first. Converted sessions are marked
  * (log.convertedFactor, log.originalMinutes) and left out of later runs unless
  * "also convert sessions converted before" is ticked.
@@ -20,13 +20,12 @@ function openConvertHours() {
     h("option", { value: "15" }, "nearest 15 minutes"));
   const table = h("table", { class: "data-table convert-table" });
   const summary = h("p", { class: "field-hint form-note" });
-  const factors = {}; // category id ("" = uncategorised) -> input
+  const factors = {}; // project key ("" = no project) -> input
   const submit = h("button", { type: "submit", class: "btn btn-primary" }, "Download backup & convert");
 
-  const catKey = (l) => {
-    const r = Store.state.resources[l.resourceId];
-    return (r && r.categoryId && Store.category(r.categoryId)) ? r.categoryId : "";
-  };
+  // Sessions are grouped by their task's project (case-insensitive, like everywhere else).
+  const catKey = (l) => Store.projectKey(Store.state.resources[l.resourceId]);
+  const label = (k) => Store.projectLabel(k);
   const inRange = (l) => (!fromD.value || l.date >= fromD.value) && (!toD.value || l.date <= toD.value);
   const eligible = () => Store.logList().filter((l) => inRange(l) && (again.checked || !l.convertedFactor) && l.minutes > 0);
   const rangeText = () => `${fromD.value ? fmtDate(fromD.value) : "the start"} – ${toD.value ? fmtDate(toD.value) : "today"}`;
@@ -41,31 +40,27 @@ function openConvertHours() {
     return v > 0 ? v : NaN;
   };
 
-  // Rows: every category with eligible sessions (rebuilt when the range changes; factors are kept).
+  // Rows: every project with eligible sessions, A→Z with "No project" last (rebuilt when the range changes; factors are kept).
   const kept = {};
   const build = () => {
     for (const [k, inp] of Object.entries(factors)) kept[k] = inp.value;
     const groups = {};
     for (const l of eligible()) (groups[catKey(l)] = groups[catKey(l)] || []).push(l);
-    const keys = Object.keys(groups).sort((a, b) => {
-      const ia = Store.state.categories.findIndex((c) => c.id === a), ib = Store.state.categories.findIndex((c) => c.id === b);
-      return (ia < 0 ? 1e9 : ia) - (ib < 0 ? 1e9 : ib);
-    });
+    const keys = Object.keys(groups).sort((a, b) => (!a - !b) || label(a).localeCompare(label(b), undefined, { numeric: true, sensitivity: "base" }));
     table.innerHTML = "";
     for (const k of Object.keys(factors)) delete factors[k];
     table.append(h("thead", {}, h("tr", {},
-      h("th", {}, "Category"), h("th", { class: "num" }, "Sessions"), h("th", { class: "num" }, "Logged now"),
+      h("th", {}, "Project"), h("th", { class: "num" }, "Sessions"), h("th", { class: "num" }, "Logged now"),
       h("th", { class: "num" }, "Factor"), h("th", { class: "num" }, "After"))));
     const body = h("tbody");
     if (!keys.length) body.append(h("tr", {}, h("td", { colspan: 5, class: "muted" }, again.checked ? "No sessions in this date range." : "No unconverted sessions in this date range.")));
     for (const k of keys) {
-      const cat = Store.category(k);
-      const inp = h("input", { type: "number", min: "0.1", max: "5", step: "0.01", value: kept[k] || "1.00", class: "factor-input", "aria-label": "Factor for " + (cat ? cat.name : "Uncategorised") });
+      const inp = h("input", { type: "number", min: "0.1", max: "5", step: "any", inputmode: "decimal", value: kept[k] || "1.00", class: "factor-input", "aria-label": "Factor for " + label(k) });
       inp.addEventListener("input", update);
       factors[k] = inp;
       const logs = groups[k];
       body.append(h("tr", { "data-key": k },
-        h("td", {}, h("span", { class: "swatch", style: { background: Store.categoryColor(k || null) } }), " ", cat ? cat.name : "Uncategorised"),
+        h("td", {}, h("span", { class: "swatch", style: { background: Store.projectColor(k) } }), " ", label(k)),
         h("td", { class: "num" }, logs.length),
         h("td", { class: "num" }, fmtMinutes(logs.reduce((s, l) => s + l.minutes, 0))),
         h("td", { class: "num" }, inp),
@@ -100,8 +95,8 @@ function openConvertHours() {
     summary.textContent = bad
       ? "Every factor must be a number above 0."
       : changed
-        ? `${changed} of ${logs.length} session${logs.length === 1 ? "" : "s"} from ${rangeText()} will be converted: ${fmtMinutes(before)} → ${fmtMinutes(after)} in total. Categories left at 1.00 and sessions outside the range are not touched.`
-        : "Nothing would change. Set a factor other than 1.00 for at least one category.";
+        ? `${changed} of ${logs.length} session${logs.length === 1 ? "" : "s"} from ${rangeText()} will be converted: ${fmtMinutes(before)} → ${fmtMinutes(after)} in total. Projects left at 1.00 and sessions outside the range are not touched.`
+        : "Nothing would change. Set a factor other than 1.00 for at least one project.";
   }
 
   fromD.addEventListener("change", build);
@@ -118,7 +113,7 @@ function openConvertHours() {
   [fromD, toD, again].forEach((x) => x.addEventListener("change", updateDone));
   const form = h("form", { class: "form" },
     h("h2", {}, "Convert logged hours"),
-    h("p", { class: "small" }, "Multiplies the hours of every session in the date range by its task's category factor, e.g. to turn logged time into timesheet hours. ",
+    h("p", { class: "small" }, "Multiplies the hours of every session in the date range by the factor you set for its project, e.g. to turn logged time into timesheet hours. ",
       "A full backup (.json) is downloaded first. Converted sessions are marked and left out of later runs, so converting the same range twice is safe."),
     h("div", { class: "form-row" }, field("From", fromD), field("To (inclusive)", toD), field("Round each session to", rounding)),
     h("label", { class: "small" }, again, " Also convert sessions converted before (multiplies them again)"),
@@ -133,7 +128,7 @@ function openConvertHours() {
     e.preventDefault();
     const all = eligible().map((l) => ({ l, f: factorOf(catKey(l)) }));
     if (all.some((p) => !(p.f > 0))) return;
-    // Categories left at 1.00 are not touched or marked, so they can still be converted later.
+    // Projects left at 1.00 are not touched or marked, so they can still be converted later.
     const plan = all.filter((p) => p.f !== 1).map((p) => ({ id: p.l.id, f: p.f, min: p.l.minutes }));
     if (!plan.length) return;
     const before = plan.reduce((s, p) => s + p.min, 0);
@@ -150,7 +145,7 @@ function openConvertHours() {
         after += l.minutes;
       }
       const used = {};
-      for (const [k, inp] of Object.entries(factors)) used[(Store.category(k) || {}).name || "Uncategorised"] = Number(inp.value);
+      for (const [k, inp] of Object.entries(factors)) used[label(k)] = Number(inp.value);
       s.settings.hourConversions = (s.settings.hourConversions || []).concat([{ at: new Date().toISOString(), from: fromD.value, to: toD.value, rounding: step(), factors: used, sessions: plan.length }]);
     });
     Modal.close();

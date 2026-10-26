@@ -55,7 +55,7 @@ function openResourceEditor(resourceId) {
   const priority = h("select", { name: "priority" },
     Store.priorities().map((p) => h("option", { value: p.id, selected: p.id === curPrio }, p.label)));
   const url = h("input", { name: "url", value: r.url, placeholder: "https://…", type: "url" });
-  const est = h("input", { name: "estHours", type: "number", min: "0", step: "0.25", value: r.estHours == null ? "" : r.estHours });
+  const est = h("input", { name: "estHours", type: "number", min: "0", step: "any", inputmode: "decimal", value: r.estHours == null ? "" : r.estHours });
   const platforms = [...new Set(Object.values(Store.state.resources).map((x) => x.platform).filter(Boolean))].sort();
   const platform = h("input", { name: "platform", value: r.platform || "", placeholder: "e.g. P-2317 Substation", list: "platform-list" });
   const platformList = h("datalist", { id: "platform-list" }, platforms.map((p) => h("option", { value: p })));
@@ -69,7 +69,7 @@ function openResourceEditor(resourceId) {
   };
   platform.addEventListener("input", fillDeliverables);
   fillDeliverables();
-  const lengthH = h("input", { name: "lengthHours", type: "number", min: "0", step: "0.25", value: r.lengthHours == null ? "" : r.lengthHours });
+  const lengthH = h("input", { name: "lengthHours", type: "number", min: "0", step: "any", inputmode: "decimal", value: r.lengthHours == null ? "" : r.lengthHours });
   const pages = h("input", { name: "pages", type: "number", min: "0", step: "1", value: r.pages == null ? "" : r.pages });
   const ps = h("input", { name: "plannedStart", type: "date", value: r.plannedStart });
   const pe = h("input", { name: "plannedEnd", type: "date", value: r.plannedEnd });
@@ -93,7 +93,8 @@ function openResourceEditor(resourceId) {
   const loggedMin = logs.reduce((s, l) => s + l.minutes, 0);
   const initHours = String(Math.round(loggedMin / 60 * 100) / 100);
   const initSessions = String(logs.length + (r.extraSessions || 0));
-  const studied = h("input", { name: "studiedHours", type: "number", min: "0", step: "0.25", value: initHours });
+  // Any decimal (e.g. 1.3 h); it is turned into minutes when saved.
+  const studied = h("input", { name: "studiedHours", type: "number", min: "0", step: "any", inputmode: "decimal", value: initHours });
   const sessions = h("input", { name: "sessions", type: "number", min: "0", step: "1", value: initSessions });
   const workDate = h("input", { name: "workDate", type: "date", value: todayISO() });
   const workDateField = field("Date of added time", workDate);
@@ -328,7 +329,7 @@ function openMoveDialog(resourceId, toStatus, opts, after) {
   const loggedSessions = Store.sessionsFor(r.id);
   let moved = false;
 
-  const hours = h("input", { name: "hours", type: "number", min: "0", step: "0.25", placeholder: "0" });
+  const hours = h("input", { name: "hours", type: "number", min: "0", step: "any", inputmode: "decimal", placeholder: "0" });
   const sessions = h("input", { name: "sessions", type: "number", min: "0", step: "1", placeholder: "0" });
   const date = h("input", { name: "date", type: "date", value: todayISO(), required: true });
   const note = h("textarea", { name: "note", rows: "2", placeholder: "What did you do?" });
@@ -402,7 +403,7 @@ function openLogEditor(logId, draft, onClose) {
   const res = Store.state.resources[l.resourceId];
 
   const date = h("input", { name: "date", type: "date", value: l.date, required: true });
-  const hours = h("input", { name: "hours", type: "number", min: "0", step: "1", value: Math.floor(l.minutes / 60) });
+  const hours = h("input", { name: "hours", type: "number", min: "0", step: "any", inputmode: "decimal", value: Math.floor(l.minutes / 60) });
   const mins = h("input", { name: "mins", type: "number", min: "0", max: "59", step: "5", value: l.minutes % 60 });
   const quick = h("div", { class: "chips" }, [15, 25, 30, 45, 60, 90, 120].map((m) =>
     h("button", { type: "button", class: "chip", onclick: () => { hours.value = Math.floor(m / 60); mins.value = m % 60; } }, fmtMinutes(m))));
@@ -432,7 +433,7 @@ function openLogEditor(logId, draft, onClose) {
   form.addEventListener("submit", (e) => {
     e.preventDefault();
     const fd = new FormData(form);
-    const minutes = (Number(fd.get("hours")) || 0) * 60 + (Number(fd.get("mins")) || 0);
+    const minutes = Math.round((Number(fd.get("hours")) || 0) * 60 + (Number(fd.get("mins")) || 0));
     if (minutes <= 0) { toast("Enter how long you worked."); return; }
     const fields = { date: fd.get("date"), minutes, note: fd.get("note"), focus: fd.get("focus") ? Number(fd.get("focus")) : null };
     Store.commit((s) => {

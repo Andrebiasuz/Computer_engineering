@@ -25,7 +25,7 @@ function openDeliverableManager() {
         const sm = Store.deliverableSummary(d);
         const name = h("input", { value: d.name, "aria-label": "Deliverable name" });
         name.addEventListener("change", () => Store.commit(() => { d.name = name.value.trim() || d.name; }));
-        const est = h("input", { type: "number", min: "0", step: "0.25", value: d.estHours == null ? "" : d.estHours, placeholder: sm.estHours && d.estHours == null ? String(sm.estHours) : "", "aria-label": "Estimate (h)" });
+        const est = h("input", { type: "number", min: "0", step: "any", inputmode: "decimal", value: d.estHours == null ? "" : d.estHours, placeholder: sm.estHours && d.estHours == null ? String(sm.estHours) : "", "aria-label": "Estimate (h)" });
         est.addEventListener("change", () => Store.commit(() => { d.estHours = numOrNull(est.value); }));
         const due = h("input", { type: "date", value: d.dueDate || "", "aria-label": "Due date" });
         due.addEventListener("change", () => Store.commit(() => { d.dueDate = due.value; }));
@@ -79,7 +79,7 @@ function openDeliverableEditor(id) {
   if (!d) return;
   const sm = Store.deliverableSummary(d);
   const name = h("input", { name: "name", value: d.name, required: true });
-  const est = h("input", { name: "est", type: "number", min: "0", step: "0.25", value: d.estHours == null ? "" : d.estHours, placeholder: sm.estHours != null && d.estHours == null ? "from cards: " + sm.estHours : "" });
+  const est = h("input", { name: "est", type: "number", min: "0", step: "any", inputmode: "decimal", value: d.estHours == null ? "" : d.estHours, placeholder: sm.estHours != null && d.estHours == null ? "from cards: " + sm.estHours : "" });
   const due = h("input", { name: "due", type: "date", value: d.dueDate || "" });
   const issued = h("input", { name: "issued", type: "date", value: d.issuedAt || "" });
   const cards = h("div", { class: "dlv-cards" }, sm.cards.length ? sm.cards.map((r) => h("button", { type: "button", class: "task-log-row", onclick: () => openResourceEditor(r.id) },

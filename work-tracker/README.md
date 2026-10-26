@@ -80,15 +80,15 @@ Also included (same as the study tracker):
 - **Your own columns and priority levels** (**Columns & priorities** on the Board page), with the same *To do* / *In progress* / *On hold* / *Finished* behaviors and priority presets.
 - **Import backlog** from Excel / Google Sheets / CSV (**Data ▾ → Import backlog**). Task types are guessed from a Type column (bug, feature, meeting, review, …, English or Portuguese).
 - **Sort and filter the board** by any field, plus free-text search. With a sort active, each card shows a ribbon with the sort field and its value for that card (e.g. *Hours worked · 4h 30m*).
-- **Editable totals**: change **Hours worked** and **Sessions** in a task's editor; the difference is logged as real sessions.
+- **Editable totals**: change **Hours worked** (any decimal, e.g. 1.3) and **Sessions** in a task's editor; the difference is logged as real sessions. Estimates and the hours in the Paused/Done dialog and the session editor take decimals too.
 - **Backup**: export and restore everything as JSON, or export the work log as CSV.
 - **Convert logged hours** (**Data ▾**): multiplies the hours of every
   session in a date range you pick (default: last week) by a factor you enter
-  per category, e.g. to turn logged time into timesheet hours. Shows a
-  before/after preview per category, downloads a full backup first, keeps each
+  per project (listed A→Z, "No project" last), e.g. to turn logged time into timesheet hours. Shows a
+  before/after preview per project, downloads a full backup first, keeps each
   session's original minutes, and leaves converted sessions out of later runs
   (tick "also convert sessions converted before" to multiply them again).
-  Categories left at 1.00 are not touched.
+  Projects left at 1.00 are not touched.
 - Dark IDE-style theme by default (light and "follow system" in **Data ▾ → Theme**).
 
 Task types: Task, Feature, Bug, Project, Meeting, Review, Documentation,
