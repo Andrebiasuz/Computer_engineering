@@ -318,6 +318,54 @@ function setSwatch(c) {
   colorRow.querySelectorAll(".swatch").forEach((b) => b.setAttribute("aria-pressed", String(b.dataset.color === c)));
 }
 
+/* editor size: remembered per browser */
+const SIZE_KEY = "scrum-board-editor-size";
+const SIZE_STEP = 80;
+function readSize() {
+  try { return JSON.parse(localStorage.getItem(SIZE_KEY)) || {}; } catch (_) { return {}; }
+}
+function writeSize(size) {
+  try { localStorage.setItem(SIZE_KEY, JSON.stringify(size)); } catch (_) { /* ignore */ }
+}
+let resizeSaveTimer = null;
+function applySize(size) {
+  clearTimeout(resizeSaveTimer);
+  if (size.w) noteDialog.style.setProperty("--ed-w", size.w + "px");
+  if (size.h) noteDialog.style.setProperty("--ed-h", size.h + "px");
+  noteDialog.style.width = noteDialog.style.height = ""; // drop any drag-resize so the vars take effect
+  noteDialog.classList.toggle("maximized", !!size.max);
+  $("#note-max").setAttribute("aria-pressed", String(!!size.max));
+}
+function currentSize() {
+  return { w: Math.round(noteDialog.offsetWidth), h: Math.round(noteDialog.offsetHeight), max: noteDialog.classList.contains("maximized") };
+}
+document.querySelectorAll(".size-controls [data-size]").forEach((b) =>
+  b.addEventListener("click", () => {
+    const step = SIZE_STEP * Number(b.dataset.size);
+    const s = currentSize();
+    const size = {
+      w: Math.max(320, Math.min(window.innerWidth - 16, s.w + step)),
+      h: Math.max(540, Math.min(window.innerHeight - 16, s.h + step)),
+      max: false,
+    };
+    applySize(size);
+    writeSize(size);
+  }));
+$("#note-max").addEventListener("click", () => {
+  const size = { ...readSize(), max: !noteDialog.classList.contains("maximized") };
+  applySize(size);
+  writeSize(size);
+});
+// remember a size the user set by dragging the corner
+new ResizeObserver(() => {
+  clearTimeout(resizeSaveTimer);
+  resizeSaveTimer = setTimeout(() => {
+    if (!noteDialog.open || noteDialog.classList.contains("maximized")) return;
+    const s = currentSize();
+    if (s.w && s.h) writeSize(s);
+  }, 200);
+}).observe(noteDialog);
+
 function openNoteEditor(id, colId) {
   const note = id ? state.notes[id] : null;
   editing = { id, col: note ? findColumnOf(id).id : colId, color: note ? note.color : COLORS[Math.floor(Math.random() * COLORS.length)] };
@@ -331,6 +379,7 @@ function openNoteEditor(id, colId) {
   state.columns.forEach((c) => sel.append(new Option(c.title, c.id, false, c.id === editing.col)));
   setSwatch(editing.color);
   $("#note-delete").hidden = !note;
+  applySize(readSize());
   noteDialog.showModal();
   $("#f-title").focus();
 }
@@ -374,9 +423,20 @@ $("#note-delete").addEventListener("click", () => {
 document.querySelectorAll("dialog [data-close]").forEach((b) =>
   b.addEventListener("click", () => b.closest("dialog").close()));
 
-// click on the dimmed backdrop closes a dialog
-document.querySelectorAll("dialog").forEach((d) =>
-  d.addEventListener("click", (e) => { if (e.target === d) d.close(); }));
+// a click on the dimmed backdrop closes a dialog. The press has to start
+// outside the box too, so dragging the resize corner never closes it.
+function outsideBox(d, e) {
+  const r = d.getBoundingClientRect();
+  return e.clientX < r.left || e.clientX > r.right || e.clientY < r.top || e.clientY > r.bottom;
+}
+document.querySelectorAll("dialog").forEach((d) => {
+  let downOutside = false;
+  d.addEventListener("pointerdown", (e) => { downOutside = e.target === d && outsideBox(d, e); });
+  d.addEventListener("click", (e) => {
+    if (downOutside && e.target === d && outsideBox(d, e)) d.close();
+    downOutside = false;
+  });
+});
 
 /* ---------------- delete + undo ---------------- */
 
