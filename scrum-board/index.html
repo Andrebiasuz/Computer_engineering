@@ -1,0 +1,110 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Sprint Board</title>
+<meta name="description" content="A sticky-note scrum / kanban board pinned to a corkboard. Runs entirely in your browser.">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Caveat:wght@500;700&family=Permanent+Marker&display=swap" rel="stylesheet">
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Crect x='8' y='10' width='48' height='46' rx='3' fill='%23ffe066' transform='rotate(-6 32 32)'/%3E%3Ccircle cx='32' cy='12' r='7' fill='%23e03131'/%3E%3C/svg%3E">
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+
+<div class="frame">
+  <header class="topbar">
+    <div class="sprint-card">
+      <div class="tape tape-left"></div>
+      <div class="tape tape-right"></div>
+      <h1 id="sprint-name" class="sprint-name" contenteditable="true" spellcheck="false"></h1>
+      <p class="sprint-goal-row"><span class="goal-label">Goal:</span>
+        <span id="sprint-goal" class="sprint-goal" contenteditable="true" spellcheck="false"></span></p>
+      <div class="progress" aria-label="Sprint progress">
+        <div class="progress-track"><div id="progress-fill" class="progress-fill"></div></div>
+        <span id="progress-text" class="progress-text"></span>
+      </div>
+    </div>
+
+    <div class="toolbar">
+      <input id="search" type="search" placeholder="Filter notes…" autocomplete="off" aria-label="Filter notes">
+      <button id="add-column" class="btn">+ Column</button>
+      <button id="export" class="btn">Export</button>
+      <label class="btn">Import<input id="import" type="file" accept="application/json" hidden></label>
+      <button id="reset" class="btn btn-danger" title="Start over with an empty board">Reset</button>
+    </div>
+  </header>
+
+  <main id="board" class="board" aria-label="Board"></main>
+
+  <div id="trash" class="trash" aria-hidden="true">
+    <span class="trash-icon">🗑</span><span>Drop here to remove</span>
+  </div>
+</div>
+
+<!-- Note editor -->
+<dialog id="note-dialog" class="paper-dialog">
+  <form method="dialog" id="note-form">
+    <h2 id="note-dialog-title">Edit note</h2>
+    <label>Title
+      <input id="f-title" required maxlength="120" autocomplete="off">
+    </label>
+    <label>Details
+      <textarea id="f-body" rows="4" maxlength="1000"></textarea>
+    </label>
+    <div class="row">
+      <label>Owner
+        <input id="f-owner" maxlength="24" placeholder="e.g. Ana" autocomplete="off">
+      </label>
+      <label>Points
+        <select id="f-points">
+          <option value="">–</option>
+          <option>1</option><option>2</option><option>3</option><option>5</option>
+          <option>8</option><option>13</option><option>21</option>
+        </select>
+      </label>
+      <label>Column
+        <select id="f-column"></select>
+      </label>
+    </div>
+    <fieldset class="swatches">
+      <legend>Colour</legend>
+      <div id="f-colors" class="swatch-row"></div>
+    </fieldset>
+    <div class="dialog-actions">
+      <button type="button" id="note-delete" class="btn btn-danger">Delete</button>
+      <span class="spacer"></span>
+      <button type="button" class="btn" data-close>Cancel</button>
+      <button type="submit" class="btn btn-primary">Save</button>
+    </div>
+  </form>
+</dialog>
+
+<!-- Column editor -->
+<dialog id="col-dialog" class="paper-dialog">
+  <form method="dialog" id="col-form">
+    <h2>Column</h2>
+    <label>Name
+      <input id="c-title" required maxlength="40" autocomplete="off">
+    </label>
+    <label>WIP limit <small>(0 = none)</small>
+      <input id="c-wip" type="number" min="0" max="99" value="0">
+    </label>
+    <div class="dialog-actions">
+      <button type="button" id="col-delete" class="btn btn-danger">Delete column</button>
+      <span class="spacer"></span>
+      <button type="button" class="btn" data-close>Cancel</button>
+      <button type="submit" class="btn btn-primary">Save</button>
+    </div>
+  </form>
+</dialog>
+
+<div id="toast" class="toast" role="status" hidden>
+  <span id="toast-text"></span>
+  <button id="toast-undo" class="btn btn-small">Undo</button>
+</div>
+
+<script src="app.js"></script>
+</body>
+</html>
