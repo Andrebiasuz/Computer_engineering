@@ -508,6 +508,34 @@ body.dragging .trash { transform: translate(-50%, 0); }
 }
 .paper-dialog textarea { resize: vertical; font-family: var(--hand); font-size: 1.25rem; line-height: 1.15; }
 .paper-dialog input:focus, .paper-dialog textarea:focus, .paper-dialog select:focus { outline: 2px solid var(--accent); border-color: transparent; }
+/* note editor: bigger by default, resizable from the bottom-right corner,
+   −/+ step the size, ⛶ toggles full screen */
+.note-dialog {
+  --ed-w: 680px;
+  --ed-h: 680px;
+  width: min(var(--ed-w), calc(100vw - 16px));
+  height: min(var(--ed-h), calc(100dvh - 16px));
+  max-width: calc(100vw - 16px);
+  max-height: calc(100dvh - 16px);
+  min-width: min(320px, calc(100vw - 16px));
+  min-height: min(540px, calc(100dvh - 16px));
+  resize: both;
+  overflow: auto;
+}
+.note-dialog.maximized {
+  width: calc(100vw - 16px) !important;
+  height: calc(100dvh - 16px) !important;
+  resize: none;
+}
+.note-dialog form { min-height: 100%; display: flex; flex-direction: column; }
+.note-dialog label.grow { flex: 1; display: flex; flex-direction: column; min-height: 110px; }
+.note-dialog label.grow textarea { flex: 1; resize: none; font-size: 1.4rem; line-height: 1.25; }
+.note-dialog #f-title { font-size: 1.1rem; }
+.dialog-head { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+.dialog-head h2 { flex: 1; }
+.size-controls { display: flex; gap: 6px; }
+.size-controls .btn { min-width: 36px; }
+
 .row { display: grid; grid-template-columns: 1.4fr .8fr 1.2fr; gap: 10px; }
 @media (max-width: 420px) { .row { grid-template-columns: 1fr 1fr; } .row label:first-child { grid-column: 1 / -1; } }
 

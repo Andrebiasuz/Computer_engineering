@@ -44,14 +44,21 @@
 </div>
 
 <!-- Note editor -->
-<dialog id="note-dialog" class="paper-dialog">
+<dialog id="note-dialog" class="paper-dialog note-dialog">
   <form method="dialog" id="note-form">
-    <h2 id="note-dialog-title">Edit note</h2>
+    <div class="dialog-head">
+      <h2 id="note-dialog-title">Edit note</h2>
+      <div class="size-controls" role="group" aria-label="Editor size">
+        <button type="button" class="btn btn-small" data-size="-1" title="Make smaller" aria-label="Make editor smaller">−</button>
+        <button type="button" class="btn btn-small" data-size="1" title="Make bigger" aria-label="Make editor bigger">+</button>
+        <button type="button" class="btn btn-small" id="note-max" title="Full screen" aria-label="Full screen" aria-pressed="false">⛶</button>
+      </div>
+    </div>
     <label>Title
       <input id="f-title" required maxlength="120" autocomplete="off">
     </label>
-    <label>Details
-      <textarea id="f-body" rows="4" maxlength="1000"></textarea>
+    <label class="grow">Details
+      <textarea id="f-body" rows="3" maxlength="5000"></textarea>
     </label>
     <div class="row">
       <label>Owner
