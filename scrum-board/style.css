@@ -299,8 +299,10 @@ body {
 .note {
   --note: var(--c-yellow);
   position: relative;
-  min-height: 118px;
-  padding: 22px 14px 12px;
+  min-height: 190px;
+  padding: 26px 16px 14px;
+  display: flex;
+  flex-direction: column;
   background:
     linear-gradient(170deg, rgba(255,255,255,.35), transparent 35%),
     var(--note);
@@ -356,22 +358,22 @@ body {
 .note-title {
   font-family: var(--hand);
   font-weight: 700;
-  font-size: 1.5rem;
-  line-height: 1.05;
-  margin: 0 0 6px;
+  font-size: 1.75rem;
+  line-height: 1.1;
+  margin: 0 0 8px;
   overflow-wrap: anywhere;
   color: #1f1e24;
 }
 .note-body {
   font-family: var(--hand);
-  font-size: 1.15rem;
-  line-height: 1.1;
-  margin: 0 0 8px;
-  color: #3b3943;
+  font-size: 1.35rem;
+  line-height: 1.2;
+  margin: 0 0 10px;
+  color: #2f2d36;
   overflow-wrap: anywhere;
   white-space: pre-wrap;
   display: -webkit-box;
-  -webkit-line-clamp: 4;
+  -webkit-line-clamp: 10;
   -webkit-box-orient: vertical;
   overflow: hidden;
 }
@@ -387,7 +389,7 @@ body {
   align-items: center;
   gap: 6px;
   font-family: var(--hand);
-  font-size: 1.1rem;
+  font-size: 1.25rem;
   color: #3b3943;
   min-width: 0;
 }
