@@ -9,6 +9,12 @@ page makes no network requests except to load its two Google Fonts.
 - Columns (Backlog → To Do → In Progress → Review → Done by default). You can rename, add and delete them.
 - **WIP limits** per column. A column over its limit turns red.
 - Sticky notes with a title, details, owner (with an initials avatar), story points and one of six colours.
+- **Projects**: give a note a project and it shows as a label on the card. The
+  project menu in the toolbar shows one project at a time (or notes with no
+  project), and the progress bar then shows that project's progress. Click a
+  card's project label to jump to that project. New notes start in the
+  project you're viewing, using that project's usual colour. Column counts and
+  WIP limits always include every project, so the limit covers your total workload.
 - Drag notes between and within columns. On phones and tablets, long-press a note to pick it up.
 - Drag a note onto the trash bin to remove it. Every delete can be undone.
 - Sprint name, sprint goal and a progress bar showing done points over total points.
