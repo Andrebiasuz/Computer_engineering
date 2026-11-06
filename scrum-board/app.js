@@ -133,6 +133,14 @@ let filterText = "";
 const NO_PROJECT = "\u0000none";
 const PROJECT_FILTER_KEY = "scrum-board-project-filter";
 let projectFilter = "";
+const LANES_KEY = "scrum-board-lanes";
+const COLLAPSED_KEY = "scrum-board-collapsed-lanes";
+let lanesOn = false;
+let collapsedLanes = new Set();
+try {
+  lanesOn = localStorage.getItem(LANES_KEY) === "1";
+  collapsedLanes = new Set(JSON.parse(localStorage.getItem(COLLAPSED_KEY) || "[]"));
+} catch (_) { /* ignore */ }
 try { projectFilter = localStorage.getItem(PROJECT_FILTER_KEY) || ""; } catch (_) { /* ignore */ }
 
 // every project name in use, case-insensitively de-duplicated, A→Z
@@ -250,36 +258,59 @@ function dropStaleProjectFilter() {
 function render() {
   dropStaleProjectFilter();
   board.textContent = "";
+  board.classList.toggle("lanes", lanesOn);
+  $("#lanes-toggle").setAttribute("aria-pressed", String(lanesOn));
+  if (lanesOn) renderLanes();
+  else renderColumns();
+  freshId = null;
+  renderProjectFilter();
+  renderHeader();
+}
+
+// the paper label taped to the top of a column (counts always cover every project)
+function buildColLabel(col, i) {
+  const ids = state.order[col.id];
+  const label = document.createElement("header");
+  label.className = "col-label";
+  label.style.setProperty("--label-tilt", (i % 2 ? 1.2 : -1.5) + "deg");
+  const t = document.createElement("span");
+  t.className = "col-title";
+  t.textContent = col.title;
+  const meta = document.createElement("span");
+  meta.className = "col-meta";
+  const pts = pointsOf(ids);
+  const word = (col.wip ? col.wip : ids.length) === 1 ? "note" : "notes";
+  meta.textContent = `${ids.length}${col.wip ? " / " + col.wip : ""} ${word}${pts ? " · " + pts + " pts" : ""}`;
+  label.append(t, meta);
+
+  const menu = document.createElement("button");
+  menu.className = "col-menu";
+  menu.type = "button";
+  menu.title = "Column settings";
+  menu.setAttribute("aria-label", `Settings for ${col.title}`);
+  menu.textContent = "⋯";
+  menu.addEventListener("click", () => openColumnEditor(col.id));
+  label.append(menu);
+  return label;
+}
+
+function overWip(col) {
+  return col.wip && state.order[col.id].length > col.wip;
+}
+
+function renderColumns() {
   state.columns.forEach((col, i) => {
     const ids = state.order[col.id];
     const sec = document.createElement("section");
     sec.className = "column";
     sec.dataset.col = col.id;
-    if (col.wip && ids.length > col.wip) sec.classList.add("over-wip");
+    if (overWip(col)) sec.classList.add("over-wip");
 
-    const label = document.createElement("header");
-    label.className = "col-label";
-    label.style.setProperty("--label-tilt", (i % 2 ? 1.2 : -1.5) + "deg");
-    const t = document.createElement("span");
-    t.className = "col-title";
-    t.textContent = col.title;
-    const meta = document.createElement("span");
-    meta.className = "col-meta";
-    const pts = pointsOf(ids);
-    meta.textContent = `${ids.length}${col.wip ? " / " + col.wip : ""} notes${pts ? " · " + pts + " pts" : ""}`;
-    label.append(t, meta);
-
-    const menu = document.createElement("button");
-    menu.className = "col-menu";
-    menu.type = "button";
-    menu.title = "Column settings";
-    menu.setAttribute("aria-label", `Settings for ${col.title}`);
-    menu.textContent = "⋯";
-    menu.addEventListener("click", () => openColumnEditor(col.id));
-    label.append(menu);
+    const label = buildColLabel(col, i);
 
     const list = document.createElement("div");
-    list.className = "col-notes";
+    list.className = "col-notes drop-zone";
+    list.dataset.col = col.id;
     ids.forEach((id) => list.append(renderNote(state.notes[id])));
     if (!ids.length) {
       const hint = document.createElement("p");
@@ -297,9 +328,110 @@ function render() {
     sec.append(label, list, add);
     board.append(sec);
   });
-  freshId = null;
-  renderProjectFilter();
-  renderHeader();
+}
+
+/* ---- swimlanes: one row per project, same columns ---- */
+
+// lane keys: each project name, plus "" for notes without a project
+function laneKeys() {
+  if (projectFilter === NO_PROJECT) return [""];
+  const names = projectNames();
+  if (projectFilter) return names.filter((p) => p.toLowerCase() === projectFilter.toLowerCase());
+  const keys = [...names];
+  if (!names.length || Object.values(state.notes).some((n) => !n.project)) keys.push("");
+  return keys;
+}
+function inLane(note, key) {
+  return key === "" ? !note.project : note.project.toLowerCase() === key.toLowerCase();
+}
+function setCollapsed(key, collapsed) {
+  const k = key.toLowerCase();
+  if (collapsed) collapsedLanes.add(k); else collapsedLanes.delete(k);
+  try { localStorage.setItem(COLLAPSED_KEY, JSON.stringify([...collapsedLanes])); } catch (_) { /* ignore */ }
+  render();
+}
+
+function renderLanes() {
+  const cols = state.columns;
+  const grid = document.createElement("div");
+  grid.className = "lane-grid";
+  grid.style.setProperty("--cols", cols.length);
+
+  const corner = document.createElement("div");
+  corner.className = "lane-corner";
+  grid.append(corner);
+  cols.forEach((col, i) => {
+    const head = document.createElement("div");
+    head.className = "lane-colhead";
+    if (overWip(col)) head.classList.add("over-wip");
+    head.append(buildColLabel(col, i));
+    grid.append(head);
+  });
+
+  const doneCol = cols[cols.length - 1];
+  for (const key of laneKeys()) {
+    const collapsed = collapsedLanes.has(key.toLowerCase());
+    const name = key || "No project";
+    const laneIds = cols.flatMap((c) => state.order[c.id]).filter((id) => inLane(state.notes[id], key));
+    const doneIds = doneCol ? state.order[doneCol.id].filter((id) => inLane(state.notes[id], key)) : [];
+
+    // lane header (sticky on the left)
+    const head = document.createElement("div");
+    head.className = "lane-head" + (collapsed ? " collapsed" : "");
+    const card = document.createElement("div");
+    card.className = "lane-card";
+    const toggle = document.createElement("button");
+    toggle.type = "button";
+    toggle.className = "lane-name";
+    toggle.setAttribute("aria-expanded", String(!collapsed));
+    toggle.title = collapsed ? "Expand lane" : "Collapse lane";
+    toggle.textContent = (collapsed ? "▸ " : "▾ ") + name;
+    toggle.addEventListener("click", () => setCollapsed(key, !collapsed));
+    const meta = document.createElement("span");
+    meta.className = "lane-meta";
+    const total = pointsOf(laneIds), done = pointsOf(doneIds);
+    const notesWord = laneIds.length === 1 ? "note" : "notes";
+    meta.textContent = total
+      ? `${laneIds.length} ${notesWord} · ${done}/${total} pts`
+      : `${laneIds.length} ${notesWord} · ${doneIds.length} done`;
+    const bar = document.createElement("div");
+    bar.className = "lane-bar";
+    const fill = document.createElement("i");
+    const pct = total ? done / total : laneIds.length ? doneIds.length / laneIds.length : 0;
+    fill.style.width = pct * 100 + "%";
+    bar.append(fill);
+    const add = document.createElement("button");
+    add.type = "button";
+    add.className = "lane-add";
+    add.textContent = "+ note";
+    add.title = `Add a note to ${name}`;
+    add.addEventListener("click", () => cols.length && openNoteEditor(null, cols[0].id, key));
+    card.append(toggle, meta, bar, add);
+    head.append(card);
+    grid.append(head);
+
+    // one cell per column
+    cols.forEach((col) => {
+      const cell = document.createElement("div");
+      cell.className = "lane-cell drop-zone" + (collapsed ? " collapsed" : "") + (overWip(col) ? " over-wip" : "");
+      cell.dataset.col = col.id;
+      cell.dataset.lane = key;
+      const ids = state.order[col.id].filter((id) => inLane(state.notes[id], key));
+      if (collapsed) {
+        if (ids.length) {
+          const count = document.createElement("span");
+          count.className = "lane-count";
+          count.textContent = ids.length;
+          count.title = `${ids.length} ${ids.length === 1 ? "note" : "notes"}`;
+          cell.append(count);
+        }
+      } else {
+        ids.forEach((id) => cell.append(renderNote(state.notes[id])));
+      }
+      grid.append(cell);
+    });
+  }
+  board.append(grid);
 }
 
 function renderProjectFilter() {
@@ -456,11 +588,13 @@ $("#f-project").addEventListener("input", (e) => {
   if (c) setSwatch(c);
 });
 
-function openNoteEditor(id, colId) {
+function openNoteEditor(id, colId, laneProject) {
   const note = id ? state.notes[id] : null;
   editing = { id, col: note ? findColumnOf(id).id : colId, color: note ? note.color : COLORS[Math.floor(Math.random() * COLORS.length)], colorTouched: !!note };
   // a new note starts in the project you're looking at
-  const startProject = note ? note.project : (projectFilter && projectFilter !== NO_PROJECT ? $("#project-filter").selectedOptions[0]?.text || "" : "");
+  const startProject = note ? note.project
+    : laneProject !== undefined ? laneProject
+    : (projectFilter && projectFilter !== NO_PROJECT ? $("#project-filter").selectedOptions[0]?.text || "" : "");
   $("#f-project").value = startProject;
   if (!note && startProject) editing.color = projectColor(startProject) || editing.color;
   $("#note-dialog-title").textContent = note ? "Edit note" : "New note";
@@ -624,6 +758,12 @@ $("#search").addEventListener("input", (e) => {
 
 $("#project-filter").addEventListener("change", (e) => setProjectFilter(e.target.value));
 
+$("#lanes-toggle").addEventListener("click", () => {
+  lanesOn = !lanesOn;
+  try { localStorage.setItem(LANES_KEY, lanesOn ? "1" : "0"); } catch (_) { /* ignore */ }
+  render();
+});
+
 $("#export").addEventListener("click", () => {
   const blob = new Blob([JSON.stringify(state, null, 2)], { type: "application/json" });
   const a = document.createElement("a");
@@ -682,10 +822,13 @@ board.addEventListener("keydown", (e) => {
       dest.splice(Math.min(pos, dest.length), 0, id);
       moved = true;
     }
-  } else if (e.key === "ArrowUp" && pos > 0) {
-    [ids[pos - 1], ids[pos]] = [ids[pos], ids[pos - 1]]; moved = true;
-  } else if (e.key === "ArrowDown" && pos < ids.length - 1) {
-    [ids[pos + 1], ids[pos]] = [ids[pos], ids[pos + 1]]; moved = true;
+  } else if (e.key === "ArrowUp" || e.key === "ArrowDown") {
+    // swap with the neighbour you can see: in swimlanes, the next note in the same lane
+    const note = state.notes[id];
+    const step = e.key === "ArrowUp" ? -1 : 1;
+    let j = pos + step;
+    while (lanesOn && j >= 0 && j < ids.length && note.project.toLowerCase() !== state.notes[ids[j]].project.toLowerCase()) j += step;
+    if (j >= 0 && j < ids.length) { [ids[j], ids[pos]] = [ids[pos], ids[j]]; moved = true; }
   }
   if (moved) {
     e.preventDefault();
@@ -783,18 +926,19 @@ function updateDropTarget() {
   if (hot) return;
 
   const under = document.elementFromPoint(drag.x, drag.y);
-  let column = under?.closest(".column");
-  if (!column) {
-    // pick the column horizontally nearest the pointer
+  let list = under?.closest(".drop-zone") || under?.closest(".column")?.querySelector(".drop-zone");
+  if (!list) {
+    // pick the drop zone nearest the pointer
     let best = Infinity;
-    board.querySelectorAll(".column").forEach((c) => {
-      const r = c.getBoundingClientRect();
-      const d = drag.x < r.left ? r.left - drag.x : drag.x > r.right ? drag.x - r.right : 0;
-      if (d < best) { best = d; column = c; }
+    board.querySelectorAll(".drop-zone").forEach((z) => {
+      const r = z.getBoundingClientRect();
+      const dx = drag.x < r.left ? r.left - drag.x : drag.x > r.right ? drag.x - r.right : 0;
+      const dy = drag.y < r.top ? r.top - drag.y : drag.y > r.bottom ? drag.y - r.bottom : 0;
+      const d = dx * dx + dy * dy;
+      if (d < best) { best = d; list = z; }
     });
   }
-  if (!column) return;
-  const list = column.querySelector(".col-notes");
+  if (!list) return;
   const siblings = [...list.querySelectorAll(".note:not(.placeholder):not(.is-hidden)")];
   let before = null;
   for (const s of siblings) {
@@ -831,21 +975,29 @@ function onPointerUp() {
   }
   const { id, el } = drag;
   const dropOnTrash = overTrash();
-  const newCol = el.closest(".column")?.dataset.col;
-  const newIndex = [...el.parentElement.querySelectorAll(".note")].indexOf(el);
+  const zone = el.parentElement?.closest(".drop-zone");
+  const newCol = zone?.dataset.col;
+  const newLane = zone?.dataset.lane; // undefined outside swimlanes
+  const sibling = (dir) => {
+    let n = el[dir];
+    while (n && !n.classList.contains("note")) n = n[dir];
+    return n;
+  };
+  const next = sibling("nextElementSibling");
+  const prev = sibling("previousElementSibling");
   endDrag();
   if (dropOnTrash) { deleteNote(id); return; }
-  if (!newCol) { render(); return; }
+  if (!newCol || !state.order[newCol]) { render(); return; }
 
   const from = findColumnOf(id).id;
   state.order[from] = state.order[from].filter((x) => x !== id);
-  // map the placeholder's DOM position back onto the column's order array
-  const domIds = [...board.querySelectorAll(`.column[data-col="${CSS.escape(newCol)}"] .note`)]
-    .map((n) => n.dataset.id).filter((x) => x !== id);
-  const anchor = domIds[newIndex];
+  // place it next to the note it landed beside, in the column's full order
   const dest = state.order[newCol];
-  const at = anchor ? dest.indexOf(anchor) : dest.length;
-  dest.splice(at < 0 ? dest.length : at, 0, id);
+  let at = dest.length;
+  if (next && dest.includes(next.dataset.id)) at = dest.indexOf(next.dataset.id);
+  else if (prev && dest.includes(prev.dataset.id)) at = dest.indexOf(prev.dataset.id) + 1;
+  dest.splice(at, 0, id);
+  if (newLane !== undefined) state.notes[id].project = newLane; // dropped into another project's lane
   state.notes[id].tilt = randTilt(); // re-pinning never lands perfectly straight
   save();
   render();
