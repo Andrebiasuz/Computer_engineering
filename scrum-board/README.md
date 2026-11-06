@@ -15,6 +15,12 @@ page makes no network requests except to load its two Google Fonts.
   card's project label to jump to that project. New notes start in the
   project you're viewing, using that project's usual colour. Column counts and
   WIP limits always include every project, so the limit covers your total workload.
+- **Swimlanes**: the ☰ Swimlanes button switches to one row (lane) per
+  project, with the same columns. Drag a note sideways to change its stage,
+  or up/down into another lane to change its project. Each lane shows its own
+  progress, has a "+ note" button, and can be collapsed to a row of counts.
+  Notes without a project get a "No project" lane. The on/off choice and
+  collapsed lanes are remembered per browser.
 - Drag notes between and within columns. On phones and tablets, long-press a note to pick it up.
 - Drag a note onto the trash bin to remove it. Every delete can be undone.
 - Sprint name, sprint goal and a progress bar showing done points over total points.
