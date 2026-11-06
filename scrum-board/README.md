@@ -1,12 +1,14 @@
-# Sprint Board
+# Project Board
 
-A scrum / kanban board that looks like sticky notes pinned to a corkboard.
+A kanban board for running several projects at once, made to look like sticky
+notes pinned to a corkboard. It works as continuous flow: there are no sprints.
 Plain HTML, CSS and JavaScript: there's no build step and no server, and the
 page makes no network requests except to load its two Google Fonts.
 
 ## Features
 
-- Columns (Backlog → To Do → In Progress → Review → Done by default). You can rename, add and delete them.
+- Columns (Backlog → Next → Doing → Waiting → Done by default). You can rename, add and delete them.
+  The last column is the Done column; new columns are added just before it.
 - **WIP limits** per column. A column over its limit turns red.
 - Sticky notes with a title, details, owner (with an initials avatar), story points and one of six colours.
 - **Projects**: give a note a project and it shows as a label on the card. The
@@ -23,7 +25,14 @@ page makes no network requests except to load its two Google Fonts.
   collapsed lanes are remembered per browser.
 - Drag notes between and within columns. On phones and tablets, long-press a note to pick it up.
 - Drag a note onto the trash bin to remove it. Every delete can be undone.
-- Sprint name, sprint goal and a progress bar showing done points over total points.
+- Board title, a "This week" focus line, and a progress bar showing how many
+  notes you finished this week (Monday to Sunday) against how many are still open.
+  It follows the project filter.
+- **Archive done**: in your weekly review, one click moves everything in Done to
+  the archive (with undo). **History** lists archived notes week by week, where
+  you can restore or delete them. Notes are stamped when they reach Done, so the
+  weekly count stays right after archiving.
+- Story points are optional; leave them empty and the board just counts notes.
 - Filter notes by text.
 - Keyboard: Tab to focus a note, Enter to edit, Delete to remove, Shift/Alt + arrows to move it.
 - Export and import the board as JSON.
