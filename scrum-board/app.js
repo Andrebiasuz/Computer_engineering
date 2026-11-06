@@ -1,7 +1,7 @@
 "use strict";
 
 /* =========================================================
-   Sprint Board — sticky notes on a corkboard.
+   Project Board — sticky notes on a corkboard.
    All data lives in localStorage; no network requests.
    ========================================================= */
 
@@ -43,9 +43,9 @@ function makeNote(title, opts = {}) {
 function sampleState() {
   const cols = [
     { id: uid(), title: "Backlog", wip: 0 },
-    { id: uid(), title: "To Do", wip: 0 },
-    { id: uid(), title: "In Progress", wip: 3 },
-    { id: uid(), title: "Review", wip: 2 },
+    { id: uid(), title: "Next", wip: 6 },
+    { id: uid(), title: "Doing", wip: 3 },
+    { id: uid(), title: "Waiting", wip: 0 },
     { id: uid(), title: "Done", wip: 0 },
   ];
   const n = (t, o) => makeNote(t, o);
@@ -60,19 +60,20 @@ function sampleState() {
     [n("Set up repo + CI", { project: "Mobile app", owner: "Sam", points: "2", color: "pink" }),
      n("Pick a name for the project", { project: "Website", body: "✨ decided!", points: "1", color: "yellow" })],
   ];
-  const state = { sprint: "Sprint 1", goal: "Ship a usable MVP", columns: cols, notes: {}, order: {} };
+  const state = { title: "My Projects", focus: "Website search + catch up on Reports", columns: cols, notes: {}, order: {}, archive: [] };
   cols.forEach((c, i) => {
     state.order[c.id] = notes[i].map((note) => note.id);
     notes[i].forEach((note) => (state.notes[note.id] = note));
   });
+  notes[notes.length - 1].forEach((note) => (note.doneAt = Date.now()));
   return state;
 }
 
 function emptyState() {
-  const cols = ["To Do", "In Progress", "Done"].map((t) => ({ id: uid(), title: t, wip: 0 }));
+  const cols = ["Backlog", "Next", "Doing", "Waiting", "Done"].map((t) => ({ id: uid(), title: t, wip: t === "Doing" ? 3 : 0 }));
   const order = {};
   cols.forEach((c) => (order[c.id] = []));
-  return { sprint: "Sprint 1", goal: "", columns: cols, notes: {}, order };
+  return { title: "My Projects", focus: "", columns: cols, notes: {}, order, archive: [] };
 }
 
 function isValidState(s) {
@@ -81,8 +82,14 @@ function isValidState(s) {
 }
 
 function normalize(s) {
-  s.sprint = String(s.sprint ?? "Sprint");
-  s.goal = String(s.goal ?? "");
+  // older boards used "sprint" + "goal"; the untouched default sprint name becomes a board title
+  if (s.title == null) s.title = s.sprint == null || s.sprint === "Sprint 1" ? "My Projects" : s.sprint;
+  if (s.focus == null) s.focus = s.goal ?? "";
+  delete s.sprint;
+  delete s.goal;
+  s.title = String(s.title);
+  s.focus = String(s.focus);
+  s.archive = Array.isArray(s.archive) ? s.archive.filter((a) => a && a.id && a.title != null) : [];
   s.columns = s.columns.filter((c) => c && c.id).map((c) => ({ id: String(c.id), title: String(c.title ?? ""), wip: Math.max(0, parseInt(c.wip, 10) || 0) }));
   const seen = new Set();
   for (const c of s.columns) {
@@ -118,7 +125,34 @@ function load() {
 
 let state = load();
 
+/* ---------------- done dates + weeks ---------------- */
+
+// the last column is the Done column
+function doneColumn() {
+  return state.columns[state.columns.length - 1];
+}
+// stamp notes when they reach Done, clear the stamp when they leave it
+function syncDoneDates() {
+  const done = doneColumn();
+  const inDone = new Set(done ? state.order[done.id] : []);
+  for (const n of Object.values(state.notes)) {
+    if (inDone.has(n.id)) { if (!n.doneAt) n.doneAt = Date.now(); }
+    else delete n.doneAt;
+  }
+}
+// Monday 00:00 of the week containing t
+function weekStart(t) {
+  const d = new Date(t);
+  d.setHours(0, 0, 0, 0);
+  d.setDate(d.getDate() - ((d.getDay() + 6) % 7));
+  return d.getTime();
+}
+function fmtDay(t) {
+  return new Date(t).toLocaleDateString(undefined, { day: "numeric", month: "short", year: "numeric" });
+}
+
 function save() {
+  syncDoneDates();
   try { localStorage.setItem(STORAGE_KEY, JSON.stringify(state)); } catch (_) { /* ignore */ }
 }
 
@@ -451,27 +485,23 @@ function renderProjectFilter() {
 }
 
 function renderHeader() {
-  const sprintEl = $("#sprint-name");
-  const goalEl = $("#sprint-goal");
-  if (document.activeElement !== sprintEl) sprintEl.textContent = state.sprint;
-  if (document.activeElement !== goalEl) goalEl.textContent = state.goal;
-  document.title = `${state.sprint} · Sprint Board`;
+  const titleEl = $("#board-title");
+  const focusEl = $("#week-focus");
+  if (document.activeElement !== titleEl) titleEl.textContent = state.title;
+  if (document.activeElement !== focusEl) focusEl.textContent = state.focus;
+  document.title = `${state.title} · Project Board`;
 
-  // progress follows the project filter, so you can see how each project is doing
-  const inScope = (id) => inProjectFilter(state.notes[id]);
-  const all = state.columns.flatMap((c) => state.order[c.id]).filter(inScope);
-  const doneCol = state.columns[state.columns.length - 1];
-  const doneIds = doneCol ? state.order[doneCol.id].filter(inScope) : [];
-  const totalPts = pointsOf(all);
-  let pct, text;
-  if (totalPts) {
-    const donePts = pointsOf(doneIds);
-    pct = (donePts / totalPts) * 100;
-    text = `${donePts} / ${totalPts} pts done`;
-  } else {
-    pct = all.length ? (doneIds.length / all.length) * 100 : 0;
-    text = `${doneIds.length} / ${all.length} done`;
-  }
+  // "finished this week" vs what's still open, following the project filter
+  const thisWeek = weekStart(Date.now());
+  const done = doneColumn();
+  const doneSet = new Set(done ? state.order[done.id] : []);
+  const open = Object.values(state.notes).filter((n) => !doneSet.has(n.id) && inProjectFilter(n)).length;
+  const finished = [
+    ...Object.values(state.notes).filter((n) => doneSet.has(n.id)),
+    ...state.archive,
+  ].filter((n) => n.doneAt && n.doneAt >= thisWeek && inProjectFilter(n)).length;
+  const pct = finished + open ? (finished / (finished + open)) * 100 : 0;
+  let text = `${finished} finished this week · ${open} open`;
   if (projectFilter) text = `${projectFilter === NO_PROJECT ? "No project" : $("#project-filter").selectedOptions[0]?.text || projectFilter}: ${text}`;
   $("#progress-fill").style.width = pct + "%";
   $("#progress-text").textContent = text;
@@ -496,8 +526,8 @@ function bindEditable(el, key, fallback) {
     document.execCommand("insertText", false, text.replace(/\s+/g, " "));
   });
 }
-bindEditable($("#sprint-name"), "sprint", "Sprint");
-bindEditable($("#sprint-goal"), "goal", "");
+bindEditable($("#board-title"), "title", "My Projects");
+bindEditable($("#week-focus"), "focus", "");
 
 /* ---------------- note editor ---------------- */
 
@@ -675,14 +705,25 @@ let toastTimer = null;
 function snapshot() { return JSON.parse(JSON.stringify(state)); }
 
 function showToast(text) {
+  // an open dialog blocks clicks everywhere else, so show the toast inside it
+  const toast = $("#toast");
+  const host = document.querySelector("dialog[open]") || document.body;
+  if (toast.parentElement !== host) host.append(toast);
   $("#toast-text").textContent = text;
+  $("#toast-undo").hidden = !undoSnapshot;
   $("#toast").hidden = false;
   clearTimeout(toastTimer);
   toastTimer = setTimeout(() => { $("#toast").hidden = true; undoSnapshot = null; }, 6000);
 }
 
 $("#toast-undo").addEventListener("click", () => {
-  if (undoSnapshot) { state = undoSnapshot; undoSnapshot = null; save(); render(); }
+  if (undoSnapshot) {
+    state = undoSnapshot;
+    undoSnapshot = null;
+    save();
+    render();
+    if (historyDialog.open) renderHistory();
+  }
   $("#toast").hidden = true;
 });
 
@@ -738,12 +779,13 @@ $("#col-delete").addEventListener("click", () => {
 });
 
 $("#add-column").addEventListener("click", () => {
+  // new columns go just before Done, so Done stays the last column
   const col = { id: uid(), title: "New column", wip: 0 };
-  state.columns.push(col);
+  state.columns.splice(Math.max(0, state.columns.length - 1), 0, col);
   state.order[col.id] = [];
   save();
   render();
-  board.scrollTo({ left: board.scrollWidth, behavior: "smooth" });
+  board.querySelector(`[data-col="${CSS.escape(col.id)}"]`)?.scrollIntoView({ behavior: "smooth", inline: "center", block: "nearest" });
   openColumnEditor(col.id);
 });
 
@@ -768,7 +810,7 @@ $("#export").addEventListener("click", () => {
   const blob = new Blob([JSON.stringify(state, null, 2)], { type: "application/json" });
   const a = document.createElement("a");
   a.href = URL.createObjectURL(blob);
-  a.download = `${state.sprint.replace(/[^\w-]+/g, "-").toLowerCase() || "board"}.json`;
+  a.download = `${state.title.replace(/[^\w-]+/g, "-").toLowerCase() || "board"}.json`;
   a.click();
   setTimeout(() => URL.revokeObjectURL(a.href), 1000);
 });
@@ -788,6 +830,128 @@ $("#import").addEventListener("change", async (e) => {
   } catch (err) {
     alert("Couldn't import that file: " + err.message);
   }
+});
+
+/* ---------------- archive + history ---------------- */
+
+$("#archive-done").addEventListener("click", () => {
+  const done = doneColumn();
+  const ids = done ? state.order[done.id] : [];
+  if (!ids.length) { undoSnapshot = null; showToast("Nothing in Done to archive"); return; }
+  undoSnapshot = snapshot();
+  const now = Date.now();
+  for (const id of ids) {
+    const n = state.notes[id];
+    state.archive.push({ ...n, doneAt: n.doneAt || now, archivedAt: now });
+    delete state.notes[id];
+  }
+  state.order[done.id] = [];
+  save();
+  render();
+  showToast(`Archived ${ids.length} finished ${ids.length === 1 ? "note" : "notes"}`);
+});
+
+const historyDialog = $("#history-dialog");
+
+function renderHistory() {
+  const list = $("#history-list");
+  list.textContent = "";
+  const items = state.archive.filter(inProjectFilter).sort((a, b) => b.doneAt - a.doneAt);
+  const scope = projectFilter ? ` in ${projectFilter === NO_PROJECT ? "No project" : $("#project-filter").selectedOptions[0]?.text}` : "";
+  $("#history-summary").textContent = items.length
+    ? `${items.length} archived ${items.length === 1 ? "note" : "notes"}${scope}, newest first.`
+    : "";
+  if (!items.length) {
+    const p = document.createElement("p");
+    p.className = "history-empty";
+    p.textContent = `Nothing archived${scope} yet. Use “✓ Archive done” in your weekly review to clear the Done column; finished notes land here.`;
+    list.append(p);
+    return;
+  }
+  const weeks = new Map();
+  for (const it of items) {
+    const w = weekStart(it.doneAt);
+    if (!weeks.has(w)) weeks.set(w, []);
+    weeks.get(w).push(it);
+  }
+  const thisWeek = weekStart(Date.now());
+  for (const [w, its] of weeks) {
+    const sec = document.createElement("section");
+    sec.className = "history-week";
+    const h = document.createElement("h3");
+    h.textContent = w === thisWeek ? "This week" : w === thisWeek - 7 * 864e5 ? "Last week" : `Week of ${fmtDay(w)}`;
+    const count = document.createElement("small");
+    count.textContent = `${its.length} finished`;
+    h.append(count);
+    sec.append(h);
+    for (const it of its) {
+      const row = document.createElement("div");
+      row.className = "history-item";
+      const dot = document.createElement("span");
+      dot.className = "dot";
+      dot.style.background = `var(--c-${COLORS.includes(it.color) ? it.color : "yellow"})`;
+      const title = document.createElement("span");
+      title.className = "h-title";
+      title.textContent = it.title;
+      title.title = `Finished ${fmtDay(it.doneAt)}`;
+      row.append(dot);
+      if (it.project) {
+        const tag = document.createElement("span");
+        tag.className = "note-project";
+        tag.textContent = it.project;
+        row.append(tag);
+      }
+      row.append(title);
+      const actions = document.createElement("span");
+      actions.className = "h-actions";
+      const restore = document.createElement("button");
+      restore.type = "button";
+      restore.className = "btn btn-small";
+      restore.textContent = "Restore";
+      restore.title = "Put it back in the Done column";
+      restore.addEventListener("click", () => restoreArchived(it.id));
+      const del = document.createElement("button");
+      del.type = "button";
+      del.className = "btn btn-small btn-danger";
+      del.textContent = "Delete";
+      del.addEventListener("click", () => deleteArchived(it.id));
+      actions.append(restore, del);
+      row.append(actions);
+      sec.append(row);
+    }
+    list.append(sec);
+  }
+}
+
+function restoreArchived(id) {
+  const i = state.archive.findIndex((a) => a.id === id);
+  const done = doneColumn();
+  if (i < 0 || !done) return;
+  undoSnapshot = snapshot();
+  const [it] = state.archive.splice(i, 1);
+  delete it.archivedAt;
+  state.notes[it.id] = it;
+  state.order[done.id].push(it.id);
+  save();
+  render();
+  renderHistory();
+  showToast(`Restored “${it.title}” to ${done.title}`);
+}
+
+function deleteArchived(id) {
+  const i = state.archive.findIndex((a) => a.id === id);
+  if (i < 0) return;
+  undoSnapshot = snapshot();
+  const [it] = state.archive.splice(i, 1);
+  save();
+  render();
+  renderHistory();
+  showToast(`Deleted “${it.title}” from history`);
+}
+
+$("#open-history").addEventListener("click", () => {
+  renderHistory();
+  historyDialog.showModal();
 });
 
 $("#reset").addEventListener("click", () => {

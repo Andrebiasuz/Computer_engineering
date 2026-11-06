@@ -3,8 +3,8 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Sprint Board</title>
-<meta name="description" content="A sticky-note scrum / kanban board pinned to a corkboard. Runs entirely in your browser.">
+<title>Project Board</title>
+<meta name="description" content="A sticky-note kanban board for several projects, pinned to a corkboard. Runs entirely in your browser.">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Caveat:wght@500;700&family=Permanent+Marker&display=swap" rel="stylesheet">
@@ -18,10 +18,10 @@
     <div class="sprint-card">
       <div class="tape tape-left"></div>
       <div class="tape tape-right"></div>
-      <h1 id="sprint-name" class="sprint-name" contenteditable="true" spellcheck="false"></h1>
-      <p class="sprint-goal-row"><span class="goal-label">Goal:</span>
-        <span id="sprint-goal" class="sprint-goal" contenteditable="true" spellcheck="false"></span></p>
-      <div class="progress" aria-label="Sprint progress">
+      <h1 id="board-title" class="sprint-name" contenteditable="true" spellcheck="false"></h1>
+      <p class="sprint-goal-row"><span class="goal-label">This week:</span>
+        <span id="week-focus" class="sprint-goal" contenteditable="true" spellcheck="false"></span></p>
+      <div class="progress" aria-label="Progress this week">
         <div class="progress-track"><div id="progress-fill" class="progress-fill"></div></div>
         <span id="progress-text" class="progress-text"></span>
       </div>
@@ -32,6 +32,8 @@
       <select id="project-filter" aria-label="Show project"></select>
       <input id="search" type="search" placeholder="Filter notes…" autocomplete="off" aria-label="Filter notes">
       <button id="add-column" class="btn">+ Column</button>
+      <button id="archive-done" class="btn" title="Move everything in the Done column to the archive">✓ Archive done</button>
+      <button id="open-history" class="btn" title="Everything you've finished, week by week">History</button>
       <button id="export" class="btn">Export</button>
       <label class="btn">Import<input id="import" type="file" accept="application/json" hidden></label>
       <button id="reset" class="btn btn-danger" title="Start over with an empty board">Reset</button>
@@ -112,6 +114,18 @@
       <button type="button" class="btn" data-close>Cancel</button>
       <button type="submit" class="btn btn-primary">Save</button>
     </div>
+  </form>
+</dialog>
+
+<!-- History: archived (finished) notes, week by week -->
+<dialog id="history-dialog" class="paper-dialog history-dialog">
+  <form method="dialog">
+    <div class="dialog-head">
+      <h2>Finished work</h2>
+      <button type="button" class="btn btn-small" data-close>Close</button>
+    </div>
+    <p id="history-summary" class="history-summary"></p>
+    <div id="history-list" class="history-list"></div>
   </form>
 </dialog>
 

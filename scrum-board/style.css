@@ -123,7 +123,7 @@ body {
 }
 .goal-label { font-weight: 700; margin-right: 4px; }
 .sprint-goal { outline: none; min-width: 2ch; display: inline-block; }
-.sprint-goal:empty::before { content: "click to set a sprint goal"; color: #9a97a3; }
+.sprint-goal:empty::before { content: "click to note what you're focusing on"; color: #9a97a3; }
 
 [contenteditable]:focus { background: rgba(255, 240, 120, .35); border-radius: 3px; }
 
@@ -696,6 +696,40 @@ body.dragging .trash { transform: translate(-50%, 0); }
 
 .dialog-actions { display: flex; gap: 8px; align-items: center; margin-top: 6px; flex-wrap: wrap; }
 .spacer { flex: 1; }
+
+/* ---------- history ---------- */
+
+.history-dialog { width: min(640px, calc(100vw - 32px)); max-height: calc(100dvh - 32px); }
+.history-summary { margin: 0; font-family: var(--hand); font-size: 1.25rem; color: var(--ink-soft); }
+.history-list { display: grid; gap: 18px; }
+.history-week h3 {
+  margin: 0 0 6px;
+  font-family: var(--marker);
+  font-weight: 400;
+  font-size: 1.05rem;
+  border-bottom: 2px solid #e3dccb;
+  padding-bottom: 4px;
+  display: flex;
+  justify-content: space-between;
+  gap: 8px;
+}
+.history-week h3 small { font-family: var(--hand); font-size: 1.1rem; color: var(--ink-soft); }
+.history-item {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 6px 0;
+  border-bottom: 1px dashed #e3dccb;
+}
+.history-item .dot { flex: 0 0 auto; width: 14px; height: 14px; border-radius: 3px; box-shadow: 0 1px 2px rgba(0,0,0,.25); }
+.history-item .h-title { flex: 1; min-width: 0; font-family: var(--hand); font-size: 1.3rem; line-height: 1.1; overflow-wrap: anywhere; }
+.history-item .note-project { cursor: default; margin: 0; }
+.history-item .h-actions { display: flex; gap: 6px; flex: 0 0 auto; }
+.history-empty { font-family: var(--hand); font-size: 1.3rem; color: var(--ink-soft); margin: 8px 0; }
+@media (max-width: 480px) {
+  .history-item { flex-wrap: wrap; }
+  .history-item .h-actions { width: 100%; justify-content: flex-end; }
+}
 
 /* ---------- toast ---------- */
 
