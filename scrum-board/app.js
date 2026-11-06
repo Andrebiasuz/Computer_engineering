@@ -32,6 +32,7 @@ function makeNote(title, opts = {}) {
     title,
     body: opts.body || "",
     owner: opts.owner || "",
+    project: opts.project || "",
     points: opts.points || "",
     color: opts.color || "yellow",
     tilt: randTilt(),
@@ -49,15 +50,15 @@ function sampleState() {
   ];
   const n = (t, o) => makeNote(t, o);
   const notes = [
-    [n("Dark mode toggle", { body: "Respect system setting by default", points: "3", color: "purple" }),
-     n("Export to CSV", { points: "5", color: "blue" })],
-    [n("Login rate limiting", { body: "5 attempts / minute per IP", owner: "Ana", points: "3", color: "pink" }),
-     n("Write onboarding docs", { owner: "Leo", points: "2", color: "green" })],
-    [n("Search API", { body: "Full-text over titles + descriptions", owner: "Sam", points: "8", color: "orange" }),
-     n("Fix flaky CI test", { owner: "Ana", points: "1", color: "yellow" })],
-    [n("Password reset email", { owner: "Leo", points: "3", color: "blue" })],
-    [n("Set up repo + CI", { owner: "Sam", points: "2", color: "green" }),
-     n("Pick a name for the project", { body: "✨ decided!", points: "1", color: "yellow" })],
+    [n("Dark mode toggle", { project: "Website", body: "Respect system setting by default", points: "3", color: "yellow" }),
+     n("Export to CSV", { project: "Reports", points: "5", color: "blue" })],
+    [n("Login rate limiting", { project: "Website", body: "5 attempts / minute per IP", owner: "Ana", points: "3", color: "yellow" }),
+     n("Write onboarding docs", { project: "Mobile app", owner: "Leo", points: "2", color: "pink" })],
+    [n("Search API", { project: "Website", body: "Full-text over titles + descriptions", owner: "Sam", points: "8", color: "yellow" }),
+     n("Fix flaky CI test", { project: "Mobile app", owner: "Ana", points: "1", color: "pink" })],
+    [n("Monthly sales chart", { project: "Reports", owner: "Leo", points: "3", color: "blue" })],
+    [n("Set up repo + CI", { project: "Mobile app", owner: "Sam", points: "2", color: "pink" }),
+     n("Pick a name for the project", { project: "Website", body: "✨ decided!", points: "1", color: "yellow" })],
   ];
   const state = { sprint: "Sprint 1", goal: "Ship a usable MVP", columns: cols, notes: {}, order: {} };
   cols.forEach((c, i) => {
@@ -99,6 +100,7 @@ function normalize(s) {
     if (!COLORS.includes(note.color)) note.color = "yellow";
     if (typeof note.tilt !== "number") note.tilt = randTilt();
     if (!note.pin) note.pin = PIN_COLORS[0];
+    note.project = String(note.project ?? "").trim();
   }
   return s;
 }
@@ -128,6 +130,32 @@ function findColumnOf(noteId) {
 
 const board = $("#board");
 let filterText = "";
+const NO_PROJECT = "\u0000none";
+const PROJECT_FILTER_KEY = "scrum-board-project-filter";
+let projectFilter = "";
+try { projectFilter = localStorage.getItem(PROJECT_FILTER_KEY) || ""; } catch (_) { /* ignore */ }
+
+// every project name in use, case-insensitively de-duplicated, A→Z
+function projectNames() {
+  const byKey = new Map();
+  for (const n of Object.values(state.notes)) {
+    if (n.project && !byKey.has(n.project.toLowerCase())) byKey.set(n.project.toLowerCase(), n.project);
+  }
+  return [...byKey.values()].sort((a, b) => a.localeCompare(b, undefined, { sensitivity: "base" }));
+}
+function inProjectFilter(note) {
+  if (!projectFilter) return true;
+  if (projectFilter === NO_PROJECT) return !note.project;
+  return note.project.toLowerCase() === projectFilter.toLowerCase();
+}
+function isVisible(note) {
+  return inProjectFilter(note) && (!filterText || matches(note));
+}
+function setProjectFilter(value) {
+  projectFilter = value;
+  try { localStorage.setItem(PROJECT_FILTER_KEY, value); } catch (_) { /* ignore */ }
+  render();
+}
 let freshId = null;
 
 function avatarFor(name) {
@@ -148,6 +176,16 @@ function renderNote(note) {
   el.style.setProperty("--tilt", note.tilt + "deg");
   el.style.setProperty("--pin", note.pin);
   el.setAttribute("aria-label", note.title);
+
+  if (note.project) {
+    const tag = document.createElement("button");
+    tag.type = "button";
+    tag.className = "note-project";
+    tag.textContent = note.project;
+    tag.title = `Show only ${note.project}`;
+    tag.addEventListener("click", (e) => { e.stopPropagation(); setProjectFilter(note.project); });
+    el.append(tag);
+  }
 
   const title = document.createElement("h3");
   title.className = "note-title";
@@ -184,20 +222,33 @@ function renderNote(note) {
   }
 
   if (note.id === freshId) el.classList.add("fresh");
-  if (filterText && !matches(note)) el.classList.add("is-hidden");
+  if (!isVisible(note)) el.classList.add("is-hidden");
   return el;
 }
 
 function matches(note) {
   const q = filterText;
-  return [note.title, note.body, note.owner].some((v) => v && v.toLowerCase().includes(q));
+  return [note.title, note.body, note.owner, note.project].some((v) => v && v.toLowerCase().includes(q));
 }
 
 function pointsOf(ids) {
   return ids.reduce((sum, id) => sum + (parseInt(state.notes[id]?.points, 10) || 0), 0);
 }
 
+// a filter for a project that no longer exists falls back to "all"
+function dropStaleProjectFilter() {
+  if (!projectFilter) return;
+  const stale = projectFilter === NO_PROJECT
+    ? Object.values(state.notes).every((n) => n.project)
+    : !projectNames().some((p) => p.toLowerCase() === projectFilter.toLowerCase());
+  if (stale) {
+    projectFilter = "";
+    try { localStorage.setItem(PROJECT_FILTER_KEY, ""); } catch (_) { /* ignore */ }
+  }
+}
+
 function render() {
+  dropStaleProjectFilter();
   board.textContent = "";
   state.columns.forEach((col, i) => {
     const ids = state.order[col.id];
@@ -247,7 +298,24 @@ function render() {
     board.append(sec);
   });
   freshId = null;
+  renderProjectFilter();
   renderHeader();
+}
+
+function renderProjectFilter() {
+  const sel = $("#project-filter");
+  const names = projectNames();
+  sel.textContent = "";
+  sel.append(new Option("All projects", ""));
+  names.forEach((p) => sel.append(new Option(p, p)));
+  if (Object.values(state.notes).some((n) => !n.project)) sel.append(new Option("No project", NO_PROJECT));
+  const current = names.find((p) => p.toLowerCase() === projectFilter.toLowerCase()) ?? projectFilter;
+  sel.value = current;
+  sel.classList.toggle("active", !!projectFilter);
+
+  const list = $("#project-list");
+  list.textContent = "";
+  names.forEach((p) => list.append(new Option(p)));
 }
 
 function renderHeader() {
@@ -257,9 +325,11 @@ function renderHeader() {
   if (document.activeElement !== goalEl) goalEl.textContent = state.goal;
   document.title = `${state.sprint} · Sprint Board`;
 
-  const all = state.columns.flatMap((c) => state.order[c.id]);
+  // progress follows the project filter, so you can see how each project is doing
+  const inScope = (id) => inProjectFilter(state.notes[id]);
+  const all = state.columns.flatMap((c) => state.order[c.id]).filter(inScope);
   const doneCol = state.columns[state.columns.length - 1];
-  const doneIds = doneCol ? state.order[doneCol.id] : [];
+  const doneIds = doneCol ? state.order[doneCol.id].filter(inScope) : [];
   const totalPts = pointsOf(all);
   let pct, text;
   if (totalPts) {
@@ -270,6 +340,7 @@ function renderHeader() {
     pct = all.length ? (doneIds.length / all.length) * 100 : 0;
     text = `${doneIds.length} / ${all.length} done`;
   }
+  if (projectFilter) text = `${projectFilter === NO_PROJECT ? "No project" : $("#project-filter").selectedOptions[0]?.text || projectFilter}: ${text}`;
   $("#progress-fill").style.width = pct + "%";
   $("#progress-text").textContent = text;
 }
@@ -300,7 +371,7 @@ bindEditable($("#sprint-goal"), "goal", "");
 
 const noteDialog = $("#note-dialog");
 const noteForm = $("#note-form");
-let editing = { id: null, col: null, color: "yellow" };
+let editing = { id: null, col: null, color: "yellow", colorTouched: false };
 
 const colorRow = $("#f-colors");
 COLORS.forEach((c) => {
@@ -310,7 +381,7 @@ COLORS.forEach((c) => {
   b.dataset.color = c;
   b.style.background = `var(--c-${c})`;
   b.setAttribute("aria-label", c);
-  b.addEventListener("click", () => setSwatch(c));
+  b.addEventListener("click", () => { editing.colorTouched = true; setSwatch(c); });
   colorRow.append(b);
 });
 function setSwatch(c) {
@@ -366,9 +437,32 @@ new ResizeObserver(() => {
   }, 200);
 }).observe(noteDialog);
 
+// the colour most notes of a project already use, so a project keeps one colour
+function projectColor(name) {
+  const counts = {};
+  for (const n of Object.values(state.notes)) {
+    if (n.project && n.project.toLowerCase() === name.toLowerCase()) counts[n.color] = (counts[n.color] || 0) + 1;
+  }
+  return Object.keys(counts).sort((a, b) => counts[b] - counts[a])[0] || null;
+}
+// reuse the existing spelling of a project ("website" -> "Website")
+function canonicalProject(value) {
+  const v = value.replace(/\s+/g, " ").trim();
+  return projectNames().find((p) => p.toLowerCase() === v.toLowerCase()) || v;
+}
+$("#f-project").addEventListener("input", (e) => {
+  if (editing.colorTouched) return;
+  const c = projectColor(e.target.value.trim());
+  if (c) setSwatch(c);
+});
+
 function openNoteEditor(id, colId) {
   const note = id ? state.notes[id] : null;
-  editing = { id, col: note ? findColumnOf(id).id : colId, color: note ? note.color : COLORS[Math.floor(Math.random() * COLORS.length)] };
+  editing = { id, col: note ? findColumnOf(id).id : colId, color: note ? note.color : COLORS[Math.floor(Math.random() * COLORS.length)], colorTouched: !!note };
+  // a new note starts in the project you're looking at
+  const startProject = note ? note.project : (projectFilter && projectFilter !== NO_PROJECT ? $("#project-filter").selectedOptions[0]?.text || "" : "");
+  $("#f-project").value = startProject;
+  if (!note && startProject) editing.color = projectColor(startProject) || editing.color;
   $("#note-dialog-title").textContent = note ? "Edit note" : "New note";
   $("#f-title").value = note ? note.title : "";
   $("#f-body").value = note ? note.body : "";
@@ -392,6 +486,7 @@ noteForm.addEventListener("submit", (e) => {
     title,
     body: $("#f-body").value.trim(),
     owner: $("#f-owner").value.trim(),
+    project: canonicalProject($("#f-project").value),
     points: $("#f-points").value,
     color: editing.color,
   };
@@ -523,9 +618,11 @@ $("#add-column").addEventListener("click", () => {
 $("#search").addEventListener("input", (e) => {
   filterText = e.target.value.trim().toLowerCase();
   board.querySelectorAll(".note").forEach((el) => {
-    el.classList.toggle("is-hidden", !!filterText && !matches(state.notes[el.dataset.id]));
+    el.classList.toggle("is-hidden", !isVisible(state.notes[el.dataset.id]));
   });
 });
+
+$("#project-filter").addEventListener("change", (e) => setProjectFilter(e.target.value));
 
 $("#export").addEventListener("click", () => {
   const blob = new Blob([JSON.stringify(state, null, 2)], { type: "application/json" });
@@ -566,7 +663,7 @@ $("#reset").addEventListener("click", () => {
 
 board.addEventListener("keydown", (e) => {
   const el = e.target.closest?.(".note");
-  if (!el) return;
+  if (!el || e.target.closest(".note-project")) return;
   const id = el.dataset.id;
   if (e.key === "Enter" || e.key === " ") { e.preventDefault(); openNoteEditor(id); return; }
   if (e.key === "Delete" || e.key === "Backspace") { e.preventDefault(); deleteNote(id); return; }
@@ -606,7 +703,7 @@ let drag = null;
 
 board.addEventListener("pointerdown", (e) => {
   const el = e.target.closest(".note");
-  if (!el || e.button > 0) return;
+  if (!el || e.button > 0 || e.target.closest(".note-project")) return;
   drag = {
     id: el.dataset.id,
     el,

@@ -28,6 +28,7 @@
     </div>
 
     <div class="toolbar">
+      <select id="project-filter" aria-label="Show project"></select>
       <input id="search" type="search" placeholder="Filter notes…" autocomplete="off" aria-label="Filter notes">
       <button id="add-column" class="btn">+ Column</button>
       <button id="export" class="btn">Export</button>
@@ -54,9 +55,15 @@
         <button type="button" class="btn btn-small" id="note-max" title="Full screen" aria-label="Full screen" aria-pressed="false">⛶</button>
       </div>
     </div>
-    <label>Title
-      <input id="f-title" required maxlength="120" autocomplete="off">
-    </label>
+    <div class="row row-2">
+      <label>Title
+        <input id="f-title" required maxlength="120" autocomplete="off">
+      </label>
+      <label>Project
+        <input id="f-project" maxlength="40" list="project-list" placeholder="e.g. Website" autocomplete="off">
+        <datalist id="project-list"></datalist>
+      </label>
+    </div>
     <label class="grow">Details
       <textarea id="f-body" rows="3" maxlength="5000"></textarea>
     </label>
