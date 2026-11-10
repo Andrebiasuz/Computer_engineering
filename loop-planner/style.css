@@ -205,6 +205,9 @@ input[type="number"] { width: 72px; }
 .selbox { position: absolute; border: 1.5px solid var(--accent); background: var(--accent-soft); pointer-events: none; border-radius: 2px; }
 .selbox.crossing { border: 1.5px dashed var(--have); background: var(--have-soft); }
 .viewport.panning, .viewport.panning .node { cursor: grab; }
+.modebar { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 12px; padding: 7px 12px; background: var(--accent); color: var(--accent-ink); font-weight: 600; font-size: .9rem; }
+.modebar span { flex: 1 1 260px; }
+.modebar .btn { background: var(--accent-ink); color: var(--accent); border-color: var(--accent-ink); }
 .keep-opt { flex-basis: 100%; display: flex; gap: 6px; align-items: flex-start; font-size: .85rem; line-height: 1.3; }
 .keep-opt input { margin-top: 2px; }
 .multi-list { display: flex; flex-wrap: wrap; gap: 4px; margin-top: 10px; font-family: var(--f-mono); }

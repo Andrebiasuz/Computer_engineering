@@ -527,7 +527,7 @@
       const badge = c.todo ? `<span class="badge" title="${c.todo} item(s) to order">${c.todo}</span>`
         : c.ordered ? `<span class="badge ordered" title="${c.ordered} item(s) ordered, waiting">${c.ordered}</span>`
         : `<span class="badge done" title="Everything ordered or in stock">✓</span>`;
-      const isSel = selectedIds().includes(n.id);
+      const isSel = selectedIds().includes(n.id) || !!(cablePick && cablePick.first === n.id);
       html += `<div class="node${isSel ? ' sel' : ''}" data-id="${n.id}" style="left:${n.x}px;top:${n.y}px">
         <div class="node-top">${symHTML(n.type, n.tag)}<div class="node-title"><b>${esc(n.tag)}</b><small>${esc(n.desc || T(n.type).name)}</small>${n.inside && nodeById(loop, n.inside) ? `<small class="inside-tag">in ${esc(nodeById(loop, n.inside).tag)}</small>` : ''}</div></div>
         <div class="chips">${chipsHTML(items)}</div>${badge}
@@ -727,7 +727,7 @@
     return `<h2>${esc(loop.name || 'Untitled loop')}</h2>
       <div id="summaryGrid" class="summary-grid">${summaryHTML(loop)}</div>
       <p class="tip">Select an item or a cable on the sheet to see its checklist. Drag from a round handle on the side of an item to another item to draw a cable. Drag a box on an empty part of the sheet to select several items: left to right selects items fully inside, right to left selects anything the box touches. Then drag one of them to move them together (drag an enclosure's dashed outline or label to move it with everything inside); Ctrl+C / Ctrl+V copies and pastes them at the mouse pointer (Ctrl+Shift+V keeps their order statuses). The sheet is endless: the mouse wheel zooms at the cursor, drag with the middle button (or hold Space and drag) to pan, double-click the middle button to zoom extents. Click a status to step it: To order → Ordered → In stock → Not needed.</p>
-      ${(() => { const c = readClip(); return c && c.nodes.length ? `<div class="del-row" style="margin-top:12px"><button class="btn ghost" data-clip="paste" title="Ctrl+V">Paste ${c.nodes.length} copied item${c.nodes.length > 1 ? 's' : ''}</button>${keepBox()}</div>` : ''; })()}
+      ${(() => { const c = readClip(); return c && (c.nodes.length || c.cable) ? `<div class="del-row" style="margin-top:12px"><button class="btn ghost" data-clip="paste" title="Ctrl+V">${c.cable ? `Paste cable ${esc(c.cable.tag)}` : `Paste ${c.nodes.length} copied item${c.nodes.length > 1 ? 's' : ''}`}</button>${keepBox()}</div>` : ''; })()}
       ${checklistBlock('Whole-loop consumables')}`;
   }
 
@@ -911,6 +911,8 @@
       <div class="del-row">
         <button class="btn ghost small" data-goto-node="${l.a}">Go to ${esc(na ? na.tag : 'A')}</button>
         <button class="btn ghost small" data-goto-node="${l.b}">Go to ${esc(nb ? nb.tag : 'B')}</button>
+        <button class="btn ghost small" data-clip="copy" title="Ctrl+C: copy this cable's settings">Copy cable</button>
+        ${(() => { const c = readClip(); return c && c.cable && c.cable.id !== l.id ? `<button class="btn ghost small" data-clip="match" title="Give this cable the settings of ${esc(c.cable.tag)}">Paste settings of ${esc(c.cable.tag)}</button>` : ''; })()}
         <button class="btn ghost danger" data-del="link">Delete ${esc(l.tag)}</button>
       </div>`;
   }
@@ -1137,8 +1139,17 @@
   }
   function copySelection(quiet) {
     const loop = cur();
+    if (sel && sel.kind === 'link' && linkById(loop, sel.id)) { // a cable: copy its configuration
+      const l = linkById(loop, sel.id);
+      const clip = { nodes: [], links: [], cable: JSON.parse(JSON.stringify(l)) };
+      clipMem = clip;
+      try { localStorage.setItem(CLIP_KEY, JSON.stringify(clip)); } catch (e) { /* memory only */ }
+      if (!quiet) toast(`Copied cable ${l.tag}. Ctrl+V, then click two items to connect them with a copy, or click a cable to give it these settings.`);
+      renderInspector();
+      return clip;
+    }
     const ids = new Set(selectedIds());
-    if (!ids.size) { if (!quiet) toast(sel && sel.kind === 'link' ? 'Select items to copy; cables between them are copied with them.' : 'Select items to copy first.'); return null; }
+    if (!ids.size) { if (!quiet) toast('Select items or a cable to copy first.'); return null; }
     loop.nodes.forEach(n => { if (ids.has(n.inside)) ids.add(n.id); }); // contents of copied enclosures
     const nodes = loop.nodes.filter(n => ids.has(n.id));
     const links = loop.links.filter(l => ids.has(l.a) && ids.has(l.b));
@@ -1171,7 +1182,8 @@
   function paste(at, keep) {
     if (keep == null) keep = keepPref();
     const clip = readClip();
-    if (!clip || !clip.nodes.length) { toast('Nothing copied yet. Select items and press Ctrl+C.'); return; }
+    if (clip && clip.cable) { pasteCable(keep); return; }
+    if (!clip || !clip.nodes.length) { toast('Nothing copied yet. Select items or a cable and press Ctrl+C.'); return; }
     const loop = cur();
     const used = new Set(loop.nodes.map(n => n.tag).concat(loop.links.map(l => l.tag)));
     let x0 = Infinity, y0 = Infinity;
@@ -1222,6 +1234,78 @@
     renderProgress(); save();
     toast(`Pasted ${nodes.length} item${nodes.length > 1 ? 's' : ''}${links.length ? ` and ${links.length} cable${links.length > 1 ? 's' : ''}` : ''} ${keep ? ' with their order statuses' : ' as new items to order'}.`, true);
   }
+  // ---- cables: paste = connect two items with a copy, or give an existing cable the copied settings
+  let cablePick = null; // { first: node id | null, keep } while picking items for copied cables
+  function cableSettings(src, target, keep) {
+    const c = JSON.parse(JSON.stringify(src));
+    delete c.id; delete c.a; delete c.b; delete c.tag;
+    if (!keep) {
+      if (target) c.st = JSON.parse(JSON.stringify(target.st || {})); // matching settings keeps the target's own statuses
+      else resetStatuses(c);
+      (c.custom || []).forEach(x => { x.s = 'todo'; });
+    }
+    return c;
+  }
+  function applyCableTo(link, keep) {
+    const clip = readClip();
+    if (!clip || !clip.cable || !link) return;
+    snapshot();
+    Object.assign(link, cableSettings(clip.cable, link, keep));
+    sel = { kind: 'link', id: link.id };
+    renderAll(); save();
+    toast(`${link.tag} now has the settings of ${clip.cable.tag}.`, true);
+  }
+  function connectWithCable(a, b, keep) {
+    const clip = readClip(), loop = cur();
+    if (!clip || !clip.cable || a === b) return null;
+    snapshot();
+    const l = makeLink(loop, a, b);
+    Object.assign(l, cableSettings(clip.cable, null, keep));
+    l.tag = freeTag(clip.cable.tag, new Set(loop.nodes.map(n => n.tag).concat(loop.links.map(x => x.tag))));
+    loop.links.push(l);
+    renderDiagram(); renderProgress(); renderSummary(); save();
+    toast(`Added ${l.tag}: ${nodeById(loop, a).tag} → ${nodeById(loop, b).tag}.`, true);
+    return l;
+  }
+  function pasteCable(keep) {
+    const loop = cur();
+    const ids = selectedIds();
+    const clip = readClip();
+    // a different cable selected: give it the copied settings (the copied cable itself: start placing copies)
+    if (sel && sel.kind === 'link' && linkById(loop, sel.id) && sel.id !== clip.cable.id) { applyCableTo(linkById(loop, sel.id), keep); return; }
+    if (ids.length === 2) { const l = connectWithCable(ids[0], ids[1], keep); if (l) select({ kind: 'link', id: l.id }); return; }
+    startCablePick(keep);
+  }
+  function startCablePick(keep) {
+    const clip = readClip();
+    if (view !== 'diagram') setView('diagram');
+    cablePick = { first: null, keep: !!keep };
+    if (sel) select(null);
+    updateModeBar(clip);
+  }
+  function stopCablePick() {
+    cablePick = null;
+    $('modeBar').hidden = true;
+    renderDiagram();
+  }
+  function updateModeBar(clip) {
+    clip = clip || readClip();
+    const loop = cur();
+    const first = cablePick && cablePick.first && nodeById(loop, cablePick.first);
+    $('modeText').textContent = first
+      ? `Copy of ${clip.cable.tag}: now click the item to connect ${first.tag} to.`
+      : `Copy of ${clip.cable.tag}: click two items to connect them, or click a cable to give it these settings. Repeat as often as you like.`;
+    $('modeBar').hidden = false;
+  }
+  function pickNode(id) {
+    if (!cablePick) return;
+    if (!cablePick.first) { cablePick.first = id; renderDiagram(); updateModeBar(); return; }
+    if (cablePick.first === id) return;
+    connectWithCable(cablePick.first, id, cablePick.keep);
+    cablePick.first = null;
+    renderDiagram(); updateModeBar();
+  }
+
   function pasteAtPointer(keep) {
     const vp = $('viewport'), r = vp.getBoundingClientRect();
     paste(pointerWorld || toWorld(r.left + vp.clientWidth / 3, r.top + vp.clientHeight / 3), keep);
@@ -1276,6 +1360,11 @@
       return;
     }
     const loop = cur();
+    if (cablePick && e.button === 0) { // picking items / cables for a copied cable
+      const pn = e.target.closest('.node'), pc = e.target.closest('.wlabel') || e.target.closest('.wire-hit');
+      if (pc) { e.preventDefault(); applyCableTo(linkById(loop, pc.dataset.link), cablePick.keep); select(null); updateModeBar(); return; }
+      if (pn) { e.preventDefault(); pickNode(pn.dataset.id); return; }
+    }
     const port = e.target.closest('.port');
     const nodeEl = e.target.closest('.node');
     const label = e.target.closest('.wlabel');
@@ -1535,6 +1624,8 @@
     if (cb) {
       if (cb.dataset.clip === 'copy') copySelection();
       else if (cb.dataset.clip === 'dup') duplicateSelection();
+      else if (cb.dataset.clip === 'match') applyCableTo(linkById(loop, sel.id), keepPref());
+      else if ((readClip() || {}).cable) startCablePick(keepPref());
       else { const vp = $('viewport'), r = vp.getBoundingClientRect(); paste(toWorld(r.left + vp.clientWidth / 3, r.top + vp.clientHeight / 3)); }
       return;
     }
@@ -1592,6 +1683,7 @@
     if (v === 'orders') renderOrders(); else renderDiagram();
   }
   function switchLoop(id) {
+    if (cablePick) stopCablePick();
     state.currentId = id; sel = null;
     renderAll(); save();
     requestAnimationFrame(fit);
@@ -1644,6 +1736,7 @@
       }
       if (e.key === ' ' && view === 'diagram') { e.preventDefault(); if (!spaceDown) { spaceDown = true; $('viewport').classList.add('panning'); } return; }
       if ((e.key === 'Delete' || e.key === 'Backspace') && sel && view === 'diagram') { e.preventDefault(); deleteSelected(); }
+      if (e.key === 'Escape' && cablePick) { stopCablePick(); toast('Done placing cables.'); return; }
       if (e.key === 'Escape' && sel) select(null);
       if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'a' && view === 'diagram') { e.preventDefault(); setSelection(cur().nodes.map(n => n.id)); }
       if ((e.ctrlKey || e.metaKey) && !e.shiftKey && !e.altKey && view === 'diagram') {
@@ -1693,6 +1786,7 @@
     };
     $('confirmYes').onclick = () => { $('confirmBar').hidden = true; if (confirmAction) confirmAction(); confirmAction = null; };
     $('confirmNo').onclick = () => { $('confirmBar').hidden = true; confirmAction = null; };
+    $('modeDone').onclick = () => { stopCablePick(); toast('Done placing cables.'); };
 
     // Theme: Auto (follow the system) -> Light -> Dark
     const THEMES = { auto: '◐ Auto', light: '☀ Light', dark: '☾ Dark' };

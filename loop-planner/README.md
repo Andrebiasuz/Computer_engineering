@@ -66,6 +66,12 @@ makes sure nothing is forgotten on the purchase list.
     reminders are kept. Tick **Copies keep order statuses** in the side
     panel (or press Ctrl+Shift+V) to paste with the original's statuses
     too. You can paste into another loop.
+    **Cables** can be copied too: select a cable and press Ctrl+C, then
+    Ctrl+V and click two items to connect them with a copy (repeat for as
+    many pairs as you like, Esc to finish), or click an existing cable to
+    give it the copied settings (type, cores, size, length, route, ends,
+    reminders). With two items or a cable already selected, Ctrl+V applies
+    straight away.
 12. **Endless sheet, CAD-style navigation**: there are no edges. The mouse
     wheel zooms around the cursor, dragging with the middle button (or Space
     + drag) pans, and double-clicking the middle button zooms to extents
