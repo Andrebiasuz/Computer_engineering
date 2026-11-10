@@ -1522,6 +1522,22 @@
     $('confirmYes').onclick = () => { $('confirmBar').hidden = true; if (confirmAction) confirmAction(); confirmAction = null; };
     $('confirmNo').onclick = () => { $('confirmBar').hidden = true; confirmAction = null; };
 
+    // Theme: Auto (follow the system) -> Light -> Dark
+    const THEMES = { auto: '◐ Auto', light: '☀ Light', dark: '☾ Dark' };
+    const getTheme = () => { try { const t = localStorage.getItem('loop-planner-theme'); return THEMES[t] ? t : 'auto'; } catch (e) { return 'auto'; } };
+    const applyTheme = t => {
+      if (t === 'auto') delete document.documentElement.dataset.theme; else document.documentElement.dataset.theme = t;
+      $('btnTheme').textContent = THEMES[t];
+      $('btnTheme').setAttribute('aria-label', `Colour theme: ${t}. Click to change.`);
+    };
+    let theme = getTheme();
+    applyTheme(theme);
+    $('btnTheme').onclick = () => {
+      theme = { auto: 'light', light: 'dark', dark: 'auto' }[theme];
+      try { localStorage.setItem('loop-planner-theme', theme); } catch (e) { /* not saved */ }
+      applyTheme(theme);
+      toast(theme === 'auto' ? 'Theme follows your system setting.' : `${theme === 'dark' ? 'Dark' : 'Light'} theme.`);
+    };
     $('btnExport').onclick = () => {
       const text = JSON.stringify(state, null, 2);
       if (window.LOOP_PLANNER_NO_DOWNLOAD) copyText(text, 'Backup copied. Paste it into a .json file to keep it.');

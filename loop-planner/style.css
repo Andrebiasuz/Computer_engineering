@@ -88,6 +88,7 @@ input[type="number"] { width: 72px; }
 .count { display: inline-block; min-width: 1.5em; padding: 0 5px; border-radius: 9px; background: var(--todo); color: #fff; font: 600 .78rem/1.5 var(--f-mono); text-align: center; }
 .count:empty { display: none; }
 .filemenu { display: flex; gap: 6px; }
+.theme-btn { min-width: 84px; font-variant-numeric: tabular-nums; }
 
 .btn {
   display: inline-flex; align-items: center; justify-content: center; gap: 4px;
