@@ -102,6 +102,18 @@ reconnect it, or choose an item under *Ends → Connect to…* in the cable's
 panel. The cable keeps its settings and order statuses; Undo restores the
 item.
 
+**Images**, like in AutoCAD: press **Ctrl+V** with a picture on the
+clipboard (a screenshot, a picture copied from a document or web page) to
+insert it at the mouse pointer, drop image files on the sheet, or use
+**Image…** to attach a file. Click an image to select it, then drag it to
+move it or drag a corner grip to scale it (proportions are kept). The side
+panel sets its name, size, **Fade**, **Frame**, **Lock** and draw order
+(**Send to back** / **Bring to front**; new images go behind items and
+cables). Ctrl+C / Ctrl+V copies it, Delete removes it. Whichever you copied
+last — a picture elsewhere or items in Loop Planner — is what Ctrl+V pastes.
+Pictures are stored in the browser's IndexedDB (not the 5 MB localStorage)
+and are included in **Export** / **Import**.
+
 Drag the border of the component list (left) or the details panel (right)
 to make it wider or narrower; double-click a border to reset it. Widths are
 remembered.

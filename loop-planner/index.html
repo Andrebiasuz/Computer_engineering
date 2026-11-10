@@ -64,6 +64,7 @@
         <button id="zoomIn" class="btn ghost icon" title="Zoom in">+</button>
         <button id="zoomFit" class="btn ghost" title="Zoom extents: show the whole loop (or double-click the mouse wheel)">Fit</button>
         <button id="btnMirror" class="btn ghost" title="Mirror the loop left ↔ right">Mirror</button>
+        <label class="btn ghost" title="Attach an image file (or paste one with Ctrl+V, or drop it on the sheet)">Image…<input id="fileImage" type="file" accept="image/*" hidden></label>
         <button id="btnFlags" class="btn ghost flags-btn" title="Components you flagged to keep track of (F flags the selection)">⚑ Flags</button>
         <button id="btnHighlight" class="btn ghost hl-toggle" aria-expanded="false" aria-controls="hlBar" title="Show where a material is needed">Find material</button>
       </div>
@@ -82,8 +83,10 @@
     <div id="modeBar" class="modebar" hidden><span id="modeText"></span><button id="modeDone" class="btn small">Done (Esc)</button></div>
     <div id="viewport" class="viewport">
       <div id="world">
+        <div id="imgBack" class="img-layer"></div>
         <svg id="wires" xmlns="http://www.w3.org/2000/svg"></svg>
         <div id="nodes"></div>
+        <div id="imgFront" class="img-layer"></div>
       </div>
       <div id="emptyHint" class="empty" hidden>
         <strong>Empty loop</strong>

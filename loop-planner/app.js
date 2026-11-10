@@ -236,6 +236,97 @@
     return state;
   }
   let saveTimer = null;
+  // ---------------------------------------------------------------- images (stored in IndexedDB, not localStorage)
+  const IMG_DB = 'loop-planner-images';
+  let idbP = null;
+  const imgCache = new Map(); // blob id -> { data: dataURL, url: object URL }
+  function idb() {
+    if (!idbP) idbP = new Promise((res, rej) => {
+      const r = indexedDB.open(IMG_DB, 1);
+      r.onupgradeneeded = () => r.result.createObjectStore('img');
+      r.onsuccess = () => res(r.result);
+      r.onerror = () => rej(r.error);
+    });
+    return idbP;
+  }
+  function dataToUrl(data) {
+    try {
+      const [head, b64] = data.split(',');
+      const mime = (head.match(/data:([^;]+)/) || [])[1] || 'image/png';
+      const bin = atob(b64), arr = new Uint8Array(bin.length);
+      for (let i = 0; i < bin.length; i++) arr[i] = bin.charCodeAt(i);
+      return URL.createObjectURL(new Blob([arr], { type: mime }));
+    } catch (e) { return data; }
+  }
+  async function imgPut(id, data) {
+    imgCache.set(id, { data, url: dataToUrl(data) });
+    try {
+      const db = await idb();
+      await new Promise((res, rej) => { const t = db.transaction('img', 'readwrite'); t.objectStore('img').put(data, id); t.oncomplete = res; t.onerror = () => rej(t.error); });
+    } catch (e) { toast('This browser could not store the image; it will be lost on reload. Export to keep it.'); }
+  }
+  async function imgGet(id) {
+    if (imgCache.has(id)) return imgCache.get(id);
+    try {
+      const db = await idb();
+      const data = await new Promise((res, rej) => { const r = db.transaction('img').objectStore('img').get(id); r.onsuccess = () => res(r.result); r.onerror = () => rej(r.error); });
+      if (data) { const v = { data, url: dataToUrl(data) }; imgCache.set(id, v); return v; }
+    } catch (e) { /* unavailable */ }
+    return null;
+  }
+  const imgUrl = id => (imgCache.get(id) || {}).url || '';
+  function allImageRefs() {
+    const ids = new Set();
+    state.loops.forEach(l => (l.images || []).forEach(im => ids.add(im.img)));
+    const c = readClip(); if (c && c.image) ids.add(c.image.img);
+    return ids;
+  }
+  // load the pictures used by the drawing, then drop stored pictures nothing uses any more
+  async function loadImages() {
+    const refs = allImageRefs();
+    await Promise.all([...refs].map(imgGet));
+    renderDiagram();
+    try {
+      const db = await idb();
+      const keys = await new Promise((res, rej) => { const r = db.transaction('img').objectStore('img').getAllKeys(); r.onsuccess = () => res(r.result); r.onerror = () => rej(r.error); });
+      const t = db.transaction('img', 'readwrite');
+      keys.filter(k => !refs.has(k)).forEach(k => t.objectStore('img').delete(k));
+    } catch (e) { /* ignore */ }
+  }
+  const loadImgEl = src => new Promise((res, rej) => { const i = new Image(); i.onload = () => res(i); i.onerror = rej; i.src = src; });
+  const readAsData = blob => new Promise((res, rej) => { const r = new FileReader(); r.onload = () => res(r.result); r.onerror = rej; r.readAsDataURL(blob); });
+  async function insertImage(blob, at) {
+    if (!blob || !/^image\//.test(blob.type)) { toast('That is not an image file.'); return; }
+    let data = await readAsData(blob);
+    let el;
+    try { el = await loadImgEl(data); } catch (e) { toast('This image format cannot be shown in the browser.'); return; }
+    let nw = el.naturalWidth, nh = el.naturalHeight;
+    const MAX = 2400; // keep stored pictures reasonable
+    if (Math.max(nw, nh) > MAX) {
+      const k = MAX / Math.max(nw, nh);
+      const cv = document.createElement('canvas'); cv.width = Math.round(nw * k); cv.height = Math.round(nh * k);
+      cv.getContext('2d').drawImage(el, 0, 0, cv.width, cv.height);
+      data = blob.type === 'image/jpeg' ? cv.toDataURL('image/jpeg', 0.9) : cv.toDataURL('image/png');
+      nw = cv.width; nh = cv.height;
+    }
+    const blobId = 'b' + uid() + uid();
+    await imgPut(blobId, data);
+    const loop = cur();
+    loop.images = loop.images || [];
+    let w = nw, h = nh;
+    if (w > 600) { h = h * 600 / w; w = 600; }
+    const vp = $('viewport'), r = vp.getBoundingClientRect();
+    const pos = at || toWorld(r.left + vp.clientWidth / 2, r.top + vp.clientHeight / 2);
+    const im = { id: uid(), img: blobId, name: (blob.name && blob.name !== 'image.png') ? blob.name : 'Pasted image', x: snap(pos.x - w / 2), y: snap(pos.y - h / 2), w: Math.round(w), h: Math.round(h), nw, nh, fade: 0, frame: true, locked: false, front: false };
+    snapshot();
+    loop.images.push(im);
+    if (view !== 'diagram') setView('diagram');
+    select({ kind: 'image', id: im.id });
+    save();
+    toast('Image inserted. Drag it to move, drag a corner to scale; fade, frame, lock and draw order are on the right.', true);
+  }
+  const imageById = (loop, id) => (loop.images || []).find(i => i.id === id);
+
   function save() {
     clearTimeout(saveTimer);
     saveTimer = setTimeout(() => {
@@ -649,10 +740,25 @@
     sizes = {};
     nodesEl.querySelectorAll('.node').forEach(el => { sizes[el.dataset.id] = { w: el.offsetWidth, h: el.offsetHeight }; });
     drawWires();
-    $('emptyHint').hidden = loop.nodes.length > 0;
+    $('emptyHint').hidden = loop.nodes.length > 0 || (loop.images || []).length > 0;
+    renderImages(loop);
     $('viewport').classList.toggle('hl-active', hlActive());
     updateFlagButton();
     renderHighlightBar();
+  }
+
+  function renderImages(loop) {
+    const html = { back: '', front: '' };
+    (loop.images || []).forEach(im => {
+      const isSel = sel && sel.kind === 'image' && sel.id === im.id;
+      const url = imgUrl(im.img);
+      html[im.front ? 'front' : 'back'] += `<div class="img-obj${isSel ? ' sel' : ''}${im.frame ? ' framed' : ''}${im.locked ? ' locked' : ''}" data-img="${im.id}" style="left:${im.x}px;top:${im.y}px;width:${im.w}px;height:${im.h}px" title="${esc(im.name)}">
+        ${url ? `<img src="${url}" alt="${esc(im.name)}" draggable="false" style="opacity:${(1 - (im.fade || 0) / 100).toFixed(2)}">` : '<span class="img-missing">Picture not stored in this browser</span>'}
+        ${isSel && !im.locked ? ['nw', 'ne', 'sw', 'se'].map(g => `<span class="grip ${g}" data-grip="${g}"></span>`).join('') : ''}
+      </div>`;
+    });
+    $('imgBack').innerHTML = html.back;
+    $('imgFront').innerHTML = html.front;
   }
 
   function center(n) {
@@ -791,6 +897,11 @@
     const loop = cur();
     const el = $('inspector');
     if (sel && sel.kind === 'type' && typeDraft) { el.innerHTML = typeEditor(); return; }
+    if (sel && sel.kind === 'image') {
+      const im = imageById(loop, sel.id);
+      if (im) { el.innerHTML = imageInspector(im); return; }
+      sel = null;
+    }
     if (sel && sel.kind === 'multi') {
       selNodes = new Set([...selNodes].filter(id => nodeById(loop, id)));
       if (selNodes.size > 1) { el.innerHTML = multiInspector(loop); return; }
@@ -804,7 +915,7 @@
   function selectedEntity() {
     const loop = cur();
     if (!sel) return { kind: 'general', ent: loop.general, items: generalItems(loop) };
-    if (sel.kind === 'type' || sel.kind === 'multi') return null;
+    if (sel.kind === 'type' || sel.kind === 'multi' || sel.kind === 'image') return null;
     if (sel.kind === 'node') { const n = nodeById(loop, sel.id); return n && { kind: 'node', ent: n, items: nodeItems(loop, n) }; }
     const l = linkById(loop, sel.id); return l && { kind: 'link', ent: l, items: linkItems(loop, l) };
   }
@@ -842,9 +953,34 @@
     return `<h2>${esc(loop.name || 'Untitled loop')}</h2>
       <div id="summaryGrid" class="summary-grid">${summaryHTML(loop)}</div>
       ${flagListHTML(loop)}
-      <p class="tip">Select an item or a cable on the sheet to see its checklist. Drag from a round handle on the side of an item to another item to draw a cable. Drag a box on an empty part of the sheet to select several items: left to right selects items fully inside, right to left selects anything the box touches. Then drag one of them to move them together (drag an enclosure's dashed outline or label to move it with everything inside); Ctrl+C / Ctrl+V copies and pastes them at the mouse pointer (Ctrl+Shift+V keeps their order statuses). The sheet is endless: the mouse wheel zooms at the cursor, drag with the middle button (or hold Space and drag) to pan, double-click the middle button to zoom extents. Click a status to step it: To order → Ordered → In stock → Not needed.</p>
+      <p class="tip">Select an item or a cable on the sheet to see its checklist. Drag from a round handle on the side of an item to another item to draw a cable. Drag a box on an empty part of the sheet to select several items: left to right selects items fully inside, right to left selects anything the box touches. Then drag one of them to move them together (drag an enclosure's dashed outline or label to move it with everything inside); Ctrl+C / Ctrl+V copies and pastes them at the mouse pointer (Ctrl+Shift+V keeps their order statuses). Ctrl+V with a picture on the clipboard (e.g. a screenshot) inserts it as an image; you can also drop image files on the sheet. The sheet is endless: the mouse wheel zooms at the cursor, drag with the middle button (or hold Space and drag) to pan, double-click the middle button to zoom extents. Click a status to step it: To order → Ordered → In stock → Not needed.</p>
       ${(() => { const c = readClip(); return c && (c.nodes.length || c.cable) ? `<div class="del-row" style="margin-top:12px"><button class="btn ghost" data-clip="paste" title="Ctrl+V">${c.cable ? `Paste cable ${esc(c.cable.tag)}` : `Paste ${c.nodes.length} copied item${c.nodes.length > 1 ? 's' : ''}`}</button>${keepBox()}</div>` : ''; })()}
       ${checklistBlock('Whole-loop consumables')}`;
+  }
+
+  function imageInspector(im) {
+    return `<h2>Image</h2><div class="kind">${im.w} × ${im.h} on the sheet · picture ${im.nw} × ${im.nh} px</div>
+      <div class="form">
+        <label for="i-name">Name</label><input id="i-name" type="text" data-imgf="name" value="${esc(im.name)}">
+        <label for="i-w">Width</label><input id="i-w" type="number" min="10" step="1" data-imgf="w" value="${im.w}" ${im.locked ? 'disabled' : ''}>
+        <label for="i-h">Height</label><input id="i-h" type="number" min="10" step="1" data-imgf="h" value="${im.h}" ${im.locked ? 'disabled' : ''}>
+        <label for="i-fade">Fade</label><div class="row"><input id="i-fade" type="range" min="0" max="90" step="5" data-imgf="fade" value="${im.fade || 0}"><span id="i-fade-v">${im.fade || 0}%</span></div>
+        <span></span><div class="row" style="flex-direction:column;align-items:flex-start">
+          <label><input id="i-frame" type="checkbox" data-imgf="frame" ${im.frame ? 'checked' : ''}> Show frame</label>
+          <label><input id="i-lock" type="checkbox" data-imgf="locked" ${im.locked ? 'checked' : ''}> Lock position and size</label>
+        </div>
+      </div>
+      <p class="tip">Width and height keep the picture's proportions. Drag a corner grip on the sheet to scale it.</p>
+      <h3><span>Draw order</span></h3>
+      <div class="allset">
+        <button class="btn ghost small${im.front ? '' : ' on-order'}" data-imgact="back" title="Behind items and cables (default)">Send to back</button>
+        <button class="btn ghost small${im.front ? ' on-order' : ''}" data-imgact="front" title="In front of items and cables">Bring to front</button>
+      </div>
+      <div class="del-row">
+        <button class="btn ghost" data-clip="copy" title="Ctrl+C">Copy</button>
+        <button class="btn ghost" data-imgact="reset" ${im.locked ? 'disabled' : ''}>Original size</button>
+        <button class="btn ghost danger" data-del="image">Delete image</button>
+      </div>`;
   }
 
   function multiInspector(loop) {
@@ -1162,7 +1298,7 @@
     clearTimeout(toastTimer);
     toastTimer = setTimeout(() => { t.hidden = true; }, undo ? 7000 : 3500);
     if (undo) $('undoBtn').onclick = () => {
-      if (undoSnapshot) { state = JSON.parse(undoSnapshot); undoSnapshot = null; sel = null; typeDraft = null; renderPalette(); renderAll(); save(); }
+      if (undoSnapshot) { state = JSON.parse(undoSnapshot); undoSnapshot = null; sel = null; typeDraft = null; renderPalette(); renderAll(); save(); Promise.all([...allImageRefs()].map(imgGet)).then(renderDiagram); }
       t.hidden = true;
     };
   }
@@ -1181,6 +1317,7 @@
   }
   function updateView() {
     $('world').style.transform = `translate(${panX}px, ${panY}px) scale(${zoom})`;
+    $('world').style.setProperty('--z', zoom);
     // grid lives on the viewport so it never ends; coarser steps when zoomed far out
     let minor = 20 * zoom, major = 100 * zoom;
     while (minor < 8) { minor *= 5; major *= 5; }
@@ -1202,9 +1339,10 @@
   // Zoom extents: everything on the sheet, centred.
   function fit() {
     const loop = cur(), vp = $('viewport');
-    if (!loop.nodes.length) { zoom = 1; panX = 40; panY = 40; updateView(); return; }
+    if (!loop.nodes.length && !(loop.images || []).length) { zoom = 1; panX = 40; panY = 40; updateView(); return; }
     let x0 = Infinity, y0 = Infinity, x1 = -Infinity, y1 = -Infinity;
     loop.nodes.forEach(n => { const s = sizes[n.id] || { w: NODE_W, h: 80 }; x0 = Math.min(x0, n.x); y0 = Math.min(y0, n.y); x1 = Math.max(x1, n.x + s.w); y1 = Math.max(y1, n.y + s.h); });
+    (loop.images || []).forEach(im => { x0 = Math.min(x0, im.x); y0 = Math.min(y0, im.y); x1 = Math.max(x1, im.x + im.w); y1 = Math.max(y1, im.y + im.h); });
     const pad = 50;
     zoom = Math.min(1.2, Math.max(ZMIN, Math.min(vp.clientWidth / (x1 - x0 + pad * 2), vp.clientHeight / (y1 - y0 + pad * 2))));
     panX = (vp.clientWidth - (x1 + x0) * zoom) / 2;
@@ -1220,6 +1358,7 @@
     loop.nodes.forEach(n => { const w = (sizes[n.id] || { w: NODE_W }).w; x0 = Math.min(x0, n.x); x1 = Math.max(x1, n.x + w); });
     loop.nodes.forEach(n => { const w = (sizes[n.id] || { w: NODE_W }).w; n.x = clampX(snap(x0 + x1 - n.x - w)); });
     loop.links.forEach(l => ['fa', 'fb'].forEach(k => { if (l[k]) l[k].x = x0 + x1 - l[k].x; }));
+    (loop.images || []).forEach(im => { im.x = Math.round(x0 + x1 - im.x - im.w); });
     renderDiagram(); save();
     toast('Loop mirrored left ↔ right.', true);
   }
@@ -1258,12 +1397,20 @@
   let clipMem = null;          // fallback when storage is unavailable
   let pointerWorld = null;     // last mouse position over the sheet, for paste
   let lastPaste = null;        // where the previous paste went, to step repeated pastes
+  let clipFallback = null, pasteKeep = false, clipMarkMem = null;
   function readClip() {
     try { const c = JSON.parse(localStorage.getItem(CLIP_KEY)); if (c && Array.isArray(c.nodes)) return c; } catch (e) { /* ignore */ }
     return clipMem;
   }
   function copySelection(quiet) {
     const loop = cur();
+    if (sel && sel.kind === 'image' && imageById(loop, sel.id)) {
+      const clip = { nodes: [], links: [], image: JSON.parse(JSON.stringify(imageById(loop, sel.id))) };
+      clipMem = clip;
+      try { localStorage.setItem(CLIP_KEY, JSON.stringify(clip)); } catch (e) { /* memory only */ }
+      if (!quiet) toast('Copied the image. Ctrl+V pastes it at the mouse pointer.');
+      return clip;
+    }
     if (sel && sel.kind === 'link' && linkById(loop, sel.id)) { // a cable: copy its configuration
       const l = linkById(loop, sel.id);
       const clip = { nodes: [], links: [], cable: JSON.parse(JSON.stringify(l)) };
@@ -1308,6 +1455,20 @@
     if (keep == null) keep = keepPref();
     const clip = readClip();
     if (clip && clip.cable) { pasteCable(keep); return; }
+    if (clip && clip.image) {
+      const loop = cur();
+      const src = clip.image;
+      const im = Object.assign(JSON.parse(JSON.stringify(src)), { id: uid() });
+      const p0 = at || { x: src.x + src.w / 2 + 30, y: src.y + src.h / 2 + 30 };
+      im.x = snap(p0.x - im.w / 2); im.y = snap(p0.y - im.h / 2); im.locked = false;
+      snapshot();
+      loop.images = loop.images || [];
+      loop.images.push(im);
+      imgGet(im.img).then(() => renderDiagram());
+      select({ kind: 'image', id: im.id }); save();
+      toast('Image pasted.', true);
+      return;
+    }
     if (!clip || !clip.nodes.length) { toast('Nothing copied yet. Select items or a cable and press Ctrl+C.'); return; }
     const loop = cur();
     const used = new Set(loop.nodes.map(n => n.tag).concat(loop.links.map(l => l.tag)));
@@ -1453,6 +1614,7 @@
 
   function nudge(dx, dy) {
     const loop = cur();
+    if (sel && sel.kind === 'image') { const im = imageById(loop, sel.id); if (im && !im.locked) { im.x += dx; im.y += dy; renderDiagram(); save(); } return; }
     const ids = new Set(selectedIds());
     loop.nodes.forEach(n => { if (ids.has(n.id)) { n.x = clampX(n.x + dx); n.y = clampY(n.y + dy); } });
     renderDiagram(); save();
@@ -1469,6 +1631,8 @@
     if (e.pointerType === 'mouse') e.preventDefault();
     drag = { mode: 'palette', type: item.dataset.type, sx: e.clientX, sy: e.clientY, moved: false, ghost: null, pointerType: e.pointerType };
   }
+  let imgClick = null;
+  const nodeEl0 = e => e.target.closest('.node, .wlabel, .port, [data-open], [data-encl]');
   function onSheetPointerDown(e) {
     if (e.button > 1) return;
     // clicking the sheet leaves any text field, so shortcuts (Ctrl+V, Delete...) act on the drawing
@@ -1500,6 +1664,26 @@
       document.body.classList.add('linking');
       return;
     }
+    const grip = e.target.closest('[data-grip]');
+    const imgEl = e.target.closest('[data-img]');
+    if (grip && imgEl) { // scale from a corner, keeping proportions (opposite corner stays put)
+      e.preventDefault();
+      const im = imageById(loop, imgEl.dataset.img), g = grip.dataset.grip;
+      const ax = g.includes('w') ? im.x + im.w : im.x, ay = g.includes('n') ? im.y + im.h : im.y;
+      drag = { mode: 'imgscale', id: im.id, g, ax, ay, ratio: im.h / im.w, el: imgEl, moved: false };
+      return;
+    }
+    if (imgEl && !nodeEl0(e)) {
+      const im = imageById(loop, imgEl.dataset.img);
+      const selected = sel && sel.kind === 'image' && sel.id === im.id;
+      if (selected && !im.locked && !(e.shiftKey || e.ctrlKey || e.metaKey)) { // like CAD: select first, then drag to move
+        e.preventDefault();
+        const w = toWorld(e.clientX, e.clientY);
+        drag = { mode: 'imgmove', id: im.id, el: imgEl, dx: w.x - im.x, dy: w.y - im.y, sx: e.clientX, sy: e.clientY, moved: false };
+        return;
+      }
+      imgClick = im.id; // a plain click selects it; a drag still draws a selection box
+    } else imgClick = null;
     const oe = e.target.closest('[data-open]');
     if (oe) { // open cable end: drag it onto an item to connect, or anywhere to move it
       e.preventDefault();
@@ -1537,7 +1721,7 @@
     if (e.pointerType === 'mouse') { // drag on empty sheet: box selection
       e.preventDefault();
       const w = toWorld(e.clientX, e.clientY);
-      drag = { mode: 'box', wx: w.x, wy: w.y, sx: e.clientX, sy: e.clientY, moved: false, add: e.shiftKey || e.ctrlKey || e.metaKey, base: selectedIds(), hits: [] };
+      drag = { mode: 'box', wx: w.x, wy: w.y, sx: e.clientX, sy: e.clientY, moved: false, add: e.shiftKey || e.ctrlKey || e.metaKey, base: selectedIds(), hits: [], imgClick };
       return;
     }
     if (e.pointerType === 'touch') {
@@ -1548,7 +1732,7 @@
         return;
       }
     }
-    drag = { mode: 'pan', sx: e.clientX, sy: e.clientY, px: panX, py: panY, moved: false };
+    drag = { mode: 'pan', sx: e.clientX, sy: e.clientY, px: panX, py: panY, moved: false, imgClick };
   }
   function onPointerMove(e) {
     if (e.pointerType === 'mouse') {
@@ -1579,6 +1763,22 @@
         if (c.el) { c.el.style.left = c.k.x + 'px'; c.el.style.top = c.k.y + 'px'; c.el.classList.add('dragging'); }
       });
       drawWires();
+    } else if (drag.mode === 'imgmove') {
+      if (!drag.moved && Math.hypot(e.clientX - drag.sx, e.clientY - drag.sy) < 3) return;
+      drag.moved = true;
+      const im = imageById(loop, drag.id), w = toWorld(e.clientX, e.clientY);
+      im.x = snap(w.x - drag.dx); im.y = snap(w.y - drag.dy);
+      drag.el.style.left = im.x + 'px'; drag.el.style.top = im.y + 'px';
+    } else if (drag.mode === 'imgscale') {
+      drag.moved = true;
+      const im = imageById(loop, drag.id), w = toWorld(e.clientX, e.clientY);
+      let nw = Math.max(20, Math.abs(w.x - drag.ax));
+      let nh = nw * drag.ratio;
+      if (Math.abs(w.y - drag.ay) / drag.ratio > nw) { nh = Math.max(20 * drag.ratio, Math.abs(w.y - drag.ay)); nw = nh / drag.ratio; }
+      im.w = Math.round(nw); im.h = Math.round(nh);
+      im.x = Math.round(drag.g.includes('w') ? drag.ax - im.w : drag.ax);
+      im.y = Math.round(drag.g.includes('n') ? drag.ay - im.h : drag.ay);
+      Object.assign(drag.el.style, { left: im.x + 'px', top: im.y + 'px', width: im.w + 'px', height: im.h + 'px' });
     } else if (drag.mode === 'openend') {
       if (!drag.moved && Math.hypot(e.clientX - drag.sx, e.clientY - drag.sy) < 3) return;
       drag.moved = true;
@@ -1670,6 +1870,8 @@
     } else if (d.mode === 'node') {
       if (d.moved) { save(); renderDiagram(); }
       else setSelection([d.id]);
+    } else if (d.mode === 'imgmove' || d.mode === 'imgscale') {
+      if (d.moved) { save(); renderInspector(); }
     } else if (d.mode === 'openend') {
       document.querySelectorAll('.node.target').forEach(x => x.classList.remove('target'));
       const l = linkById(loop, d.lid);
@@ -1688,6 +1890,7 @@
     } else if (d.mode === 'box') {
       const box = $('selBox'); if (box) box.remove();
       if (d.moved) setSelection(d.add ? d.base.concat(d.hits) : d.hits);
+      else if (d.imgClick) select({ kind: 'image', id: d.imgClick });
       else if (sel) select(null);
     } else if (d.mode === 'link') {
       document.body.classList.remove('linking');
@@ -1702,7 +1905,8 @@
         const tw = $('tempWire'); if (tw) tw.style.display = 'none';
       }
     } else if (d.mode === 'pan') {
-      if (!d.moved && sel && !d.keepSel) select(null);
+      if (!d.moved && d.imgClick) select({ kind: 'image', id: d.imgClick });
+      else if (!d.moved && sel && !d.keepSel) select(null);
     }
   }
   function onPointerCancel(e) {
@@ -1726,6 +1930,21 @@
   function onInspectorInput(e) {
     const t = e.target;
     if (t.dataset.tf && typeDraft) { onTypeInput(e); return; }
+    if (t.dataset.imgf) {
+      const im = sel && sel.kind === 'image' && imageById(cur(), sel.id);
+      if (!im) return;
+      const f = t.dataset.imgf;
+      if (f === 'name') im.name = t.value;
+      else if (f === 'fade') { im.fade = Number(t.value); $('i-fade-v').textContent = im.fade + '%'; }
+      else if (f === 'frame' || f === 'locked') { im[f] = t.checked; if (e.type === 'change') { renderDiagram(); renderInspector(); save(); } return; }
+      else if ((f === 'w' || f === 'h') && t.value !== '') {
+        const v = Math.max(10, Number(t.value)), ratio = im.h / im.w;
+        if (f === 'w') { im.w = Math.round(v); im.h = Math.round(v * ratio); $('i-h').value = im.h; }
+        else { im.h = Math.round(v); im.w = Math.round(v / ratio); $('i-w').value = im.w; }
+      }
+      renderDiagram(); save();
+      return;
+    }
     if (t.dataset.connect) {
       if (e.type === 'change' && t.value) {
         const l = linkById(cur(), sel.id);
@@ -1785,6 +2004,17 @@
       const [kind, id] = fg.dataset.flagGo.split(':');
       const ent = kind === 'node' ? nodeById(loop, id) : linkById(loop, id);
       if (ent) { select(kind === 'node' ? { kind: 'node', id } : { kind: 'link', id }); focusOn(kind, ent); }
+      return;
+    }
+    const ia = t.closest('[data-imgact]');
+    if (ia) {
+      const im = sel && sel.kind === 'image' && imageById(loop, sel.id);
+      if (!im) return;
+      snapshot();
+      if (ia.dataset.imgact === 'back') im.front = false;
+      else if (ia.dataset.imgact === 'front') im.front = true;
+      else if (ia.dataset.imgact === 'reset') { const cx = im.x + im.w / 2, cy = im.y + im.h / 2; im.w = im.nw; im.h = im.nh; im.x = Math.round(cx - im.w / 2); im.y = Math.round(cy - im.h / 2); }
+      renderDiagram(); renderInspector(); save();
       return;
     }
     const ta = t.closest('[data-tact]');
@@ -1858,6 +2088,13 @@
   }
   function deleteSelected() {
     const loop = cur();
+    if (sel && sel.kind === 'image') {
+      snapshot();
+      loop.images = (loop.images || []).filter(i => i.id !== sel.id);
+      sel = null; renderAll(); save();
+      toast('Image deleted.', true);
+      return;
+    }
     if (!sel || !['node', 'link', 'multi'].includes(sel.kind)) return;
     snapshot();
     if (sel.kind === 'multi') {
@@ -1903,6 +2140,7 @@
 
   function init() {
     state = load();
+    loadImages();
     renderPalette();
     renderAll();
     updateView();
@@ -2012,12 +2250,14 @@
       if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'a' && view === 'diagram') { e.preventDefault(); setSelection(cur().nodes.map(n => n.id)); }
       if ((e.ctrlKey || e.metaKey) && !e.shiftKey && !e.altKey && view === 'diagram') {
         const k = e.key.toLowerCase();
-        if (k === 'c') { e.preventDefault(); copySelection(); }
-        else if (k === 'x') { e.preventDefault(); cutSelection(); }
-        else if (k === 'v') { e.preventDefault(); pasteAtPointer(); }
+        // copy / cut / paste go through the browser's clipboard events (so a picture copied
+        // elsewhere can be pasted); the timers are a fallback where those events do not fire
+        if (k === 'c') { clipFallback = setTimeout(() => { clipFallback = null; copySelection(); }, 120); }
+        else if (k === 'x') { clipFallback = setTimeout(() => { clipFallback = null; cutSelection(); }, 120); }
+        else if (k === 'v') { pasteKeep = false; clipFallback = setTimeout(() => { clipFallback = null; pasteAtPointer(); }, 120); }
         else if (k === 'd') { e.preventDefault(); duplicateSelection(); }
       }
-      if ((e.ctrlKey || e.metaKey) && e.shiftKey && !e.altKey && e.key.toLowerCase() === 'v' && view === 'diagram') { e.preventDefault(); pasteAtPointer(true); }
+      if ((e.ctrlKey || e.metaKey) && e.shiftKey && !e.altKey && e.key.toLowerCase() === 'v' && view === 'diagram') { pasteKeep = true; clipFallback = setTimeout(() => { clipFallback = null; pasteAtPointer(true); }, 120); }
       const arrows = { ArrowLeft: [-1, 0], ArrowRight: [1, 0], ArrowUp: [0, -1], ArrowDown: [0, 1] };
       if (arrows[e.key] && selectedIds().length && view === 'diagram') {
         e.preventDefault();
@@ -2025,6 +2265,49 @@
         nudge(arrows[e.key][0] * step, arrows[e.key][1] * step);
       }
     });
+    const typingIn = el => el && (el.tagName === 'TEXTAREA' || el.tagName === 'SELECT' || el.isContentEditable || (el.tagName === 'INPUT' && !['checkbox', 'radio', 'button', 'range'].includes(el.type)));
+    const takeClip = () => { if (clipFallback) { clearTimeout(clipFallback); clipFallback = null; return true; } return false; };
+    const markClipboard = e => { // tell a later paste that the app's own copy is the newest thing on the clipboard
+      const m = 'loop-planner-clip:' + Date.now() + ':' + uid();
+      try { localStorage.setItem('loop-planner-clip-mark', m); } catch (err) { /* ignore */ }
+      clipMarkMem = m;
+      try { e.clipboardData.setData('text/plain', m); e.preventDefault(); } catch (err) { /* ignore */ }
+    };
+    document.addEventListener('copy', e => {
+      if (typingIn(document.activeElement) || view !== 'diagram') return;
+      const had = takeClip();
+      if (!had && !selectedIds().length && !(sel && (sel.kind === 'link' || sel.kind === 'image'))) return;
+      if (copySelection()) markClipboard(e);
+    });
+    document.addEventListener('cut', e => {
+      if (typingIn(document.activeElement) || view !== 'diagram') return;
+      if (!takeClip() && !selectedIds().length && !(sel && (sel.kind === 'link' || sel.kind === 'image'))) return;
+      if (sel && sel.kind === 'image') { copySelection(true); markClipboard(e); deleteSelected(); return; }
+      markClipboard(e); cutSelection();
+    });
+    document.addEventListener('paste', e => {
+      if (typingIn(document.activeElement) || view !== 'diagram') return;
+      takeClip();
+      const dt = e.clipboardData;
+      let file = null;
+      if (dt) for (const it of dt.items || []) if (it.kind === 'file' && /^image\//.test(it.type)) { file = it.getAsFile(); break; }
+      let mark = clipMarkMem; try { mark = localStorage.getItem('loop-planner-clip-mark') || mark; } catch (err) { /* ignore */ }
+      const ours = dt && mark && dt.getData('text/plain') === mark;
+      e.preventDefault();
+      if (file && !ours) insertImage(file, pointerWorld);
+      else pasteAtPointer(pasteKeep);
+      pasteKeep = false;
+    });
+    // drop image files on the sheet
+    $('viewport').addEventListener('dragover', e => { if ([...(e.dataTransfer.types || [])].includes('Files')) { e.preventDefault(); e.dataTransfer.dropEffect = 'copy'; } });
+    $('viewport').addEventListener('drop', e => {
+      const files = [...(e.dataTransfer.files || [])].filter(f => /^image\//.test(f.type));
+      if (!files.length) return;
+      e.preventDefault();
+      const w = toWorld(e.clientX, e.clientY);
+      files.reduce((pr, f, i) => pr.then(() => insertImage(f, { x: w.x + i * 40, y: w.y + i * 40 })), Promise.resolve());
+    });
+    $('fileImage').onchange = e => { const f = e.target.files[0]; if (f) insertImage(f, null); e.target.value = ''; };
     document.addEventListener('keyup', e => { if (e.key === ' ') { spaceDown = false; $('viewport').classList.remove('panning'); } });
     window.addEventListener('blur', () => { spaceDown = false; $('viewport').classList.remove('panning'); });
     $('viewport').addEventListener('auxclick', e => { if (e.button === 1) e.preventDefault(); });
@@ -2075,8 +2358,10 @@
       applyTheme(theme);
       toast(theme === 'auto' ? 'Theme follows your system setting.' : `${theme === 'dark' ? 'Dark' : 'Light'} theme.`);
     };
-    $('btnExport').onclick = () => {
-      const text = JSON.stringify(state, null, 2);
+    $('btnExport').onclick = async () => {
+      const imageData = {};
+      for (const id of allImageRefs()) { const v = await imgGet(id); if (v) imageData[id] = v.data; }
+      const text = JSON.stringify(Object.assign({}, state, Object.keys(imageData).length ? { imageData } : {}), null, 2);
       if (window.LOOP_PLANNER_NO_DOWNLOAD) copyText(text, 'Backup copied. Paste it into a .json file to keep it.');
       else download(`loop-planner-${new Date().toISOString().slice(0, 10)}.json`, text, 'application/json');
     };
@@ -2087,6 +2372,10 @@
         const data = JSON.parse(txt);
         if (!data || !Array.isArray(data.loops)) throw new Error('bad');
         snapshot();
+        const pics = data.imageData || {};
+        delete data.imageData;
+        return Promise.all(Object.keys(pics).map(id => imgPut(id, pics[id]))).then(() => data);
+      }).then(data => {
         state = data;
         if (!state.loops.length) state.loops.push(newLoop('Loop 1'));
         if (!Array.isArray(state.customTypes)) state.customTypes = starterTypes();
