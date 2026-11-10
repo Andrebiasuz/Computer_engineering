@@ -57,16 +57,14 @@
         <button id="zoomOut" class="btn ghost icon" title="Zoom out">−</button>
         <span id="zoomVal">100%</span>
         <button id="zoomIn" class="btn ghost icon" title="Zoom in">+</button>
-        <button id="zoomFit" class="btn ghost" title="Fit the loop on screen">Fit</button>
+        <button id="zoomFit" class="btn ghost" title="Zoom extents: show the whole loop (or double-click the mouse wheel)">Fit</button>
         <button id="btnMirror" class="btn ghost" title="Mirror the loop left ↔ right">Mirror</button>
       </div>
     </div>
     <div id="viewport" class="viewport">
-      <div id="sizer">
-        <div id="world">
-          <svg id="wires" xmlns="http://www.w3.org/2000/svg"></svg>
-          <div id="nodes"></div>
-        </div>
+      <div id="world">
+        <svg id="wires" xmlns="http://www.w3.org/2000/svg"></svg>
+        <div id="nodes"></div>
       </div>
       <div id="emptyHint" class="empty" hidden>
         <strong>Empty loop</strong>
