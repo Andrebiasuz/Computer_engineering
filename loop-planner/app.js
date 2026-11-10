@@ -1130,6 +1130,7 @@
   const keepBox = () => `<label class="keep-opt"><input id="keepStatus" type="checkbox" ${keepPref() ? 'checked' : ''}> Copies keep order statuses <span class="muted">(otherwise they start as To order; Ctrl+Shift+V always keeps them)</span></label>`;
   let clipMem = null;          // fallback when storage is unavailable
   let pointerWorld = null;     // last mouse position over the sheet, for paste
+  let lastPaste = null;        // where the previous paste went, to step repeated pastes
   function readClip() {
     try { const c = JSON.parse(localStorage.getItem(CLIP_KEY)); if (c && Array.isArray(c.nodes)) return c; } catch (e) { /* ignore */ }
     return clipMem;
@@ -1176,7 +1177,12 @@
     let x0 = Infinity, y0 = Infinity;
     clip.nodes.forEach(n => { x0 = Math.min(x0, n.x); y0 = Math.min(y0, n.y); });
     let dx, dy;
-    if (at) { dx = snap(at.x) - x0; dy = snap(at.y) - y0; }
+    if (at) {
+      // pasting again at the same spot would hide the copy under the previous one: step it
+      if (lastPaste && lastPaste.loop === loop.id && Math.abs(lastPaste.ax - at.x) < 8 && Math.abs(lastPaste.ay - at.y) < 8) lastPaste.k++;
+      else lastPaste = { loop: loop.id, ax: at.x, ay: at.y, k: 0 };
+      dx = snap(at.x + lastPaste.k * 30) - x0; dy = snap(at.y + lastPaste.k * 30) - y0;
+    }
     else { dx = 40; dy = 40; }
     const map = {};
     const nodes = clip.nodes.map(src => {
@@ -1188,6 +1194,19 @@
       return n;
     });
     nodes.forEach(n => { n.inside = n.inside && map[n.inside] ? map[n.inside] : null; });
+    // a pasted item dropped inside an enclosure's dashed zone is mounted in that enclosure
+    const zones = loop.nodes.filter(e => isEnclosure(e.type)).map(e => {
+      const kids = loop.nodes.filter(k => k.inside === e.id);
+      let zx0 = Infinity, zy0 = Infinity, zx1 = -Infinity, zy1 = -Infinity;
+      [e].concat(kids).forEach(k => { const c = center(k); zx0 = Math.min(zx0, k.x); zy0 = Math.min(zy0, k.y); zx1 = Math.max(zx1, k.x + c.w); zy1 = Math.max(zy1, k.y + c.h); });
+      return { id: e.id, x0: zx0 - 18, y0: zy0 - 32, x1: zx1 + 18, y1: zy1 + 18, area: (zx1 - zx0) * (zy1 - zy0) };
+    }).sort((a, b2) => a.area - b2.area);
+    nodes.forEach(n => {
+      if (n.inside || isEnclosure(n.type)) return;
+      const cx = n.x + NODE_W / 2, cy = n.y + 30;
+      const z = zones.find(z => cx >= z.x0 && cx <= z.x1 && cy >= z.y0 && cy <= z.y1);
+      if (z) n.inside = z.id;
+    });
     const links = clip.links.filter(l => map[l.a] && map[l.b]).map(src => {
       const l = JSON.parse(JSON.stringify(src));
       l.id = uid(); l.a = map[src.a]; l.b = map[src.b];
@@ -1617,7 +1636,12 @@
 
     document.addEventListener('keydown', e => {
       const tag = (e.target.tagName || '').toLowerCase();
-      if (['input', 'textarea', 'select'].includes(tag)) return;
+      const typing = tag === 'textarea' || tag === 'select' || (tag === 'input' && !['checkbox', 'radio', 'button'].includes(e.target.type));
+      if (typing) return;
+      if (tag === 'input') { // a ticked checkbox keeps focus: let Ctrl shortcuts reach the drawing, leave other keys to it
+        if (!(e.ctrlKey || e.metaKey)) return;
+        e.target.blur();
+      }
       if (e.key === ' ' && view === 'diagram') { e.preventDefault(); if (!spaceDown) { spaceDown = true; $('viewport').classList.add('panning'); } return; }
       if ((e.key === 'Delete' || e.key === 'Backspace') && sel && view === 'diagram') { e.preventDefault(); deleteSelected(); }
       if (e.key === 'Escape' && sel) select(null);
@@ -1649,7 +1673,7 @@
     $('btnNewLoop').onclick = () => {
       const l = newLoop(`Loop ${state.loops.length + 1}`);
       state.loops.push(l); switchLoop(l.id);
-      $('loopName').focus(); $('loopName').select();
+      toast('New loop created. Rename it in the box at the top.');
     };
     $('btnDupLoop').onclick = () => {
       const copy = JSON.parse(JSON.stringify(cur()));
