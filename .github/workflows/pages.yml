@@ -60,6 +60,10 @@ jobs:
           cp -r main/scrum-board main/task-tracker main/loop-planner _site/
           cp -r study/study-tracker _site/
           touch _site/.nojekyll
+          # Cache-bust: tie the page's script/style URLs to this commit so a browser
+          # never pairs a new index.html with an old cached app.js.
+          sed -i "s/?v=dev/?v=${GITHUB_SHA::7}/g" _site/loop-planner/index.html
+          grep -o '?v=[0-9a-f]*' _site/loop-planner/index.html
           find _site -maxdepth 2 | sort
 
       - uses: actions/configure-pages@v5
