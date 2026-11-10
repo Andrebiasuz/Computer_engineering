@@ -204,7 +204,9 @@
 
   // ---------------------------------------------------------------- state
   let state = null;          // loaded in init()
-  let sel = null;            // { kind: 'node'|'link', id }
+  let sel = null;            // { kind: 'node'|'link'|'multi'|'type', id }
+  let selNodes = new Set();  // node ids when sel.kind === 'multi'
+  let spaceDown = false;     // hold Space to pan with the mouse
   let zoom = 1;
   let view = 'diagram';
   let orderScope = 'loop', orderFilter = 'todo', orderGroup = 'branch';
@@ -525,7 +527,7 @@
       const badge = c.todo ? `<span class="badge" title="${c.todo} item(s) to order">${c.todo}</span>`
         : c.ordered ? `<span class="badge ordered" title="${c.ordered} item(s) ordered, waiting">${c.ordered}</span>`
         : `<span class="badge done" title="Everything ordered or in stock">✓</span>`;
-      const isSel = sel && sel.kind === 'node' && sel.id === n.id;
+      const isSel = selectedIds().includes(n.id);
       html += `<div class="node${isSel ? ' sel' : ''}" data-id="${n.id}" style="left:${n.x}px;top:${n.y}px">
         <div class="node-top">${symHTML(n.type, n.tag)}<div class="node-title"><b>${esc(n.tag)}</b><small>${esc(n.desc || T(n.type).name)}</small>${n.inside && nodeById(loop, n.inside) ? `<small class="inside-tag">in ${esc(nodeById(loop, n.inside).tag)}</small>` : ''}</div></div>
         <div class="chips">${chipsHTML(items)}</div>${badge}
@@ -559,6 +561,22 @@
     const t = Math.min(dx ? (c.w / 2 + 4) / Math.abs(dx) : Infinity, dy ? (c.h / 2 + 4) / Math.abs(dy) : Infinity);
     return t >= 1 ? { x: c.x, y: c.y } : { x: c.x + dx * t, y: c.y + dy * t };
   }
+  // Polyline with rounded corners, for right-angle cable routes.
+  function roundedPath(pts, r) {
+    const P = pts.filter((p, i) => i === 0 || Math.abs(p.x - pts[i - 1].x) + Math.abs(p.y - pts[i - 1].y) > 0.5);
+    const f = v => v.toFixed(1);
+    let d = `M${f(P[0].x)},${f(P[0].y)}`;
+    for (let i = 1; i < P.length - 1; i++) {
+      const a = P[i - 1], b = P[i], c = P[i + 1];
+      const l1 = Math.hypot(b.x - a.x, b.y - a.y), l2 = Math.hypot(c.x - b.x, c.y - b.y);
+      const rr = Math.min(r, l1 / 2, l2 / 2);
+      const p1 = { x: b.x + (a.x - b.x) / l1 * rr, y: b.y + (a.y - b.y) / l1 * rr };
+      const p2 = { x: b.x + (c.x - b.x) / l2 * rr, y: b.y + (c.y - b.y) / l2 * rr };
+      d += ` L${f(p1.x)},${f(p1.y)} Q${f(b.x)},${f(b.y)} ${f(p2.x)},${f(p2.y)}`;
+    }
+    const z = P[P.length - 1];
+    return d + ` L${f(z.x)},${f(z.y)}`;
+  }
   function drawWires() {
     const loop = cur();
     const groups = {};
@@ -574,30 +592,64 @@
       svg += `<rect class="encl-box" x="${x0 - pad}" y="${y0 - pad - 14}" width="${x1 - x0 + pad * 2}" height="${y1 - y0 + pad * 2 + 14}" rx="8"/>`;
       svg += `<text class="encl-label" x="${x0 - pad + 8}" y="${y0 - pad - 1}">${esc(enc.tag)} enclosure</text>`;
     });
+    // Right-angle routing. Each cable leaves from the side of the item facing the other end;
+    // cables sharing a side are fanned out so they don't sit on top of each other.
+    const R = {};
     loop.links.forEach(l => {
       const na = nodeById(loop, l.a), nb = nodeById(loop, l.b);
       if (!na || !nb) return;
       const ca = center(na), cb = center(nb);
+      const gapX = Math.abs(cb.x - ca.x) - (ca.w + cb.w) / 2;
+      let sa, sb;
+      if (gapX >= 30) { sa = cb.x > ca.x ? 'r' : 'l'; sb = sa === 'r' ? 'l' : 'r'; }
+      else { sa = cb.y > ca.y ? 'b' : 't'; sb = sa === 'b' ? 't' : 'b'; }
+      R[l.id] = { l, na, nb, ca, cb, sa, sb, offa: 0, offb: 0, lane: 0 };
+    });
+    const sides = {};
+    Object.values(R).forEach(r => {
+      (sides[r.na.id + r.sa] = sides[r.na.id + r.sa] || []).push({ r, end: 'a', side: r.sa, other: r.cb, me: r.ca });
+      (sides[r.nb.id + r.sb] = sides[r.nb.id + r.sb] || []).push({ r, end: 'b', side: r.sb, other: r.ca, me: r.cb });
+    });
+    Object.values(sides).forEach(list => {
+      const horiz = list[0].side === 'l' || list[0].side === 'r';
+      list.sort((p, q) => horiz ? p.other.y - q.other.y : p.other.x - q.other.x);
+      const n = list.length;
+      list.forEach((it, i) => {
+        const lim = horiz ? it.me.h / 2 - 8 : it.me.w / 2 - 12;
+        it.r['off' + it.end] = Math.max(-lim, Math.min(lim, (i - (n - 1) / 2) * 12));
+        if (n > 1) it.r.lane += (i - (n - 1) / 2) * 14;
+      });
+    });
+    const portPt = (nd, c, side, off) => side === 'r' ? { x: nd.x + c.w, y: c.y + off } : side === 'l' ? { x: nd.x, y: c.y + off }
+      : side === 'b' ? { x: c.x + off, y: nd.y + c.h } : { x: c.x + off, y: nd.y };
+    Object.values(R).forEach(r => {
+      const l = r.l;
       const k = [l.a, l.b].sort().join('|');
       const g = groups[k];
-      const i = g.indexOf(l);
-      let off = (i - (g.length - 1) / 2) * 46;
-      if (l.a > l.b) off = -off; // keep offset direction consistent for links stored in opposite order
-      const dx = cb.x - ca.x, dy = cb.y - ca.y, len = Math.hypot(dx, dy) || 1;
-      const nx = -dy / len, ny = dx / len;
-      const mid = { x: (ca.x + cb.x) / 2 + nx * off, y: (ca.y + cb.y) / 2 + ny * off };
-      const ctrl = { x: (ca.x + cb.x) / 2 + nx * off * 2, y: (ca.y + cb.y) / 2 + ny * off * 2 };
-      const pa = clip(ca, ctrl), pb = clip(cb, ctrl);
+      r.lane += (g.indexOf(l) - (g.length - 1) / 2) * 16;
+      const pa = portPt(r.na, r.ca, r.sa, r.offa), pb = portPt(r.nb, r.cb, r.sb, r.offb);
+      let pts;
+      if (r.sa === 'l' || r.sa === 'r') {
+        const lo = Math.min(pa.x, pb.x) + 12, hi = Math.max(pa.x, pb.x) - 12;
+        const mx = Math.max(lo, Math.min(hi, (pa.x + pb.x) / 2 + r.lane));
+        pts = [pa, { x: mx, y: pa.y }, { x: mx, y: pb.y }, pb];
+      } else {
+        const lo = Math.min(pa.y, pb.y) + 12, hi = Math.max(pa.y, pb.y) - 12;
+        const my = lo < hi ? Math.max(lo, Math.min(hi, (pa.y + pb.y) / 2 + r.lane)) : (pa.y + pb.y) / 2;
+        pts = [pa, { x: pa.x, y: my }, { x: pb.x, y: my }, pb];
+      }
+      // label on the middle run of the route, i.e. halfway between the two items
+      const best = { x: (pts[1].x + pts[2].x) / 2, y: (pts[1].y + pts[2].y) / 2 };
       const items = linkItems(loop, l);
       const w = worst(items);
       const cls = w === 'todo' ? 'todo' : w === 'ordered' ? 'ordered' : 'done';
       const isSel = sel && sel.kind === 'link' && sel.id === l.id;
-      const d = `M${pa.x.toFixed(1)},${pa.y.toFixed(1)} Q${ctrl.x.toFixed(1)},${ctrl.y.toFixed(1)} ${pb.x.toFixed(1)},${pb.y.toFixed(1)}`;
+      const d = roundedPath(pts, 8);
       svg += `<path class="wire ${cls}${isSel ? ' sel' : ''}" d="${d}"/>`;
       svg += `<circle class="wire-end" cx="${pa.x.toFixed(1)}" cy="${pa.y.toFixed(1)}" r="4" style="fill:var(--${cls === 'done' ? 'have' : cls})"/>`;
       svg += `<circle class="wire-end" cx="${pb.x.toFixed(1)}" cy="${pb.y.toFixed(1)}" r="4" style="fill:var(--${cls === 'done' ? 'have' : cls})"/>`;
       svg += `<path class="wire-hit" data-link="${l.id}" d="${d}"/>`;
-      labels[l.id] = mid;
+      labels[l.id] = best;
     });
     svg += '<path id="tempWire" class="wire-temp" d="" style="display:none"/>';
     $('wires').innerHTML = svg;
@@ -612,6 +664,11 @@
     const loop = cur();
     const el = $('inspector');
     if (sel && sel.kind === 'type' && typeDraft) { el.innerHTML = typeEditor(); return; }
+    if (sel && sel.kind === 'multi') {
+      selNodes = new Set([...selNodes].filter(id => nodeById(loop, id)));
+      if (selNodes.size > 1) { el.innerHTML = multiInspector(loop); return; }
+      sel = selNodes.size ? { kind: 'node', id: [...selNodes][0] } : null;
+    }
     if (sel && sel.kind === 'node' && nodeById(loop, sel.id)) el.innerHTML = nodeInspector(loop, nodeById(loop, sel.id));
     else if (sel && sel.kind === 'link' && linkById(loop, sel.id)) el.innerHTML = linkInspector(loop, linkById(loop, sel.id));
     else { sel = null; el.innerHTML = loopInspector(loop); }
@@ -620,7 +677,7 @@
   function selectedEntity() {
     const loop = cur();
     if (!sel) return { kind: 'general', ent: loop.general, items: generalItems(loop) };
-    if (sel.kind === 'type') return null;
+    if (sel.kind === 'type' || sel.kind === 'multi') return null;
     if (sel.kind === 'node') { const n = nodeById(loop, sel.id); return n && { kind: 'node', ent: n, items: nodeItems(loop, n) }; }
     const l = linkById(loop, sel.id); return l && { kind: 'link', ent: l, items: linkItems(loop, l) };
   }
@@ -656,8 +713,22 @@
   function loopInspector(loop) {
     return `<h2>${esc(loop.name || 'Untitled loop')}</h2>
       <div id="summaryGrid" class="summary-grid">${summaryHTML(loop)}</div>
-      <p class="tip">Select an item or a cable on the sheet to see its checklist. Drag from a round handle on the side of an item to another item to draw a cable. Click a status to step it: To order → Ordered → In stock → Not needed.</p>
+      <p class="tip">Select an item or a cable on the sheet to see its checklist. Drag from a round handle on the side of an item to another item to draw a cable. Drag on an empty part of the sheet to select several items, then drag one of them to move them together. Hold Space and drag (or use the middle mouse button) to pan. Click a status to step it: To order → Ordered → In stock → Not needed.</p>
       ${checklistBlock('Whole-loop consumables')}`;
+  }
+
+  function multiInspector(loop) {
+    const nodes = [...selNodes].map(id => nodeById(loop, id)).filter(Boolean);
+    let items = [];
+    nodes.forEach(n => { items = items.concat(nodeItems(loop, n)); });
+    const c = counts(items);
+    return `<h2>${nodes.length} items selected</h2>
+      <p class="tip">Drag any of them to move them together, or nudge with the arrow keys (Shift for bigger steps). Shift+click adds or removes an item. Esc clears the selection.</p>
+      <div class="multi-list">${nodes.map(n => `<button class="btn ghost small" data-goto-node="${n.id}">${esc(n.tag)}</button>`).join('')}</div>
+      <h3><span>Their checklists</span></h3>
+      <p class="tip" style="margin-top:0"><b style="color:var(--todo)">${c.todo}</b> to order · <b style="color:var(--ordered)">${c.ordered}</b> ordered · <b style="color:var(--have)">${c.have}</b> in stock</p>
+      <div class="allset"><button class="btn ghost small" data-mall="ordered">Mark all ordered</button><button class="btn ghost small" data-mall="have">Mark all in stock</button></div>
+      <div class="del-row"><button class="btn ghost danger" data-del="multi">Delete ${nodes.length} items</button></div>`;
   }
 
   function nodeInspector(loop, n) {
@@ -1008,7 +1079,24 @@
   }
   function select(s) {
     sel = s;
+    if (!s || s.kind !== 'multi') selNodes = new Set();
     renderDiagram(); renderInspector();
+  }
+  function selectedIds() {
+    if (sel && sel.kind === 'multi') return [...selNodes];
+    return sel && sel.kind === 'node' ? [sel.id] : [];
+  }
+  function setSelection(ids) {
+    ids = Array.from(new Set(ids));
+    if (ids.length > 1) { selNodes = new Set(ids); sel = { kind: 'multi' }; renderDiagram(); renderInspector(); }
+    else select(ids.length ? { kind: 'node', id: ids[0] } : null);
+  }
+  function nudge(dx, dy) {
+    const loop = cur();
+    const ids = new Set(selectedIds());
+    loop.nodes.forEach(n => { if (ids.has(n.inside)) ids.add(n.id); });
+    loop.nodes.forEach(n => { if (ids.has(n.id)) { n.x = clampX(n.x + dx); n.y = clampY(n.y + dy); } });
+    renderDiagram(); save();
   }
 
   // ---------------------------------------------------------------- pointer interactions
@@ -1021,7 +1109,13 @@
     drag = { mode: 'palette', type: item.dataset.type, sx: e.clientX, sy: e.clientY, moved: false, ghost: null, pointerType: e.pointerType };
   }
   function onSheetPointerDown(e) {
-    if (e.button > 0) return;
+    if (e.button > 1) return;
+    if (e.button === 1 || spaceDown) { // middle button or Space held: pan
+      e.preventDefault();
+      const vp = $('viewport');
+      drag = { mode: 'pan', sx: e.clientX, sy: e.clientY, sl: vp.scrollLeft, st: vp.scrollTop, moved: false, keepSel: true };
+      return;
+    }
     const loop = cur();
     const port = e.target.closest('.port');
     const nodeEl = e.target.closest('.node');
@@ -1036,9 +1130,13 @@
     if (nodeEl) {
       e.preventDefault();
       const n = nodeById(loop, nodeEl.dataset.id);
+      if (e.shiftKey || e.ctrlKey || e.metaKey) { drag = { mode: 'toggle', id: n.id }; return; }
       const w = toWorld(e.clientX, e.clientY);
-      const kids = loop.nodes.filter(k => k.inside === n.id).map(k => ({ k, x: k.x, y: k.y, el: document.querySelector(`.node[data-id="${k.id}"]`) }));
-      drag = { mode: 'node', id: n.id, el: nodeEl, dx: w.x - n.x, dy: w.y - n.y, x0: n.x, y0: n.y, kids, sx: e.clientX, sy: e.clientY, moved: false };
+      const cur0 = selectedIds();
+      const ids = new Set(cur0.includes(n.id) ? cur0 : [n.id]);
+      loop.nodes.forEach(k => { if (ids.has(k.inside)) ids.add(k.id); }); // items mounted inside travel with their enclosure
+      const movers = loop.nodes.filter(k => ids.has(k.id)).map(k => ({ k, x: k.x, y: k.y, el: document.querySelector(`.node[data-id="${k.id}"]`) }));
+      drag = { mode: 'node', id: n.id, dx: w.x - n.x, dy: w.y - n.y, x0: n.x, y0: n.y, movers, sx: e.clientX, sy: e.clientY, moved: false };
       return;
     }
     if (label || hit) {
@@ -1048,6 +1146,12 @@
     }
     const vp = $('viewport'), vr = vp.getBoundingClientRect();
     if (e.clientX - vr.left > vp.clientWidth || e.clientY - vr.top > vp.clientHeight) return; // on a scrollbar
+    if (e.pointerType === 'mouse') { // drag on empty sheet: box selection
+      e.preventDefault();
+      const w = toWorld(e.clientX, e.clientY);
+      drag = { mode: 'box', wx: w.x, wy: w.y, sx: e.clientX, sy: e.clientY, moved: false, add: e.shiftKey || e.ctrlKey || e.metaKey, base: selectedIds(), hits: [] };
+      return;
+    }
     drag = { mode: 'pan', sx: e.clientX, sy: e.clientY, sl: vp.scrollLeft, st: vp.scrollTop, moved: false };
   }
   function onPointerMove(e) {
@@ -1067,24 +1171,33 @@
     } else if (drag.mode === 'node') {
       if (!drag.moved && Math.hypot(e.clientX - drag.sx, e.clientY - drag.sy) < 4) return;
       drag.moved = true;
-      const n = nodeById(loop, drag.id);
       const w = toWorld(e.clientX, e.clientY);
-      n.x = clampX(snap(w.x - drag.dx)); n.y = clampY(snap(w.y - drag.dy));
-      drag.el.style.left = n.x + 'px'; drag.el.style.top = n.y + 'px';
-      drag.el.classList.add('dragging');
-      drag.kids.forEach(c => {
-        c.k.x = clampX(c.x + n.x - drag.x0); c.k.y = clampY(c.y + n.y - drag.y0);
-        if (c.el) { c.el.style.left = c.k.x + 'px'; c.el.style.top = c.k.y + 'px'; }
+      const ddx = snap(w.x - drag.dx) - drag.x0, ddy = snap(w.y - drag.dy) - drag.y0;
+      drag.movers.forEach(c => {
+        c.k.x = clampX(c.x + ddx); c.k.y = clampY(c.y + ddy);
+        if (c.el) { c.el.style.left = c.k.x + 'px'; c.el.style.top = c.k.y + 'px'; c.el.classList.add('dragging'); }
       });
       drawWires();
+    } else if (drag.mode === 'box') {
+      if (!drag.moved && Math.hypot(e.clientX - drag.sx, e.clientY - drag.sy) < 4) return;
+      drag.moved = true;
+      const w = toWorld(e.clientX, e.clientY);
+      const x0 = Math.min(drag.wx, w.x), y0 = Math.min(drag.wy, w.y), x1 = Math.max(drag.wx, w.x), y1 = Math.max(drag.wy, w.y);
+      let box = $('selBox');
+      if (!box) { box = document.createElement('div'); box.id = 'selBox'; box.className = 'selbox'; $('world').appendChild(box); }
+      Object.assign(box.style, { left: x0 + 'px', top: y0 + 'px', width: (x1 - x0) + 'px', height: (y1 - y0) + 'px' });
+      drag.hits = loop.nodes.filter(n => { const c = center(n); return n.x < x1 && n.x + c.w > x0 && n.y < y1 && n.y + c.h > y0; }).map(n => n.id);
+      const on = new Set(drag.add ? drag.base.concat(drag.hits) : drag.hits);
+      document.querySelectorAll('.node').forEach(el => el.classList.toggle('sel', on.has(el.dataset.id)));
     } else if (drag.mode === 'link') {
       const from = nodeById(loop, drag.from);
       const c = center(from);
       const w = toWorld(e.clientX, e.clientY);
-      const p = clip(c, w);
+      const p = { x: w.x >= c.x ? from.x + c.w : from.x, y: c.y };
+      const mx = (p.x + w.x) / 2;
       const tw = $('tempWire');
       tw.style.display = '';
-      tw.setAttribute('d', `M${p.x},${p.y} L${w.x},${w.y}`);
+      tw.setAttribute('d', `M${p.x},${p.y} H${mx} V${w.y} H${w.x}`);
       const under = document.elementFromPoint(e.clientX, e.clientY);
       const t = under && under.closest('.node');
       const tid = t && t.dataset.id !== drag.from ? t.dataset.id : null;
@@ -1122,7 +1235,14 @@
       }
     } else if (d.mode === 'node') {
       if (d.moved) { save(); renderDiagram(); }
-      else select({ kind: 'node', id: d.id });
+      else setSelection([d.id]);
+    } else if (d.mode === 'toggle') {
+      const ids = selectedIds();
+      setSelection(ids.includes(d.id) ? ids.filter(x => x !== d.id) : ids.concat(d.id));
+    } else if (d.mode === 'box') {
+      const box = $('selBox'); if (box) box.remove();
+      if (d.moved) setSelection(d.add ? d.base.concat(d.hits) : d.hits);
+      else if (sel) select(null);
     } else if (d.mode === 'link') {
       document.body.classList.remove('linking');
       document.querySelectorAll('.node.target').forEach(x => x.classList.remove('target'));
@@ -1136,11 +1256,12 @@
         const tw = $('tempWire'); if (tw) tw.style.display = 'none';
       }
     } else if (d.mode === 'pan') {
-      if (!d.moved && sel) select(null);
+      if (!d.moved && sel && !d.keepSel) select(null);
     }
   }
   function onPointerCancel() {
     if (drag && drag.ghost) drag.ghost.remove();
+    const box = $('selBox'); if (box) box.remove();
     if (drag && drag.mode === 'link') {
       document.body.classList.remove('linking');
       const tw = $('tempWire'); if (tw) tw.style.display = 'none';
@@ -1205,6 +1326,11 @@
     if (go) { select({ kind: 'link', id: go.dataset.goto }); return; }
     const gn = t.closest('[data-goto-node]');
     if (gn) { select({ kind: 'node', id: gn.dataset.gotoNode }); return; }
+    const mall = t.closest('[data-mall]');
+    if (mall) {
+      [...selNodes].forEach(id => { const n = nodeById(loop, id); if (n) nodeItems(loop, n).forEach(it => { if (it.status === 'todo' || (mall.dataset.mall === 'have' && it.status === 'ordered')) setItem(it, { s: mall.dataset.mall }); }); });
+      renderInspector(); refreshLight(); return;
+    }
     const del = t.closest('[data-del]');
     if (del) { deleteSelected(); return; }
     void loop;
@@ -1221,9 +1347,17 @@
   }
   function deleteSelected() {
     const loop = cur();
-    if (!sel || (sel.kind !== 'node' && sel.kind !== 'link')) return;
+    if (!sel || !['node', 'link', 'multi'].includes(sel.kind)) return;
     snapshot();
-    if (sel.kind === 'node') {
+    if (sel.kind === 'multi') {
+      const ids = new Set(selNodes);
+      loop.nodes = loop.nodes.filter(x => !ids.has(x.id));
+      const before = loop.links.length;
+      loop.links = loop.links.filter(l => !ids.has(l.a) && !ids.has(l.b));
+      loop.nodes.forEach(x => { if (ids.has(x.inside)) x.inside = null; });
+      const nl = before - loop.links.length;
+      toast(`Deleted ${ids.size} items${nl ? ` and ${nl} cable${nl > 1 ? 's' : ''}` : ''}.`, true);
+    } else if (sel.kind === 'node') {
       const n = nodeById(loop, sel.id);
       const nl = loop.links.filter(l => l.a === n.id || l.b === n.id).length;
       loop.nodes = loop.nodes.filter(x => x.id !== n.id);
@@ -1235,7 +1369,7 @@
       loop.links = loop.links.filter(x => x.id !== l.id);
       toast(`Deleted cable ${l.tag}.`, true);
     }
-    sel = null;
+    sel = null; selNodes = new Set();
     renderAll(); save();
   }
 
@@ -1292,9 +1426,20 @@
     document.addEventListener('keydown', e => {
       const tag = (e.target.tagName || '').toLowerCase();
       if (['input', 'textarea', 'select'].includes(tag)) return;
+      if (e.key === ' ' && view === 'diagram') { e.preventDefault(); if (!spaceDown) { spaceDown = true; $('viewport').classList.add('panning'); } return; }
       if ((e.key === 'Delete' || e.key === 'Backspace') && sel && view === 'diagram') { e.preventDefault(); deleteSelected(); }
       if (e.key === 'Escape' && sel) select(null);
+      if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'a' && view === 'diagram') { e.preventDefault(); setSelection(cur().nodes.map(n => n.id)); }
+      const arrows = { ArrowLeft: [-1, 0], ArrowRight: [1, 0], ArrowUp: [0, -1], ArrowDown: [0, 1] };
+      if (arrows[e.key] && selectedIds().length && view === 'diagram') {
+        e.preventDefault();
+        const step = e.shiftKey ? GRID * 5 : GRID;
+        nudge(arrows[e.key][0] * step, arrows[e.key][1] * step);
+      }
     });
+    document.addEventListener('keyup', e => { if (e.key === ' ') { spaceDown = false; $('viewport').classList.remove('panning'); } });
+    window.addEventListener('blur', () => { spaceDown = false; $('viewport').classList.remove('panning'); });
+    $('viewport').addEventListener('auxclick', e => { if (e.button === 1) e.preventDefault(); });
 
     $('tabDiagram').onclick = () => setView('diagram');
     $('tabOrders').onclick = () => setView('orders');

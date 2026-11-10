@@ -48,6 +48,16 @@ makes sure nothing is forgotten on the purchase list.
 9. **Mirror** (above the sheet) flips the loop left ↔ right, e.g. to put the
    PLC on the left and the field instruments on the right.
 
+10. **Select and move**: drag on an empty part of the sheet to draw a
+    selection box, or Shift+click (Ctrl+click) items to add or remove them;
+    Ctrl+A selects everything. Drag any selected item to move them all,
+    nudge with the arrow keys (Shift for bigger steps), Delete removes them
+    (with Undo). Hold Space and drag, or drag with the middle mouse button,
+    to pan the sheet.
+
+Cables are drawn at right angles: each leaves from the side of the item
+facing the other end, and cables sharing a side are fanned out.
+
 Quantities are suggestions (cores + drain wire for ferrules, route length
 +10% for cable, terminals from the cores landing on a strip). Type your own
 number in the quantity box to override.
