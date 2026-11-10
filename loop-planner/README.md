@@ -21,7 +21,8 @@ makes sure nothing is forgotten on the purchase list.
    route, shielded, armoured, and for each end: termination (ferrules, ring
    lugs, fork/pin lugs, connector) and whether a gland is needed.
 4. **Tick things off**: every item and cable has a checklist. Click a status
-   to step it: **To order → Ordered → In stock → Not needed**. Add your own
+   to step it: **To order → Ordered → In stock → Not needed**. The **All ordered / All
+   in stock / All not needed** buttons set every open line at once. Add your own
    reminders with "Add an item".
 5. **See what is missing**: on the diagram, each item shows a badge with the
    number of things still to order, cables turn **red** (something to order),
@@ -62,7 +63,9 @@ makes sure nothing is forgotten on the purchase list.
     pastes at the mouse pointer (press it again elsewhere for more copies),
     Ctrl+X cuts and Ctrl+D duplicates. Pasted items get the next free tags
     (PT-101 → PT-102) and start as "To order"; notes, quantities and your own
-    reminders are kept. You can paste into another loop.
+    reminders are kept. Tick **Copies keep order statuses** in the side
+    panel (or press Ctrl+Shift+V) to paste with the original's statuses
+    too. You can paste into another loop.
 12. **Endless sheet, CAD-style navigation**: there are no edges. The mouse
     wheel zooms around the cursor, dragging with the middle button (or Space
     + drag) pans, and double-clicking the middle button zooms to extents

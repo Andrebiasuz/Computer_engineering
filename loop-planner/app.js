@@ -700,7 +700,8 @@
   function checklistBlock(title) {
     return `<h3><span>${title}</span><span class="allset">
         <button class="btn ghost small" data-all="ordered">All ordered</button>
-        <button class="btn ghost small" data-all="have">All in stock</button></span></h3>
+        <button class="btn ghost small" data-all="have">All in stock</button>
+        <button class="btn ghost small" data-all="na" title="Mark everything still To order as Not needed">All not needed</button></span></h3>
       <div id="ckl" class="checklist"></div>
       <div class="addrow">
         <label class="sr" for="addName">Add an item</label>
@@ -725,8 +726,8 @@
   function loopInspector(loop) {
     return `<h2>${esc(loop.name || 'Untitled loop')}</h2>
       <div id="summaryGrid" class="summary-grid">${summaryHTML(loop)}</div>
-      <p class="tip">Select an item or a cable on the sheet to see its checklist. Drag from a round handle on the side of an item to another item to draw a cable. Drag a box on an empty part of the sheet to select several items: left to right selects items fully inside, right to left selects anything the box touches. Then drag one of them to move them together (drag an enclosure's dashed outline or label to move it with everything inside); Ctrl+C / Ctrl+V copies and pastes them at the mouse pointer. The sheet is endless: the mouse wheel zooms at the cursor, drag with the middle button (or hold Space and drag) to pan, double-click the middle button to zoom extents. Click a status to step it: To order → Ordered → In stock → Not needed.</p>
-      ${(() => { const c = readClip(); return c && c.nodes.length ? `<div class="del-row" style="margin-top:12px"><button class="btn ghost" data-clip="paste" title="Ctrl+V">Paste ${c.nodes.length} copied item${c.nodes.length > 1 ? 's' : ''}</button></div>` : ''; })()}
+      <p class="tip">Select an item or a cable on the sheet to see its checklist. Drag from a round handle on the side of an item to another item to draw a cable. Drag a box on an empty part of the sheet to select several items: left to right selects items fully inside, right to left selects anything the box touches. Then drag one of them to move them together (drag an enclosure's dashed outline or label to move it with everything inside); Ctrl+C / Ctrl+V copies and pastes them at the mouse pointer (Ctrl+Shift+V keeps their order statuses). The sheet is endless: the mouse wheel zooms at the cursor, drag with the middle button (or hold Space and drag) to pan, double-click the middle button to zoom extents. Click a status to step it: To order → Ordered → In stock → Not needed.</p>
+      ${(() => { const c = readClip(); return c && c.nodes.length ? `<div class="del-row" style="margin-top:12px"><button class="btn ghost" data-clip="paste" title="Ctrl+V">Paste ${c.nodes.length} copied item${c.nodes.length > 1 ? 's' : ''}</button>${keepBox()}</div>` : ''; })()}
       ${checklistBlock('Whole-loop consumables')}`;
   }
 
@@ -740,10 +741,11 @@
       <div class="multi-list">${nodes.map(n => `<button class="btn ghost small" data-goto-node="${n.id}">${esc(n.tag)}</button>`).join('')}</div>
       <h3><span>Their checklists</span></h3>
       <p class="tip" style="margin-top:0"><b style="color:var(--todo)">${c.todo}</b> to order · <b style="color:var(--ordered)">${c.ordered}</b> ordered · <b style="color:var(--have)">${c.have}</b> in stock</p>
-      <div class="allset"><button class="btn ghost small" data-mall="ordered">Mark all ordered</button><button class="btn ghost small" data-mall="have">Mark all in stock</button></div>
+      <div class="allset"><button class="btn ghost small" data-mall="ordered">Mark all ordered</button><button class="btn ghost small" data-mall="have">Mark all in stock</button><button class="btn ghost small" data-mall="na" title="Mark everything still To order as Not needed">Mark all not needed</button></div>
       <div class="del-row">
         <button class="btn ghost" data-clip="copy" title="Ctrl+C">Copy</button>
         <button class="btn ghost" data-clip="dup" title="Ctrl+D">Duplicate</button>
+        ${keepBox()}
         <button class="btn ghost danger" data-del="multi">Delete ${nodes.length} items</button></div>`;
   }
 
@@ -771,6 +773,7 @@
       <div class="del-row">
         <button class="btn ghost" data-clip="copy" title="Ctrl+C">Copy</button>
         <button class="btn ghost" data-clip="dup" title="Ctrl+D">Duplicate</button>
+        ${keepBox()}
         <button class="btn ghost danger" data-del="node">Delete ${esc(n.tag)}</button></div>`;
   }
 
@@ -1119,7 +1122,12 @@
     else select(ids.length ? { kind: 'node', id: ids[0] } : null);
   }
   // ---------------------------------------------------------------- copy / paste (like CAD)
-  const CLIP_KEY = 'loop-planner-clipboard';
+  const CLIP_KEY = 'loop-planner-clipboard', KEEP_KEY = 'loop-planner-paste-keep';
+  // Should copies keep the original's order statuses? (default: no, a copy is a new item to order)
+  const keepPref = () => { try { return localStorage.getItem(KEEP_KEY) === '1'; } catch (e) { return keepMem; } };
+  let keepMem = false;
+  function setKeepPref(v) { keepMem = v; try { localStorage.setItem(KEEP_KEY, v ? '1' : '0'); } catch (e) { /* memory only */ } }
+  const keepBox = () => `<label class="keep-opt"><input id="keepStatus" type="checkbox" ${keepPref() ? 'checked' : ''}> Copies keep order statuses <span class="muted">(otherwise they start as To order; Ctrl+Shift+V always keeps them)</span></label>`;
   let clipMem = null;          // fallback when storage is unavailable
   let pointerWorld = null;     // last mouse position over the sheet, for paste
   function readClip() {
@@ -1159,7 +1167,8 @@
     Object.keys(ent.st || {}).forEach(k => { delete ent.st[k].s; });
     (ent.custom || []).forEach(c => { c.s = 'todo'; });
   }
-  function paste(at) {
+  function paste(at, keep) {
+    if (keep == null) keep = keepPref();
     const clip = readClip();
     if (!clip || !clip.nodes.length) { toast('Nothing copied yet. Select items and press Ctrl+C.'); return; }
     const loop = cur();
@@ -1175,7 +1184,7 @@
       map[src.id] = n.id = uid();
       n.tag = freeTag(src.tag, used);
       n.x = src.x + dx; n.y = src.y + dy;
-      resetStatuses(n);
+      if (!keep) resetStatuses(n);
       return n;
     });
     nodes.forEach(n => { n.inside = n.inside && map[n.inside] ? map[n.inside] : null; });
@@ -1183,7 +1192,7 @@
       const l = JSON.parse(JSON.stringify(src));
       l.id = uid(); l.a = map[src.a]; l.b = map[src.b];
       l.tag = freeTag(src.tag, used);
-      resetStatuses(l);
+      if (!keep) resetStatuses(l);
       return l;
     });
     snapshot();
@@ -1192,11 +1201,11 @@
     if (view !== 'diagram') setView('diagram');
     setSelection(nodes.map(n => n.id));
     renderProgress(); save();
-    toast(`Pasted ${nodes.length} item${nodes.length > 1 ? 's' : ''}${links.length ? ` and ${links.length} cable${links.length > 1 ? 's' : ''}` : ''} as new items to order.`, true);
+    toast(`Pasted ${nodes.length} item${nodes.length > 1 ? 's' : ''}${links.length ? ` and ${links.length} cable${links.length > 1 ? 's' : ''}` : ''} ${keep ? ' with their order statuses' : ' as new items to order'}.`, true);
   }
-  function pasteAtPointer() {
+  function pasteAtPointer(keep) {
     const vp = $('viewport'), r = vp.getBoundingClientRect();
-    paste(pointerWorld || toWorld(r.left + vp.clientWidth / 3, r.top + vp.clientHeight / 3));
+    paste(pointerWorld || toWorld(r.left + vp.clientWidth / 3, r.top + vp.clientHeight / 3), keep);
   }
   function cutSelection() {
     if (!copySelection(true)) { toast('Select items to cut first.'); return; }
@@ -1450,6 +1459,7 @@
   function onInspectorInput(e) {
     const t = e.target;
     if (t.dataset.tf && typeDraft) { onTypeInput(e); return; }
+    if (t.id === 'keepStatus') { if (e.type === 'change') { setKeepPref(t.checked); toast(t.checked ? 'Copies will keep their order statuses.' : 'Copies will start as To order.'); } return; }
     const bind = t.dataset.bind;
     const se = selectedEntity();
     if (bind && se && se.kind !== 'general') {
@@ -1619,6 +1629,7 @@
         else if (k === 'v') { e.preventDefault(); pasteAtPointer(); }
         else if (k === 'd') { e.preventDefault(); duplicateSelection(); }
       }
+      if ((e.ctrlKey || e.metaKey) && e.shiftKey && !e.altKey && e.key.toLowerCase() === 'v' && view === 'diagram') { e.preventDefault(); pasteAtPointer(true); }
       const arrows = { ArrowLeft: [-1, 0], ArrowRight: [1, 0], ArrowUp: [0, -1], ArrowDown: [0, 1] };
       if (arrows[e.key] && selectedIds().length && view === 'diagram') {
         e.preventDefault();
