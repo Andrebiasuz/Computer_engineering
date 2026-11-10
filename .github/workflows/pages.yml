@@ -4,6 +4,7 @@ name: Deploy site to GitHub Pages
 #   /                -> site/index.html (links to the apps below)
 #   /scrum-board/    -> scrum-board/ on main
 #   /task-tracker/   -> task-tracker/ on main
+#   /loop-planner/   -> loop-planner/ on main
 #   /study-tracker/  -> study-tracker/ on the study-tracker branch
 #
 # The study tracker lives on its own branch, which doesn't contain this
@@ -17,6 +18,7 @@ on:
       - "site/**"
       - "scrum-board/**"
       - "task-tracker/**"
+      - "loop-planner/**"
       - ".github/workflows/pages.yml"
   workflow_dispatch:
 
@@ -55,7 +57,7 @@ jobs:
         run: |
           mkdir _site
           cp main/site/index.html _site/
-          cp -r main/scrum-board main/task-tracker _site/
+          cp -r main/scrum-board main/task-tracker main/loop-planner _site/
           cp -r study/study-tracker _site/
           touch _site/.nojekyll
           find _site -maxdepth 2 | sort
