@@ -45,6 +45,9 @@ makes sure nothing is forgotten on the purchase list.
    moves with it. A cable coming from outside gets its gland on the
    enclosure ("Cable gland at JB-01 (for CA-101)"), and wiring between items
    in the same enclosure defaults to panel wire with no glands.
+   Drag the junction box / cabinet card itself to place it anywhere in its
+   zone; drag the dashed outline or its label to move the enclosure with
+   everything inside.
 9. **Mirror** (above the sheet) flips the loop left ↔ right, e.g. to put the
    PLC on the left and the field instruments on the right.
 

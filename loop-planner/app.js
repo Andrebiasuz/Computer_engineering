@@ -583,14 +583,18 @@
     loop.links.forEach(l => { const k = [l.a, l.b].sort().join('|'); (groups[k] = groups[k] || []).push(l); });
     let svg = '';
     const labels = {};
+    const tabs = []; // zone labels: HTML above the cable labels so they can always be grabbed
     loop.nodes.forEach(enc => {
       const kids = loop.nodes.filter(n => n.inside === enc.id);
       if (!kids.length) return;
       let x0 = Infinity, y0 = Infinity, x1 = -Infinity, y1 = -Infinity;
       [enc].concat(kids).forEach(n => { const c = center(n); x0 = Math.min(x0, n.x); y0 = Math.min(y0, n.y); x1 = Math.max(x1, n.x + c.w); y1 = Math.max(y1, n.y + c.h); });
       const pad = 18;
-      svg += `<rect class="encl-box" x="${x0 - pad}" y="${y0 - pad - 14}" width="${x1 - x0 + pad * 2}" height="${y1 - y0 + pad * 2 + 14}" rx="8"/>`;
-      svg += `<text class="encl-label" x="${x0 - pad + 8}" y="${y0 - pad - 1}">${esc(enc.tag)} enclosure</text>`;
+      const rx = x0 - pad, ry = y0 - pad - 14, rw = x1 - x0 + pad * 2, rh = y1 - y0 + pad * 2 + 14;
+      svg += `<rect class="encl-box" x="${rx}" y="${ry}" width="${rw}" height="${rh}" rx="8"/>`;
+      // the outline and the label are handles that move the whole enclosure with its contents
+      svg += `<rect class="encl-hit" data-encl="${enc.id}" x="${rx}" y="${ry}" width="${rw}" height="${rh}" rx="8"><title>Drag to move ${esc(enc.tag)} with everything inside</title></rect>`;
+      tabs.push(`<div class="encl-tab" data-encl="${enc.id}" style="left:${rx + 6}px;top:${ry + 1}px" title="Drag to move ${esc(enc.tag)} with everything inside">${esc(enc.tag)} enclosure</div>`);
     });
     // Right-angle routing. Each cable leaves from the side of the item facing the other end;
     // cables sharing a side are fanned out so they don't sit on top of each other.
@@ -659,6 +663,8 @@
     const W = $('wires');
     Object.assign(W.style, { left: (bx0 - m) + 'px', top: (by0 - m) + 'px', width: (bx1 - bx0 + 2 * m) + 'px', height: (by1 - by0 + 2 * m) + 'px' });
     W.innerHTML = `<g transform="translate(${m - bx0},${m - by0})">${svg}</g>`;
+    $('nodes').querySelectorAll('.encl-tab').forEach(el => el.remove());
+    $('nodes').insertAdjacentHTML('beforeend', tabs.join(''));
     document.querySelectorAll('.wlabel').forEach(el => {
       const p = labels[el.dataset.link];
       if (p) { el.style.left = p.x + 'px'; el.style.top = p.y + 'px'; el.hidden = false; } else el.hidden = true;
@@ -719,7 +725,7 @@
   function loopInspector(loop) {
     return `<h2>${esc(loop.name || 'Untitled loop')}</h2>
       <div id="summaryGrid" class="summary-grid">${summaryHTML(loop)}</div>
-      <p class="tip">Select an item or a cable on the sheet to see its checklist. Drag from a round handle on the side of an item to another item to draw a cable. Drag a box on an empty part of the sheet to select several items: left to right selects items fully inside, right to left selects anything the box touches. Then drag one of them to move them together; Ctrl+C / Ctrl+V copies and pastes them at the mouse pointer. The sheet is endless: the mouse wheel zooms at the cursor, drag with the middle button (or hold Space and drag) to pan, double-click the middle button to zoom extents. Click a status to step it: To order → Ordered → In stock → Not needed.</p>
+      <p class="tip">Select an item or a cable on the sheet to see its checklist. Drag from a round handle on the side of an item to another item to draw a cable. Drag a box on an empty part of the sheet to select several items: left to right selects items fully inside, right to left selects anything the box touches. Then drag one of them to move them together (drag an enclosure's dashed outline or label to move it with everything inside); Ctrl+C / Ctrl+V copies and pastes them at the mouse pointer. The sheet is endless: the mouse wheel zooms at the cursor, drag with the middle button (or hold Space and drag) to pan, double-click the middle button to zoom extents. Click a status to step it: To order → Ordered → In stock → Not needed.</p>
       ${(() => { const c = readClip(); return c && c.nodes.length ? `<div class="del-row" style="margin-top:12px"><button class="btn ghost" data-clip="paste" title="Ctrl+V">Paste ${c.nodes.length} copied item${c.nodes.length > 1 ? 's' : ''}</button></div>` : ''; })()}
       ${checklistBlock('Whole-loop consumables')}`;
   }
@@ -1211,7 +1217,6 @@
   function nudge(dx, dy) {
     const loop = cur();
     const ids = new Set(selectedIds());
-    loop.nodes.forEach(n => { if (ids.has(n.inside)) ids.add(n.id); });
     loop.nodes.forEach(n => { if (ids.has(n.id)) { n.x = clampX(n.x + dx); n.y = clampY(n.y + dy); } });
     renderDiagram(); save();
   }
@@ -1253,6 +1258,15 @@
       document.body.classList.add('linking');
       return;
     }
+    const encl = e.target.closest('[data-encl]');
+    if (encl && !nodeEl) { // dashed outline / label: move the enclosure with everything inside
+      e.preventDefault();
+      const enc = nodeById(loop, encl.dataset.encl);
+      const w = toWorld(e.clientX, e.clientY);
+      const movers = loop.nodes.filter(k => k.id === enc.id || k.inside === enc.id).map(k => ({ k, x: k.x, y: k.y, el: document.querySelector(`.node[data-id="${k.id}"]`) }));
+      drag = { mode: 'node', id: enc.id, dx: w.x - enc.x, dy: w.y - enc.y, x0: enc.x, y0: enc.y, movers, sx: e.clientX, sy: e.clientY, moved: false };
+      return;
+    }
     if (nodeEl) {
       e.preventDefault();
       const n = nodeById(loop, nodeEl.dataset.id);
@@ -1260,7 +1274,6 @@
       const w = toWorld(e.clientX, e.clientY);
       const cur0 = selectedIds();
       const ids = new Set(cur0.includes(n.id) ? cur0 : [n.id]);
-      loop.nodes.forEach(k => { if (ids.has(k.inside)) ids.add(k.id); }); // items mounted inside travel with their enclosure
       const movers = loop.nodes.filter(k => ids.has(k.id)).map(k => ({ k, x: k.x, y: k.y, el: document.querySelector(`.node[data-id="${k.id}"]`) }));
       drag = { mode: 'node', id: n.id, dx: w.x - n.x, dy: w.y - n.y, x0: n.x, y0: n.y, movers, sx: e.clientX, sy: e.clientY, moved: false };
       return;
