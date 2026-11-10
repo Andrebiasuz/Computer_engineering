@@ -81,6 +81,13 @@ makes sure nothing is forgotten on the purchase list.
 Cables are drawn at right angles: each leaves from the side of the item
 facing the other end, and cables sharing a side are fanned out.
 
+**Highlight** (above the sheet) marks where a material is needed: pick one
+or more material types (Cable, Lugs & ferrules, Glands, Markers…) and/or
+type a word (ferrule, gland, M20, Hall…). Matching items and cables are
+outlined in violet with a count, everything else fades, and the matching
+lines are marked in the checklist and the order list. Tick *Only still to
+order* to see just what is left to buy. **Clear** turns it off.
+
 Drag the border of the component list (left) or the details panel (right)
 to make it wider or narrower; double-click a border to reset it. Widths are
 remembered.
