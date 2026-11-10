@@ -1710,6 +1710,39 @@
     }, { passive: false });
     $('viewport').addEventListener('mousedown', e => { if (e.button === 1) e.preventDefault(); }); // no browser autoscroll
     window.addEventListener('resize', updateView);
+    // Resizable side panels: drag the borders, double-click to reset; widths are remembered.
+    const PANEL_KEY = 'loop-planner-panels';
+    const diag = $('viewDiagram');
+    let panels = {};
+    try { panels = JSON.parse(localStorage.getItem(PANEL_KEY)) || {}; } catch (e) { panels = {}; }
+    const applyPanels = () => {
+      ['pal', 'insp'].forEach(k => { if (panels[k]) diag.style.setProperty(`--${k}-w`, panels[k] + 'px'); else diag.style.removeProperty(`--${k}-w`); });
+      updateView();
+    };
+    const savePanels = () => { try { localStorage.setItem(PANEL_KEY, JSON.stringify(panels)); } catch (e) { /* not saved */ } };
+    ['pal', 'insp'].forEach(k => {
+      const el = $(k === 'pal' ? 'rzPal' : 'rzInsp');
+      el.addEventListener('pointerdown', e => {
+        if (e.button !== 0) return;
+        e.preventDefault(); e.stopPropagation();
+        el.setPointerCapture(e.pointerId); el.classList.add('active'); document.body.classList.add('resizing');
+        const move = ev => {
+          const r = diag.getBoundingClientRect();
+          const other = k === 'pal' ? $('inspector').offsetWidth : document.querySelector('.palette').offsetWidth;
+          const max = Math.max(160, r.width - other - 320); // always leave room for the sheet
+          const w = k === 'pal' ? ev.clientX - r.left : r.right - ev.clientX;
+          panels[k] = Math.round(Math.min(max, Math.max(k === 'pal' ? 120 : 240, w)));
+          applyPanels();
+        };
+        const up = () => {
+          el.removeEventListener('pointermove', move); el.removeEventListener('pointerup', up); el.removeEventListener('pointercancel', up);
+          el.classList.remove('active'); document.body.classList.remove('resizing'); savePanels();
+        };
+        el.addEventListener('pointermove', move); el.addEventListener('pointerup', up); el.addEventListener('pointercancel', up);
+      });
+      el.addEventListener('dblclick', () => { delete panels[k]; savePanels(); applyPanels(); });
+    });
+    applyPanels();
     $('zoomIn').onclick = () => applyZoom(zoom * 1.15);
     $('zoomOut').onclick = () => applyZoom(zoom / 1.15);
     $('zoomFit').onclick = fit;
