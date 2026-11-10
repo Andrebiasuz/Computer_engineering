@@ -446,13 +446,41 @@
     const c = counts(items);
     return c.todo ? 'todo' : c.ordered ? 'ordered' : c.have ? 'have' : 'na';
   }
+  // ---------------------------------------------------------------- highlight (materials of interest)
+  const HL_NAMES = { cable: 'Cable', term: 'Lugs & ferrules', gland: 'Glands', mark: 'Markers', terminal: 'Terminals',
+    device: 'Devices', protect: 'Protection', mount: 'Mounting', process: 'Process', consum: 'Consumables', other: 'Other' };
+  const hl = { cats: new Set(), text: '', todo: false };
+  const hlActive = () => hl.cats.size > 0 || hl.text.trim() !== '';
+  function hlMatch(it) {
+    if (!hlActive()) return false;
+    if (hl.cats.size && !hl.cats.has(it.cat)) return false;
+    const q = hl.text.trim().toLowerCase();
+    if (q && !q.split(/\s+/).every(w => (it.name + ' ' + (it.hint || '')).toLowerCase().includes(w))) return false;
+    return hl.todo ? it.status === 'todo' : it.status !== 'na';
+  }
+  function renderHighlightBar() {
+    $('hlChips').innerHTML = CAT_KEYS.map(k => `<button class="hl-chip${hl.cats.has(k) ? ' on' : ''}" data-hlcat="${k}" aria-pressed="${hl.cats.has(k)}" title="${esc(CAT[k].n)}"><b>${CAT[k].s}</b> ${esc(HL_NAMES[k])}</button>`).join('');
+    $('btnHighlight').classList.toggle('on', hlActive());
+    $('btnHighlight').textContent = hlActive() ? 'Highlight ●' : 'Highlight';
+    const sum = $('hlSummary');
+    if (!hlActive()) { sum.textContent = 'Pick a material type or type a word (e.g. ferrule, gland, M20) to highlight where it is needed.'; return; }
+    const loop = cur();
+    const m = allItems(loop).filter(hlMatch);
+    const places = new Set(m.map(i => i.where.kind + (i.where.id || ''))).size;
+    const todo = m.filter(i => i.status === 'todo').length;
+    sum.textContent = m.length
+      ? `${m.length} line${m.length > 1 ? 's' : ''} on ${places} item${places > 1 ? 's' : ''}/cable${places > 1 ? 's' : ''} · ${todo} still to order`
+      : 'Nothing in this loop matches.';
+  }
+
   function chipsHTML(items) {
     const by = {};
     items.forEach(i => { (by[i.cat] = by[i.cat] || []).push(i); });
     return CAT_KEYS.filter(k => by[k]).map(k => {
       const w = worst(by[k]);
       const c = counts(by[k]);
-      return `<span class="chip ${w}" title="${esc(CAT[k].n)}: ${c.todo} to order, ${c.ordered} ordered, ${c.have} in stock">${CAT[k].s}</span>`;
+      const hit = by[k].some(hlMatch) ? ' hl' : '';
+      return `<span class="chip ${w}${hit}" title="${esc(CAT[k].n)}: ${c.todo} to order, ${c.ordered} ordered, ${c.have} in stock">${CAT[k].s}</span>`;
     }).join('');
   }
 
@@ -528,7 +556,9 @@
         : c.ordered ? `<span class="badge ordered" title="${c.ordered} item(s) ordered, waiting">${c.ordered}</span>`
         : `<span class="badge done" title="Everything ordered or in stock">✓</span>`;
       const isSel = selectedIds().includes(n.id) || !!(cablePick && cablePick.first === n.id);
-      html += `<div class="node${isSel ? ' sel' : ''}" data-id="${n.id}" style="left:${n.x}px;top:${n.y}px">
+      const hits = items.filter(hlMatch).length;
+      const hlc = hlActive() ? (hits ? ' hl-on' : ' hl-off') : '';
+      html += `<div class="node${isSel ? ' sel' : ''}${hlc}" data-id="${n.id}" style="left:${n.x}px;top:${n.y}px">${hits ? `<span class="hl-badge" title="${hits} matching line${hits > 1 ? 's' : ''}">${hits}</span>` : ''}
         <div class="node-top">${symHTML(n.type, n.tag)}<div class="node-title"><b>${esc(n.tag)}</b><small>${esc(n.desc || T(n.type).name)}</small>${n.inside && nodeById(loop, n.inside) ? `<small class="inside-tag">in ${esc(nodeById(loop, n.inside).tag)}</small>` : ''}</div></div>
         <div class="chips">${chipsHTML(items)}</div>${badge}
         <div class="port left" title="Drag to another item to add a cable"></div><div class="port" title="Drag to another item to add a cable"></div></div>`;
@@ -540,7 +570,9 @@
       const isSel = sel && sel.kind === 'link' && sel.id === l.id;
       const c = CABLES[l.cable];
       const spec = c.pairs ? `${Math.max(1, Number(l.n) || c.defN)} pr` : c.fixed ? c.short : `${cores(l)}${c.short}`;
-      html += `<div class="wlabel ${cls}${isSel ? ' sel' : ''}" data-link="${l.id}">
+      const lhits = items.filter(hlMatch).length;
+      const lhl = hlActive() ? (lhits ? ' hl-on' : ' hl-off') : '';
+      html += `<div class="wlabel ${cls}${isSel ? ' sel' : ''}${lhl}" data-link="${l.id}">${lhits ? `<span class="hl-badge" title="${lhits} matching line${lhits > 1 ? 's' : ''}">${lhits}</span>` : ''}
         <div class="wt">${esc(l.tag)} <small>${esc(spec)}${l.length ? ' · ' + esc(l.length) + ' m' : ''}</small></div>
         <div class="chips">${chipsHTML(items)}</div></div>`;
     });
@@ -549,6 +581,8 @@
     nodesEl.querySelectorAll('.node').forEach(el => { sizes[el.dataset.id] = { w: el.offsetWidth, h: el.offsetHeight }; });
     drawWires();
     $('emptyHint').hidden = loop.nodes.length > 0;
+    $('viewport').classList.toggle('hl-active', hlActive());
+    renderHighlightBar();
   }
 
   function center(n) {
@@ -649,9 +683,11 @@
       const cls = w === 'todo' ? 'todo' : w === 'ordered' ? 'ordered' : 'done';
       const isSel = sel && sel.kind === 'link' && sel.id === l.id;
       const d = roundedPath(pts, 8);
-      svg += `<path class="wire ${cls}${isSel ? ' sel' : ''}" d="${d}"/>`;
-      svg += `<circle class="wire-end" cx="${pa.x.toFixed(1)}" cy="${pa.y.toFixed(1)}" r="4" style="fill:var(--${cls === 'done' ? 'have' : cls})"/>`;
-      svg += `<circle class="wire-end" cx="${pb.x.toFixed(1)}" cy="${pb.y.toFixed(1)}" r="4" style="fill:var(--${cls === 'done' ? 'have' : cls})"/>`;
+      const whl = hlActive() ? (items.some(hlMatch) ? ' hl-on' : ' hl-off') : '';
+      if (whl === ' hl-on') svg += `<path class="wire-glow" d="${d}"/>`;
+      svg += `<path class="wire ${cls}${isSel ? ' sel' : ''}${whl}" d="${d}"/>`;
+      svg += `<circle class="wire-end${whl}" cx="${pa.x.toFixed(1)}" cy="${pa.y.toFixed(1)}" r="4" style="fill:var(--${cls === 'done' ? 'have' : cls})"/>`;
+      svg += `<circle class="wire-end${whl}" cx="${pb.x.toFixed(1)}" cy="${pb.y.toFixed(1)}" r="4" style="fill:var(--${cls === 'done' ? 'have' : cls})"/>`;
       svg += `<path class="wire-hit" data-link="${l.id}" d="${d}"/>`;
       labels[l.id] = best;
     });
@@ -927,7 +963,7 @@
     const order = {};
     CAT_KEYS.forEach((k, i) => { order[k] = i; });
     const items = se.items.map((it, idx) => ({ it, idx })).sort((a, b) => order[a.it.cat] - order[b.it.cat] || a.idx - b.idx);
-    box.innerHTML = items.map(({ it, idx }) => `<div class="ci ${it.status}">
+    box.innerHTML = items.map(({ it, idx }) => `<div class="ci ${it.status}${hlMatch(it) ? ' ci-hl' : ''}">
         <button class="status ${it.status}" data-i="${idx}" title="Click to change status">${STATUS_LABEL[it.status]}</button>
         <div class="ci-name"><span class="ci-cat">${CAT[it.cat].s}</span>${esc(it.name)}${it.hint ? `<small>${esc(it.hint)}</small>` : ''}</div>
         <div class="ci-qty"><label class="sr" for="q-${idx}">Quantity</label><input id="q-${idx}" type="number" min="0" step="any" data-q="${idx}" value="${esc(it.q != null ? it.q : '')}" placeholder="${esc(it.auto)}">${esc(it.unit)}
@@ -990,7 +1026,7 @@
         ${idxs.map(i => {
           const r = shown[i];
           const title = r.members.length > 1 ? ` title="Sets all ${r.members.length} lines"` : '';
-          return `<tr><td><button class="status ${r.status}" data-o="${i}"${title}>${STATUS_LABEL[r.status]}</button></td>
+          return `<tr${r.members.some(hlMatch) ? ' class="row-hl"' : ''}><td><button class="status ${r.status}" data-o="${i}"${title}>${STATUS_LABEL[r.status]}</button></td>
             <td>${esc(r.name)}</td>
             <td class="where">${r.jump ? `<button class="linkbtn" data-jump="${i}" title="Show on the diagram">${esc(r.forLabel)}</button>` : esc(r.forLabel)}${orderScope === 'all' ? `<div class="loopname">${esc(r.loopLabel)}</div>` : ''}</td>
             <td class="q">${r.qty === '' || r.qty == null ? '<span class="muted">?</span>' : esc(r.qty)} ${esc(r.unit)}</td></tr>`;
@@ -1747,6 +1783,24 @@
     $('zoomOut').onclick = () => applyZoom(zoom / 1.15);
     $('zoomFit').onclick = fit;
     $('btnMirror').onclick = mirror;
+    const hlRefresh = () => { renderDiagram(); renderChecklist(); renderHighlightBar(); if (view === 'orders') renderOrders(); };
+    $('btnHighlight').onclick = () => {
+      $('hlBar').hidden = !$('hlBar').hidden;
+      $('btnHighlight').setAttribute('aria-expanded', !$('hlBar').hidden);
+      renderHighlightBar();
+      if (!$('hlBar').hidden) $('hlText').focus();
+    };
+    $('hlChips').onclick = e => {
+      const c = e.target.closest('[data-hlcat]'); if (!c) return;
+      const k = c.dataset.hlcat;
+      if (hl.cats.has(k)) hl.cats.delete(k); else hl.cats.add(k);
+      hlRefresh();
+    };
+    $('hlText').oninput = e => { hl.text = e.target.value; hlRefresh(); };
+    $('hlText').onkeydown = e => { if (e.key === 'Escape') { e.target.value = ''; hl.text = ''; hlRefresh(); e.target.blur(); } };
+    $('hlTodo').onchange = e => { hl.todo = e.target.checked; hlRefresh(); };
+    $('hlClear').onclick = () => { hl.cats.clear(); hl.text = ''; hl.todo = false; $('hlText').value = ''; $('hlTodo').checked = false; hlRefresh(); };
+    $('hlClose').onclick = () => { $('hlBar').hidden = true; $('btnHighlight').setAttribute('aria-expanded', 'false'); renderHighlightBar(); };
     $('paletteList').addEventListener('click', e => {
       const et = e.target.closest('[data-edit-type]');
       if (et) { openTypeEditor(et.dataset.editType); return; }

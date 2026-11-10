@@ -64,7 +64,19 @@
         <button id="zoomIn" class="btn ghost icon" title="Zoom in">+</button>
         <button id="zoomFit" class="btn ghost" title="Zoom extents: show the whole loop (or double-click the mouse wheel)">Fit</button>
         <button id="btnMirror" class="btn ghost" title="Mirror the loop left ↔ right">Mirror</button>
+        <button id="btnHighlight" class="btn ghost hl-toggle" aria-expanded="false" aria-controls="hlBar" title="Highlight where a material is needed">Highlight</button>
       </div>
+    </div>
+    <div id="hlBar" class="hlbar" hidden>
+      <div class="hl-row">
+        <label class="sr" for="hlText">Highlight materials containing</label>
+        <input id="hlText" type="search" placeholder="Search materials: ferrule, gland, M20, Hall…" autocomplete="off">
+        <label class="hl-todo"><input id="hlTodo" type="checkbox"> Only still to order</label>
+        <span id="hlSummary" class="hl-summary"></span>
+        <button id="hlClear" class="btn ghost small">Clear</button>
+        <button id="hlClose" class="btn ghost small" title="Hide this bar (the highlight stays on)">Hide</button>
+      </div>
+      <div id="hlChips" class="hl-chips" role="group" aria-label="Material types"></div>
     </div>
     <div id="modeBar" class="modebar" hidden><span id="modeText"></span><button id="modeDone" class="btn small">Done (Esc)</button></div>
     <div id="viewport" class="viewport">
