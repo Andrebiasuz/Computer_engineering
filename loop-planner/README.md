@@ -54,7 +54,13 @@ makes sure nothing is forgotten on the purchase list.
     Ctrl+A selects everything. Drag any selected item to move them all,
     nudge with the arrow keys (Shift for bigger steps), Delete removes them
     (with Undo).
-11. **Endless sheet, CAD-style navigation**: there are no edges. The mouse
+11. **Copy and paste**: Ctrl+C copies the selected items, the cables
+    between them and anything mounted inside a copied enclosure; Ctrl+V
+    pastes at the mouse pointer (press it again elsewhere for more copies),
+    Ctrl+X cuts and Ctrl+D duplicates. Pasted items get the next free tags
+    (PT-101 → PT-102) and start as "To order"; notes, quantities and your own
+    reminders are kept. You can paste into another loop.
+12. **Endless sheet, CAD-style navigation**: there are no edges. The mouse
     wheel zooms around the cursor, dragging with the middle button (or Space
     + drag) pans, and double-clicking the middle button zooms to extents
     (same as **Fit**). On touch screens, drag with one finger to pan and
