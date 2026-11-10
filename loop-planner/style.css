@@ -274,6 +274,11 @@ body.resizing, body.resizing * { cursor: col-resize !important; user-select: non
 .fl-main span { font-size: .8rem; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .fl-state { font-size: .75rem; white-space: nowrap; }
 .flag-mini { display: inline-grid; place-items: center; width: 16px; height: 16px; margin-right: 5px; border-radius: 3px; background: var(--flag); color: #111; font-size: .65rem; vertical-align: middle; }
+.open-end { position: absolute; width: 18px; height: 18px; margin: -9px 0 0 -9px; border-radius: 50%; background: var(--surface); border: 2.5px dashed var(--todo); pointer-events: auto; cursor: grab; z-index: 2; box-shadow: var(--shadow); }
+.open-end::after { content: ""; position: absolute; inset: 4px; border-radius: 50%; background: var(--todo); opacity: .35; }
+.open-end:hover { transform: scale(1.25); }
+.open-tag { color: var(--todo); }
+.open-warn { margin: 8px 0 0; padding: 6px 9px; border-radius: 4px; background: var(--todo-soft); border-left: 3px solid var(--todo); font-size: .85rem; }
 .keep-opt { flex-basis: 100%; display: flex; gap: 6px; align-items: flex-start; font-size: .85rem; line-height: 1.3; }
 .keep-opt input { margin-top: 2px; }
 .multi-list { display: flex; flex-wrap: wrap; gap: 4px; margin-top: 10px; font-family: var(--f-mono); }
