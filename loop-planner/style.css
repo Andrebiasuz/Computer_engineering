@@ -198,7 +198,10 @@ input[type="number"] { width: 72px; }
 .port:hover::after, .linking .port::after { transform: scale(1); }
 .inside-tag { color: var(--accent) !important; font-family: var(--f-mono); font-size: .72rem !important; }
 .encl-box { fill: var(--accent-soft); stroke: var(--accent); stroke-width: 1.5; stroke-dasharray: 7 5; opacity: .8; }
-.encl-label { fill: var(--accent); font: 600 12px var(--f-mono); letter-spacing: .04em; }
+.encl-tab { position: absolute; z-index: 3; pointer-events: auto; cursor: move; color: var(--accent); font: 600 12px/1 var(--f-mono); letter-spacing: .04em; padding: 2px 5px; border-radius: 3px; white-space: nowrap; user-select: none; background: var(--sheet); border: 1px dashed var(--accent); }
+.encl-tab:hover { background: var(--surface); border-style: solid; }
+.encl-hit { fill: none; stroke: transparent; stroke-width: 14; pointer-events: stroke; cursor: move; }
+.encl-hit:hover { stroke: var(--accent-soft); }
 .selbox { position: absolute; border: 1.5px solid var(--accent); background: var(--accent-soft); pointer-events: none; border-radius: 2px; }
 .selbox.crossing { border: 1.5px dashed var(--have); background: var(--have-soft); }
 .viewport.panning, .viewport.panning .node { cursor: grab; }
