@@ -53,8 +53,12 @@ makes sure nothing is forgotten on the purchase list.
     the box, right → left selects everything it touches), or Shift+click (Ctrl+click) items to add or remove them;
     Ctrl+A selects everything. Drag any selected item to move them all,
     nudge with the arrow keys (Shift for bigger steps), Delete removes them
-    (with Undo). Hold Space and drag, or drag with the middle mouse button,
-    to pan the sheet.
+    (with Undo).
+11. **Endless sheet, CAD-style navigation**: there are no edges. The mouse
+    wheel zooms around the cursor, dragging with the middle button (or Space
+    + drag) pans, and double-clicking the middle button zooms to extents
+    (same as **Fit**). On touch screens, drag with one finger to pan and
+    pinch to zoom.
 
 Cables are drawn at right angles: each leaves from the side of the item
 facing the other end, and cables sharing a side are fanned out.

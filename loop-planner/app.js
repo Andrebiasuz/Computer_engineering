@@ -6,7 +6,7 @@
 
   // ---------------------------------------------------------------- constants
   const STORE_KEY = 'loop-planner-v1';
-  const WORLD_W = 3200, WORLD_H = 2200, GRID = 10, NODE_W = 168;
+  const GRID = 10, NODE_W = 168, ZMIN = 0.1, ZMAX = 4;
 
   const STATUS = ['todo', 'ordered', 'have', 'na'];
   const STATUS_LABEL = { todo: 'To order', ordered: 'Ordered', have: 'In stock', na: 'Not needed' };
@@ -207,7 +207,7 @@
   let sel = null;            // { kind: 'node'|'link'|'multi'|'type', id }
   let selNodes = new Set();  // node ids when sel.kind === 'multi'
   let spaceDown = false;     // hold Space to pan with the mouse
-  let zoom = 1;
+  let zoom = 1, panX = 0, panY = 0; // camera: screen = world * zoom + pan (endless sheet)
   let view = 'diagram';
   let orderScope = 'loop', orderFilter = 'todo', orderGroup = 'branch';
   let sizes = {};            // node id -> { w, h } measured after render
@@ -652,7 +652,13 @@
       labels[l.id] = best;
     });
     svg += '<path id="tempWire" class="wire-temp" d="" style="display:none"/>';
-    $('wires').innerHTML = svg;
+    // size the SVG to what it draws, since items can be anywhere (also at negative coordinates)
+    let bx0 = 0, by0 = 0, bx1 = 0, by1 = 0;
+    loop.nodes.forEach((n, i) => { const c = center(n); if (!i) { bx0 = n.x; by0 = n.y; bx1 = n.x; by1 = n.y; } bx0 = Math.min(bx0, n.x); by0 = Math.min(by0, n.y); bx1 = Math.max(bx1, n.x + c.w); by1 = Math.max(by1, n.y + c.h); });
+    const m = 300;
+    const W = $('wires');
+    Object.assign(W.style, { left: (bx0 - m) + 'px', top: (by0 - m) + 'px', width: (bx1 - bx0 + 2 * m) + 'px', height: (by1 - by0 + 2 * m) + 'px' });
+    W.innerHTML = `<g transform="translate(${m - bx0},${m - by0})">${svg}</g>`;
     document.querySelectorAll('.wlabel').forEach(el => {
       const p = labels[el.dataset.link];
       if (p) { el.style.left = p.x + 'px'; el.style.top = p.y + 'px'; el.hidden = false; } else el.hidden = true;
@@ -713,7 +719,7 @@
   function loopInspector(loop) {
     return `<h2>${esc(loop.name || 'Untitled loop')}</h2>
       <div id="summaryGrid" class="summary-grid">${summaryHTML(loop)}</div>
-      <p class="tip">Select an item or a cable on the sheet to see its checklist. Drag from a round handle on the side of an item to another item to draw a cable. Drag a box on an empty part of the sheet to select several items: left to right selects items fully inside, right to left selects anything the box touches. Then drag one of them to move them together. Hold Space and drag (or use the middle mouse button) to pan. Click a status to step it: To order → Ordered → In stock → Not needed.</p>
+      <p class="tip">Select an item or a cable on the sheet to see its checklist. Drag from a round handle on the side of an item to another item to draw a cable. Drag a box on an empty part of the sheet to select several items: left to right selects items fully inside, right to left selects anything the box touches. Then drag one of them to move them together. The sheet is endless: the mouse wheel zooms at the cursor, drag with the middle button (or hold Space and drag) to pan, double-click the middle button to zoom extents. Click a status to step it: To order → Ordered → In stock → Not needed.</p>
       ${checklistBlock('Whole-loop consumables')}`;
   }
 
@@ -1028,32 +1034,40 @@
 
   // ---------------------------------------------------------------- geometry / zoom
   function toWorld(clientX, clientY) {
-    const vp = $('viewport'), r = vp.getBoundingClientRect();
-    return { x: (clientX - r.left + vp.scrollLeft) / zoom, y: (clientY - r.top + vp.scrollTop) / zoom };
+    const r = $('viewport').getBoundingClientRect();
+    return { x: (clientX - r.left - panX) / zoom, y: (clientY - r.top - panY) / zoom };
   }
-  function applyZoom(z, anchor) {
+  function updateView() {
+    $('world').style.transform = `translate(${panX}px, ${panY}px) scale(${zoom})`;
+    // grid lives on the viewport so it never ends; coarser steps when zoomed far out
+    let minor = 20 * zoom, major = 100 * zoom;
+    while (minor < 8) { minor *= 5; major *= 5; }
     const vp = $('viewport');
-    const r = vp.getBoundingClientRect();
-    const ax = anchor ? anchor.x : r.left + vp.clientWidth / 2, ay = anchor ? anchor.y : r.top + vp.clientHeight / 2;
-    const w = toWorld(ax, ay);
-    zoom = Math.min(1.6, Math.max(0.35, Math.round(z * 100) / 100));
-    $('world').style.transform = `scale(${zoom})`;
-    $('sizer').style.width = WORLD_W * zoom + 'px';
-    $('sizer').style.height = WORLD_H * zoom + 'px';
-    vp.scrollLeft = w.x * zoom - (ax - r.left);
-    vp.scrollTop = w.y * zoom - (ay - r.top);
+    vp.style.backgroundSize = `${major}px ${major}px, ${major}px ${major}px, ${minor}px ${minor}px, ${minor}px ${minor}px`;
+    vp.style.backgroundPosition = `${panX}px ${panY}px`;
     $('zoomVal').textContent = Math.round(zoom * 100) + '%';
   }
+  function applyZoom(z, anchor) {
+    const vp = $('viewport'), r = vp.getBoundingClientRect();
+    const ax = anchor ? anchor.x : r.left + vp.clientWidth / 2, ay = anchor ? anchor.y : r.top + vp.clientHeight / 2;
+    const w = toWorld(ax, ay);
+    zoom = Math.min(ZMAX, Math.max(ZMIN, z));
+    panX = ax - r.left - w.x * zoom;
+    panY = ay - r.top - w.y * zoom;
+    updateView();
+  }
+  function panBy(dx, dy) { panX += dx; panY += dy; updateView(); }
+  // Zoom extents: everything on the sheet, centred.
   function fit() {
     const loop = cur(), vp = $('viewport');
-    if (!loop.nodes.length) { applyZoom(1); vp.scrollLeft = 0; vp.scrollTop = 0; return; }
+    if (!loop.nodes.length) { zoom = 1; panX = 40; panY = 40; updateView(); return; }
     let x0 = Infinity, y0 = Infinity, x1 = -Infinity, y1 = -Infinity;
     loop.nodes.forEach(n => { const s = sizes[n.id] || { w: NODE_W, h: 80 }; x0 = Math.min(x0, n.x); y0 = Math.min(y0, n.y); x1 = Math.max(x1, n.x + s.w); y1 = Math.max(y1, n.y + s.h); });
-    const pad = 60;
-    const z = Math.min(1.2, Math.max(0.6, Math.min( (vp.clientWidth) / (x1 - x0 + pad * 2), (vp.clientHeight) / (y1 - y0 + pad * 2))));
-    applyZoom(z);
-    vp.scrollLeft = (x0 - pad) * zoom - Math.max(0, (vp.clientWidth - (x1 - x0 + pad * 2) * zoom) / 2);
-    vp.scrollTop = (y0 - pad) * zoom - Math.max(0, (vp.clientHeight - (y1 - y0 + pad * 2) * zoom) / 2);
+    const pad = 50;
+    zoom = Math.min(1.2, Math.max(ZMIN, Math.min(vp.clientWidth / (x1 - x0 + pad * 2), vp.clientHeight / (y1 - y0 + pad * 2))));
+    panX = (vp.clientWidth - (x1 + x0) * zoom) / 2;
+    panY = (vp.clientHeight - (y1 + y0) * zoom) / 2;
+    updateView();
   }
   // Mirror the current loop left <-> right (e.g. to put the PLC on the left).
   function mirror() {
@@ -1067,8 +1081,8 @@
     toast('Loop mirrored left ↔ right.', true);
   }
   const snap = v => Math.round(v / GRID) * GRID;
-  const clampX = x => Math.max(0, Math.min(WORLD_W - NODE_W, x));
-  const clampY = y => Math.max(0, Math.min(WORLD_H - 90, y));
+  const clampX = x => x; // endless sheet: no edges
+  const clampY = y => y;
 
   function addNode(type, wx, wy) {
     const loop = cur();
@@ -1101,6 +1115,8 @@
 
   // ---------------------------------------------------------------- pointer interactions
   let drag = null;
+  let lastMiddle = 0;
+  const touches = new Map(); // active touch pointers on the sheet, for pinch zoom
 
   function onPalettePointerDown(e) {
     const item = e.target.closest('.pal-item');
@@ -1112,8 +1128,12 @@
     if (e.button > 1) return;
     if (e.button === 1 || spaceDown) { // middle button or Space held: pan
       e.preventDefault();
-      const vp = $('viewport');
-      drag = { mode: 'pan', sx: e.clientX, sy: e.clientY, sl: vp.scrollLeft, st: vp.scrollTop, moved: false, keepSel: true };
+      if (e.button === 1) {
+        const now = Date.now();
+        if (now - lastMiddle < 350) { lastMiddle = 0; fit(); return; } // double-click wheel: zoom extents
+        lastMiddle = now;
+      }
+      drag = { mode: 'pan', sx: e.clientX, sy: e.clientY, px: panX, py: panY, moved: false, keepSel: true };
       return;
     }
     const loop = cur();
@@ -1152,9 +1172,18 @@
       drag = { mode: 'box', wx: w.x, wy: w.y, sx: e.clientX, sy: e.clientY, moved: false, add: e.shiftKey || e.ctrlKey || e.metaKey, base: selectedIds(), hits: [] };
       return;
     }
-    drag = { mode: 'pan', sx: e.clientX, sy: e.clientY, sl: vp.scrollLeft, st: vp.scrollTop, moved: false };
+    if (e.pointerType === 'touch') {
+      touches.set(e.pointerId, { x: e.clientX, y: e.clientY });
+      if (touches.size === 2) { // two fingers: pinch zoom
+        const [a, b] = [...touches.values()];
+        drag = { mode: 'pinch', d0: Math.hypot(a.x - b.x, a.y - b.y), z0: zoom, w: toWorld((a.x + b.x) / 2, (a.y + b.y) / 2) };
+        return;
+      }
+    }
+    drag = { mode: 'pan', sx: e.clientX, sy: e.clientY, px: panX, py: panY, moved: false };
   }
   function onPointerMove(e) {
+    if (touches.has(e.pointerId) && (!drag || drag.mode !== 'pinch')) touches.set(e.pointerId, { x: e.clientX, y: e.clientY });
     if (!drag) return;
     const loop = cur();
     if (drag.mode === 'palette') {
@@ -1218,12 +1247,22 @@
       const dx = e.clientX - drag.sx, dy = e.clientY - drag.sy;
       if (!drag.moved && Math.hypot(dx, dy) < 4) return;
       drag.moved = true;
-      const vp = $('viewport');
-      vp.scrollLeft = drag.sl - dx; vp.scrollTop = drag.st - dy;
+      panX = drag.px + dx; panY = drag.py + dy; updateView();
+    } else if (drag.mode === 'pinch') {
+      if (touches.has(e.pointerId)) touches.set(e.pointerId, { x: e.clientX, y: e.clientY });
+      if (touches.size < 2) return;
+      const [a, b] = [...touches.values()];
+      const r = $('viewport').getBoundingClientRect();
+      zoom = Math.min(ZMAX, Math.max(ZMIN, drag.z0 * Math.hypot(a.x - b.x, a.y - b.y) / (drag.d0 || 1)));
+      panX = (a.x + b.x) / 2 - r.left - drag.w.x * zoom;
+      panY = (a.y + b.y) / 2 - r.top - drag.w.y * zoom;
+      updateView();
     }
   }
   function onPointerUp(e) {
+    touches.delete(e.pointerId);
     if (!drag) return;
+    if (drag.mode === 'pinch') { if (touches.size === 0) drag = null; return; }
     const loop = cur();
     const d = drag; drag = null;
     if (d.mode === 'palette') {
@@ -1267,7 +1306,8 @@
       if (!d.moved && sel && !d.keepSel) select(null);
     }
   }
-  function onPointerCancel() {
+  function onPointerCancel(e) {
+    if (e) touches.delete(e.pointerId);
     if (drag && drag.ghost) drag.ghost.remove();
     const box = $('selBox'); if (box) box.remove();
     if (drag && drag.mode === 'link') {
@@ -1402,7 +1442,7 @@
     state = load();
     renderPalette();
     renderAll();
-    applyZoom(1);
+    updateView();
     requestAnimationFrame(fit);
 
     $('paletteList').addEventListener('pointerdown', onPalettePointerDown);
@@ -1411,10 +1451,14 @@
     window.addEventListener('pointerup', onPointerUp);
     window.addEventListener('pointercancel', onPointerCancel);
     $('viewport').addEventListener('wheel', e => {
-      if (!e.ctrlKey && !e.metaKey) return;
       e.preventDefault();
-      applyZoom(zoom * (e.deltaY < 0 ? 1.1 : 1 / 1.1), { x: e.clientX, y: e.clientY });
+      const k = e.deltaMode === 1 ? 16 : e.deltaMode === 2 ? 400 : 1;
+      const dx = e.deltaX * k, dy = e.deltaY * k;
+      if (!e.ctrlKey && !e.metaKey && Math.abs(dx) > Math.abs(dy)) { panBy(-dx, 0); return; } // sideways swipe on a touchpad
+      applyZoom(zoom * Math.exp(-Math.max(-300, Math.min(300, dy)) * 0.0015), { x: e.clientX, y: e.clientY });
     }, { passive: false });
+    $('viewport').addEventListener('mousedown', e => { if (e.button === 1) e.preventDefault(); }); // no browser autoscroll
+    window.addEventListener('resize', updateView);
     $('zoomIn').onclick = () => applyZoom(zoom * 1.15);
     $('zoomOut').onclick = () => applyZoom(zoom / 1.15);
     $('zoomFit').onclick = fit;
