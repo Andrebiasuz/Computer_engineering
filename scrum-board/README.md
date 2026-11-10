@@ -54,4 +54,4 @@ Open <http://localhost:8000>. You can also open `index.html` directly.
 `.github/workflows/pages.yml` publishes this folder, together with the
 other apps in the repo, whenever `main` changes. It can also be run by
 hand from the Actions tab. The board is served at
-<https://andrebiasuz.github.io/computer_engineering/scrum-board/>.
+<https://andrebiasuz.github.io/Computer_engineering/scrum-board/>.
