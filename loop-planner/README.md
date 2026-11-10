@@ -81,7 +81,15 @@ makes sure nothing is forgotten on the purchase list.
 Cables are drawn at right angles: each leaves from the side of the item
 facing the other end, and cables sharing a side are fanned out.
 
-**Highlight** (above the sheet) marks where a material is needed: pick one
+**Flags** keep track of components that need attention: select an item or a
+cable and pick a flag colour in the side panel (or press **F**), then add a
+note such as "waiting for quote". Flagged components get a thick border in
+the flag colour, a ⚑ pin and their note on the drawing. **⚑ Flagged (n)**
+above the sheet lists them all with their notes; click one to jump to it,
+or tick *Fade everything else*. Flags are saved with the loop, and the
+order list marks rows of flagged components.
+
+**Find material** (above the sheet) marks where a material is needed: pick one
 or more material types (Cable, Lugs & ferrules, Glands, Markers…) and/or
 type a word (ferrule, gland, M20, Hall…). Matching items and cables are
 outlined in violet with a count, everything else fades, and the matching
