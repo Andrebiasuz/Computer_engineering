@@ -130,6 +130,44 @@
     ] }
   };
   const PANEL_TYPES = ['tb', 'plc', 'iso', 'relay', 'psu', 'mcb', 'panel'];
+  const ENCLOSURE_TYPES = ['jb', 'panel'];
+  // Palette order, left to right on the drawing: control side first, field last.
+  const GROUP_ORDER = ['Panel', 'Power', 'Enclosures', 'Field devices', 'Other'];
+
+  // Component types the user defined ("My components"), stored in state.customTypes.
+  function T(type) {
+    if (TYPES[type]) return TYPES[type];
+    const c = state && (state.customTypes || []).find(x => x.id === type);
+    if (!c) return TYPES.generic;
+    const own = (c.items || []).map(it => [it.key, it.name || 'Item', CAT[it.cat] ? it.cat : 'other',
+      it.qty === '' || it.qty == null || isNaN(Number(it.qty)) ? null : () => Number(it.qty), it.unit || 'pcs']);
+    return {
+      group: 'My components', name: c.name || 'Component', shape: c.shape === 'bubble' ? 'bubble' : 'box',
+      sym: (c.sym || '?').slice(0, 4), tag: c.tag || '', desc: c.desc || '', panel: !!c.panel, enclosure: !!c.enclosure,
+      custom: true, items: (c.terminals ? TB_ITEMS : []).concat(own)
+    };
+  }
+  const isPanel = type => PANEL_TYPES.includes(type) || !!T(type).panel;
+  const isEnclosure = type => ENCLOSURE_TYPES.includes(type) || !!T(type).enclosure;
+  function starterTypes() {
+    return [
+      { id: 'u_hall', name: 'Hall sensor', tag: 'HS-', shape: 'bubble', sym: 'HS', desc: 'Hall effect sensor', panel: false, enclosure: false, terminals: false,
+        items: [
+          { key: 'dev', name: 'Hall sensor', cat: 'device', qty: 1, unit: 'pcs' },
+          { key: 'mount', name: 'Mounting bracket / target magnet', cat: 'mount', qty: 1, unit: 'pcs' },
+          { key: 'conn', name: 'Connector / pigtail (M8 / M12)', cat: 'term', qty: 1, unit: 'pcs' },
+          { key: 'tagplate', name: 'Tag plate', cat: 'mark', qty: 1, unit: 'pcs' }
+        ] },
+      { id: 'u_camp', name: 'Charge amplifier', tag: 'CA-', shape: 'box', sym: 'CA', desc: 'Charge amplifier', panel: false, enclosure: false, terminals: false,
+        items: [
+          { key: 'dev', name: 'Charge amplifier', cat: 'device', qty: 1, unit: 'pcs' },
+          { key: 'mount', name: 'DIN rail adapter / mounting kit', cat: 'mount', qty: 1, unit: 'pcs' },
+          { key: 'coax', name: 'Low-noise input cable / BNC adaptor', cat: 'term', qty: 1, unit: 'pcs' },
+          { key: 'fuse', name: 'Supply fuse terminal', cat: 'protect', qty: 1, unit: 'pcs' },
+          { key: 'label', name: 'Device label', cat: 'mark', qty: 1, unit: 'pcs' }
+        ] }
+    ];
+  }
 
   // fixed: cores fixed by the cable type; pairs: n counts pairs.
   const CABLES = {
@@ -184,11 +222,16 @@
       const raw = localStorage.getItem(STORE_KEY);
       if (raw) {
         const data = JSON.parse(raw);
-        if (data && Array.isArray(data.loops) && data.loops.length) return data;
+        if (data && Array.isArray(data.loops) && data.loops.length) {
+          if (!Array.isArray(data.customTypes)) data.customTypes = starterTypes();
+          return data;
+        }
       }
     } catch (e) { /* storage unavailable: start with the example */ }
+    state = { version: 1, customTypes: starterTypes(), loops: [] };
     const ex = exampleLoop();
-    return { version: 1, currentId: ex.id, loops: [ex] };
+    state.loops.push(ex); state.currentId = ex.id;
+    return state;
   }
   let saveTimer = null;
   function save() {
@@ -202,7 +245,7 @@
     return { id: uid(), name: name || 'New loop', nodes: [], links: [], general: { st: {}, custom: [] } };
   }
   function makeNode(type, x, y, loop) {
-    const t = TYPES[type];
+    const t = T(type);
     return { id: uid(), type, tag: nextTag(loop, t.tag), desc: t.desc, notes: '', x, y, st: {}, custom: [] };
   }
   function nextTag(loop, prefix) {
@@ -216,10 +259,10 @@
   function makeLink(loop, a, b) {
     const ta = nodeById(loop, a).type, tb = nodeById(loop, b).type;
     let cable = 'pair';
-    if (PANEL_TYPES.includes(ta) && PANEL_TYPES.includes(tb)) cable = 'wire';
+    if ((isPanel(ta) && isPanel(tb)) || sameContainer(loop, { a, b })) cable = 'wire';
     else if (ta === 'motor' || tb === 'motor') cable = 'power';
     else if (ta === 'valve' || tb === 'valve') cable = 'control';
-    else if ((ta === 'jb' || tb === 'jb') && (PANEL_TYPES.includes(ta) || PANEL_TYPES.includes(tb) || ta === 'jb' && tb === 'jb')) cable = 'multipair';
+    else if ((ta === 'jb' || tb === 'jb') && (isPanel(ta) || isPanel(tb) || ta === 'jb' && tb === 'jb')) cable = 'multipair';
     const c = CABLES[cable];
     return {
       id: uid(), a, b, tag: nextTag(loop, c.field ? 'C-' : 'W-'), cable, n: c.defN || null, size: '',
@@ -228,6 +271,16 @@
     };
   }
   const nodeById = (loop, id) => loop.nodes.find(n => n.id === id);
+  // The enclosure a node sits in: its "Mounted inside" parent, or itself if it is an enclosure.
+  function containerOf(loop, node) {
+    if (!node) return null;
+    if (node.inside && nodeById(loop, node.inside)) return node.inside;
+    return isEnclosure(node.type) ? node.id : null;
+  }
+  function sameContainer(loop, link) {
+    const ca = containerOf(loop, nodeById(loop, link.a)), cb = containerOf(loop, nodeById(loop, link.b));
+    return !!ca && ca === cb;
+  }
   const linkById = (loop, id) => loop.links.find(l => l.id === id);
 
   // ---------------------------------------------------------------- item generation
@@ -244,19 +297,24 @@
     const c = CABLES[link.cable];
     if (c.term) return c.term;
     const node = nodeById(loop, link[end]);
-    if (node && link.cable === 'power' && TYPES[node.type].term) return TYPES[node.type].term;
+    if (node && link.cable === 'power' && T(node.type).term) return T(node.type).term;
     return 'ferrule';
   }
-  function glandAt(link, end) {
+  function glandAt(loop, link, end) {
     const g = link.ends[end].gland;
-    return g == null ? CABLES[link.cable].field : g;
+    return g == null ? CABLES[link.cable].field && !sameContainer(loop, link) : g;
+  }
+  // Where the cable enters: the enclosure for an item mounted inside one.
+  function entryLabel(loop, node) {
+    const enc = node && node.inside && nodeById(loop, node.inside);
+    return enc ? `${enc.tag} (for ${node.tag})` : node ? node.tag : '?';
   }
   function screenEndOf(loop, link) {
     if (!isShielded(link)) return 'none';
     if (link.screenEnd && link.screenEnd !== 'auto') return link.screenEnd;
     const na = nodeById(loop, link.a), nb = nodeById(loop, link.b);
-    if (nb && PANEL_TYPES.includes(nb.type)) return 'b';
-    if (na && PANEL_TYPES.includes(na.type)) return 'a';
+    if (nb && isPanel(nb.type)) return 'b';
+    if (na && isPanel(na.type)) return 'a';
     return 'b';
   }
   function nodeCtx(loop, node) {
@@ -276,7 +334,7 @@
   }
   function genNode(loop, node) {
     const ctx = nodeCtx(loop, node);
-    return TYPES[node.type].items.map(s => specToGen(s, ctx));
+    return T(node.type).items.map(s => specToGen(s, ctx));
   }
   function genLink(loop, link) {
     const c = CABLES[link.cable];
@@ -308,10 +366,11 @@
         out.push({ key: 'term-' + end, name: `${TERMS[term]}${size} at ${at}`, cat: 'term', auto: n + extra, unit: 'pcs',
           hint: shielded ? `${n} cores + 1 drain wire` : `${n} cores` });
       }
-      if (glandAt(link, end)) {
-        out.push({ key: 'gland-' + end, name: `Cable gland at ${at}${link.armoured ? ' (armoured type)' : ''}`, cat: 'gland', auto: 1, unit: 'pcs',
+      if (glandAt(loop, link, end)) {
+        const gat = entryLabel(loop, node);
+        out.push({ key: 'gland-' + end, name: `Cable gland at ${gat}${link.armoured ? ' (armoured type)' : ''}`, cat: 'gland', auto: 1, unit: 'pcs',
           hint: 'Match cable OD and entry thread (M20 / ½" NPT…)' });
-        if (link.armoured) out.push({ key: 'shroud-' + end, name: `Gland earth tag + shroud at ${at}`, cat: 'gland', auto: 1, unit: 'pcs' });
+        if (link.armoured) out.push({ key: 'shroud-' + end, name: `Gland earth tag + shroud at ${gat}`, cat: 'gland', auto: 1, unit: 'pcs' });
       }
       if (c.field) out.push({ key: 'cmark-' + end, name: `Cable tag at ${at}`, cat: 'mark', auto: 1, unit: 'pcs' });
       out.push({ key: 'wmark-' + end, name: `Core / wire markers at ${at}`, cat: 'mark', auto: n, unit: 'pcs' });
@@ -397,7 +456,7 @@
 
   // ---------------------------------------------------------------- symbols
   function symHTML(type, tag, cls) {
-    const t = TYPES[type];
+    const t = T(type);
     if (t.shape === 'bubble') {
       const m = String(tag || t.tag).match(/^([A-Za-z]+)[-\s]?(.*)$/);
       const top = m ? m[1].toUpperCase().slice(0, 4) : (tag || '').slice(0, 4);
@@ -426,12 +485,17 @@
   }
 
   function renderPalette() {
-    let html = '', group = '';
-    Object.keys(TYPES).forEach(k => {
-      const t = TYPES[k];
-      if (t.group !== group) { group = t.group; html += `<div class="pal-group">${esc(group)}</div>`; }
-      html += `<button class="pal-item" data-type="${k}" title="Add ${esc(t.name)}">${symHTML(k, t.tag)}<span>${esc(t.name)}</span></button>`;
+    let html = '';
+    const item = (k, t) => `<button class="pal-item" data-type="${k}" title="Add ${esc(t.name)}">${symHTML(k, t.tag)}<span>${esc(t.name)}</span></button>`;
+    GROUP_ORDER.forEach(g => {
+      html += `<div class="pal-group">${esc(g)}</div>`;
+      Object.keys(TYPES).filter(k => TYPES[k].group === g).forEach(k => { html += item(k, TYPES[k]); });
     });
+    html += `<div class="pal-group">My components</div>`;
+    (state.customTypes || []).forEach(c => {
+      html += `<div class="pal-row">${item(c.id, T(c.id))}<button class="pal-edit" data-edit-type="${c.id}" title="Edit ${esc(c.name)}" aria-label="Edit ${esc(c.name)}">✎</button></div>`;
+    });
+    html += `<button class="pal-new" id="btnNewType" title="Define a component with its own reminders">+ New component</button>`;
     $('paletteList').innerHTML = html;
   }
 
@@ -463,9 +527,9 @@
         : `<span class="badge done" title="Everything ordered or in stock">✓</span>`;
       const isSel = sel && sel.kind === 'node' && sel.id === n.id;
       html += `<div class="node${isSel ? ' sel' : ''}" data-id="${n.id}" style="left:${n.x}px;top:${n.y}px">
-        <div class="node-top">${symHTML(n.type, n.tag)}<div class="node-title"><b>${esc(n.tag)}</b><small>${esc(n.desc || TYPES[n.type].name)}</small></div></div>
+        <div class="node-top">${symHTML(n.type, n.tag)}<div class="node-title"><b>${esc(n.tag)}</b><small>${esc(n.desc || T(n.type).name)}</small>${n.inside && nodeById(loop, n.inside) ? `<small class="inside-tag">in ${esc(nodeById(loop, n.inside).tag)}</small>` : ''}</div></div>
         <div class="chips">${chipsHTML(items)}</div>${badge}
-        <div class="port" title="Drag to another item to add a cable"></div></div>`;
+        <div class="port left" title="Drag to another item to add a cable"></div><div class="port" title="Drag to another item to add a cable"></div></div>`;
     });
     loop.links.forEach(l => {
       const items = linkItems(loop, l);
@@ -501,6 +565,15 @@
     loop.links.forEach(l => { const k = [l.a, l.b].sort().join('|'); (groups[k] = groups[k] || []).push(l); });
     let svg = '';
     const labels = {};
+    loop.nodes.forEach(enc => {
+      const kids = loop.nodes.filter(n => n.inside === enc.id);
+      if (!kids.length) return;
+      let x0 = Infinity, y0 = Infinity, x1 = -Infinity, y1 = -Infinity;
+      [enc].concat(kids).forEach(n => { const c = center(n); x0 = Math.min(x0, n.x); y0 = Math.min(y0, n.y); x1 = Math.max(x1, n.x + c.w); y1 = Math.max(y1, n.y + c.h); });
+      const pad = 18;
+      svg += `<rect class="encl-box" x="${x0 - pad}" y="${y0 - pad - 14}" width="${x1 - x0 + pad * 2}" height="${y1 - y0 + pad * 2 + 14}" rx="8"/>`;
+      svg += `<text class="encl-label" x="${x0 - pad + 8}" y="${y0 - pad - 1}">${esc(enc.tag)} enclosure</text>`;
+    });
     loop.links.forEach(l => {
       const na = nodeById(loop, l.a), nb = nodeById(loop, l.b);
       if (!na || !nb) return;
@@ -538,6 +611,7 @@
   function renderInspector() {
     const loop = cur();
     const el = $('inspector');
+    if (sel && sel.kind === 'type' && typeDraft) { el.innerHTML = typeEditor(); return; }
     if (sel && sel.kind === 'node' && nodeById(loop, sel.id)) el.innerHTML = nodeInspector(loop, nodeById(loop, sel.id));
     else if (sel && sel.kind === 'link' && linkById(loop, sel.id)) el.innerHTML = linkInspector(loop, linkById(loop, sel.id));
     else { sel = null; el.innerHTML = loopInspector(loop); }
@@ -546,6 +620,7 @@
   function selectedEntity() {
     const loop = cur();
     if (!sel) return { kind: 'general', ent: loop.general, items: generalItems(loop) };
+    if (sel.kind === 'type') return null;
     if (sel.kind === 'node') { const n = nodeById(loop, sel.id); return n && { kind: 'node', ent: n, items: nodeItems(loop, n) }; }
     const l = linkById(loop, sel.id); return l && { kind: 'link', ent: l, items: linkItems(loop, l) };
   }
@@ -581,19 +656,24 @@
   function loopInspector(loop) {
     return `<h2>${esc(loop.name || 'Untitled loop')}</h2>
       <div id="summaryGrid" class="summary-grid">${summaryHTML(loop)}</div>
-      <p class="tip">Select an item or a cable on the sheet to see its checklist. Drag from the round handle on the right of an item to another item to draw a cable. Click a status to step it: To order → Ordered → In stock → Not needed.</p>
+      <p class="tip">Select an item or a cable on the sheet to see its checklist. Drag from a round handle on the side of an item to another item to draw a cable. Click a status to step it: To order → Ordered → In stock → Not needed.</p>
       ${checklistBlock('Whole-loop consumables')}`;
   }
 
   function nodeInspector(loop, n) {
-    const t = TYPES[n.type];
+    const t = T(n.type);
     const conns = loop.links.filter(l => l.a === n.id || l.b === n.id);
     return `<div class="insp-head">${symHTML(n.type, n.tag)}<div><h2>${esc(n.tag)}</h2><div class="kind">${esc(t.name)}</div></div></div>
       <div class="form">
         <label for="f-tag">Tag</label><input id="f-tag" type="text" data-bind="tag" value="${esc(n.tag)}">
         <label for="f-desc">Service</label><input id="f-desc" type="text" data-bind="desc" value="${esc(n.desc)}">
+        <label for="f-inside">Mounted inside</label><select id="f-inside" data-bind="inside" data-rerender="1">
+          <option value="">Not inside another item</option>
+          ${loop.nodes.filter(o => o.id !== n.id && isEnclosure(o.type) && o.inside !== n.id).map(o => `<option value="${o.id}" ${n.inside === o.id ? 'selected' : ''}>${esc(o.tag)} (${esc(T(o.type).name)})</option>`).join('')}
+        </select>
         <label for="f-notes">Notes</label><textarea id="f-notes" data-bind="notes" placeholder="Model, supplier, PO number…">${esc(n.notes)}</textarea>
       </div>
+      ${t.custom ? `<p class="tip">This is one of your components. <button class="linkbtn" data-edit-type="${esc(n.type)}">Edit its reminders</button> (changes apply to every ${esc(t.name)}).</p>` : ''}
       ${checklistBlock('To order for this item')}
       <h3><span>Cables (${conns.length})</span></h3>
       ${conns.length ? `<ul class="conn-list">${conns.map(l => {
@@ -602,6 +682,98 @@
         return `<li><button data-goto="${l.id}"><span><b>${esc(l.tag)}</b> to ${esc(other ? other.tag : '?')}</span><span style="color:var(--${c.todo ? 'todo' : 'have'})">${c.todo ? c.todo + ' to order' : 'done'}</span></button></li>`;
       }).join('')}</ul>` : '<p class="tip">No cables yet. Drag from the round handle to another item.</p>'}
       <div class="del-row"><button class="btn ghost danger" data-del="node">Delete ${esc(n.tag)}</button></div>`;
+  }
+
+  // ---------------------------------------------------------------- component type editor
+  let typeDraft = null;
+  function openTypeEditor(id) {
+    const existing = id && (state.customTypes || []).find(c => c.id === id);
+    typeDraft = existing ? JSON.parse(JSON.stringify(existing)) : {
+      id: null, name: '', tag: '', shape: 'box', sym: '', desc: '', panel: false, enclosure: false, terminals: false,
+      items: [{ key: 'k' + uid(), name: '', cat: 'device', qty: 1, unit: 'pcs' }]
+    };
+    sel = { kind: 'type', id: typeDraft.id };
+    if (view !== 'diagram') setView('diagram');
+    renderDiagram(); renderInspector();
+    const f = $('t-name'); if (f && !typeDraft.name) f.focus();
+  }
+  function typeEditor() {
+    const d = typeDraft;
+    const inUse = d.id ? state.loops.reduce((s, l) => s + l.nodes.filter(n => n.type === d.id).length, 0) : 0;
+    return `<h2>${d.id ? 'Edit component' : 'New component'}</h2>
+      <p class="tip">Define an item you use often, with the list of things to order every time it appears on a loop.</p>
+      <div class="form">
+        <label for="t-name">Name</label><input id="t-name" type="text" data-tf="name" value="${esc(d.name)}" placeholder="e.g. Hall sensor">
+        <label for="t-tag">Tag prefix</label><input id="t-tag" type="text" data-tf="tag" value="${esc(d.tag)}" placeholder="e.g. HS-">
+        <label for="t-shape">Symbol</label><select id="t-shape" data-tf="shape" data-rerender="1">
+          <option value="bubble" ${d.shape === 'bubble' ? 'selected' : ''}>Circle (field instrument)</option>
+          <option value="box" ${d.shape !== 'bubble' ? 'selected' : ''}>Square with letters</option></select>
+        ${d.shape === 'bubble' ? '' : `<label for="t-sym">Letters</label><input id="t-sym" type="text" maxlength="4" data-tf="sym" value="${esc(d.sym)}" placeholder="e.g. CA">`}
+        <label for="t-desc">Service</label><input id="t-desc" type="text" data-tf="desc" value="${esc(d.desc)}" placeholder="Default description">
+        <span></span><div class="row" style="flex-direction:column;align-items:flex-start">
+          <label><input id="t-panel" type="checkbox" data-tf="panel" ${d.panel ? 'checked' : ''}> Panel item (wires to other panel items as panel wire)</label>
+          <label><input id="t-encl" type="checkbox" data-tf="enclosure" ${d.enclosure ? 'checked' : ''}> Enclosure (other items can be mounted inside)</label>
+          <label><input id="t-term" type="checkbox" data-tf="terminals" ${d.terminals ? 'checked' : ''}> Has terminals (count terminal blocks, end stops, markers)</label>
+        </div>
+      </div>
+      <h3><span>Reminders to order</span></h3>
+      <div class="titems">${d.items.map((it, i) => `<div class="titem">
+          <label class="sr" for="ti-name-${i}">Item ${i + 1}</label>
+          <input id="ti-name-${i}" type="text" data-tf="items.${i}.name" value="${esc(it.name)}" placeholder="What to order">
+          <label class="sr" for="ti-cat-${i}">Category</label>
+          <select id="ti-cat-${i}" data-tf="items.${i}.cat">${catOptions(it.cat)}</select>
+          <label class="sr" for="ti-qty-${i}">Quantity</label>
+          <input id="ti-qty-${i}" type="number" min="0" step="any" data-tf="items.${i}.qty" value="${esc(it.qty == null ? '' : it.qty)}" placeholder="qty">
+          <label class="sr" for="ti-unit-${i}">Unit</label>
+          <input id="ti-unit-${i}" type="text" data-tf="items.${i}.unit" value="${esc(it.unit)}" placeholder="pcs">
+          <button class="ci-del" data-tact="rm-item" data-i="${i}" title="Remove">×</button>
+        </div>`).join('')}</div>
+      <div class="addrow"><button class="btn ghost small" data-tact="add-item">+ Add reminder</button></div>
+      <div class="del-row">
+        <button class="btn" data-tact="save">${d.id ? 'Save changes' : 'Create component'}</button>
+        <button class="btn ghost" data-tact="cancel">Cancel</button>
+        ${d.id ? `<button class="btn ghost danger" data-tact="delete">Delete${inUse ? ` (used ${inUse}×)` : ''}</button>` : ''}
+      </div>`;
+  }
+  function onTypeInput(e) {
+    const t = e.target, path = t.dataset.tf;
+    let v = t.type === 'checkbox' ? t.checked : t.value;
+    if (path.endsWith('.qty')) v = t.value === '' ? null : Number(t.value);
+    setPath(typeDraft, path, v);
+    if (e.type === 'change' && t.dataset.rerender) renderInspector();
+  }
+  function onTypeAction(act, el) {
+    const d = typeDraft;
+    if (act === 'add-item') {
+      d.items.push({ key: 'k' + uid(), name: '', cat: 'other', qty: 1, unit: 'pcs' });
+      renderInspector();
+      const f = $('ti-name-' + (d.items.length - 1)); if (f) f.focus();
+    } else if (act === 'rm-item') {
+      d.items.splice(Number(el.dataset.i), 1); renderInspector();
+    } else if (act === 'cancel') {
+      typeDraft = null; sel = null; renderAll();
+    } else if (act === 'save') {
+      if (!d.name.trim()) { $('t-name').focus(); toast('Give the component a name.'); return; }
+      d.name = d.name.trim();
+      d.items = d.items.filter(it => (it.name || '').trim());
+      if (!d.sym) d.sym = (d.tag || d.name).replace(/[^A-Za-z]/g, '').slice(0, 3).toUpperCase() || '?';
+      const isNew = !d.id;
+      if (isNew) { d.id = 'u_' + uid(); state.customTypes.push(d); }
+      else state.customTypes = state.customTypes.map(c => c.id === d.id ? d : c);
+      typeDraft = null; sel = null;
+      renderPalette(); renderAll(); save();
+      toast(isNew ? `Created “${d.name}”. Drag it from My components.` : `Saved “${d.name}”.`);
+    } else if (act === 'delete') {
+      const n = state.loops.reduce((s, l) => s + l.nodes.filter(x => x.type === d.id).length, 0);
+      askConfirm(`Delete component “${d.name}”?${n ? ` ${n} item(s) on your loops will become “Other item”.` : ''}`, 'Delete component', () => {
+        snapshot();
+        state.loops.forEach(l => l.nodes.forEach(x => { if (x.type === d.id) x.type = 'generic'; }));
+        state.customTypes = state.customTypes.filter(c => c.id !== d.id);
+        typeDraft = null; sel = null;
+        renderPalette(); renderAll(); save();
+        toast('Component deleted.', true);
+      });
+    }
   }
 
   function linkInspector(loop, l) {
@@ -618,7 +790,7 @@
             <option value="auto" ${l.ends[end].term === 'auto' ? 'selected' : ''}>Auto: ${esc(TERMS[autoTerm])}</option>
             ${Object.keys(TERMS).map(k => `<option value="${k}" ${l.ends[end].term === k ? 'selected' : ''}>${esc(TERMS[k])}</option>`).join('')}
           </select></div>
-        <div class="row"><label><input id="gland-${end}" type="checkbox" data-bind="ends.${end}.gland" ${glandAt(l, end) ? 'checked' : ''}> Cable gland at this end</label></div>
+        <div class="row"><label><input id="gland-${end}" type="checkbox" data-bind="ends.${end}.gland" ${glandAt(loop, l, end) ? 'checked' : ''}> Cable gland at this end</label></div>
       </div>`;
     };
     return `<div class="insp-head"><div><h2>${esc(l.tag)}</h2><div class="kind">${esc(na ? na.tag : '?')} → ${esc(nb ? nb.tag : '?')}</div></div></div>
@@ -771,7 +943,7 @@
     clearTimeout(toastTimer);
     toastTimer = setTimeout(() => { t.hidden = true; }, undo ? 7000 : 3500);
     if (undo) $('undoBtn').onclick = () => {
-      if (undoSnapshot) { state = JSON.parse(undoSnapshot); undoSnapshot = null; sel = null; renderAll(); save(); }
+      if (undoSnapshot) { state = JSON.parse(undoSnapshot); undoSnapshot = null; sel = null; typeDraft = null; renderPalette(); renderAll(); save(); }
       t.hidden = true;
     };
   }
@@ -811,6 +983,17 @@
     applyZoom(z);
     vp.scrollLeft = (x0 - pad) * zoom - Math.max(0, (vp.clientWidth - (x1 - x0 + pad * 2) * zoom) / 2);
     vp.scrollTop = (y0 - pad) * zoom - Math.max(0, (vp.clientHeight - (y1 - y0 + pad * 2) * zoom) / 2);
+  }
+  // Mirror the current loop left <-> right (e.g. to put the PLC on the left).
+  function mirror() {
+    const loop = cur();
+    if (!loop.nodes.length) return;
+    snapshot();
+    let x0 = Infinity, x1 = -Infinity;
+    loop.nodes.forEach(n => { const w = (sizes[n.id] || { w: NODE_W }).w; x0 = Math.min(x0, n.x); x1 = Math.max(x1, n.x + w); });
+    loop.nodes.forEach(n => { const w = (sizes[n.id] || { w: NODE_W }).w; n.x = clampX(snap(x0 + x1 - n.x - w)); });
+    renderDiagram(); save();
+    toast('Loop mirrored left ↔ right.', true);
   }
   const snap = v => Math.round(v / GRID) * GRID;
   const clampX = x => Math.max(0, Math.min(WORLD_W - NODE_W, x));
@@ -854,7 +1037,8 @@
       e.preventDefault();
       const n = nodeById(loop, nodeEl.dataset.id);
       const w = toWorld(e.clientX, e.clientY);
-      drag = { mode: 'node', id: n.id, el: nodeEl, dx: w.x - n.x, dy: w.y - n.y, sx: e.clientX, sy: e.clientY, moved: false };
+      const kids = loop.nodes.filter(k => k.inside === n.id).map(k => ({ k, x: k.x, y: k.y, el: document.querySelector(`.node[data-id="${k.id}"]`) }));
+      drag = { mode: 'node', id: n.id, el: nodeEl, dx: w.x - n.x, dy: w.y - n.y, x0: n.x, y0: n.y, kids, sx: e.clientX, sy: e.clientY, moved: false };
       return;
     }
     if (label || hit) {
@@ -875,7 +1059,7 @@
         const g = document.createElement('div');
         g.className = 'node dragging';
         g.style.cssText = 'position:fixed;z-index:30;pointer-events:none;width:' + NODE_W + 'px';
-        g.innerHTML = `<div class="node-top">${symHTML(drag.type, TYPES[drag.type].tag)}<div class="node-title"><b>${esc(TYPES[drag.type].name)}</b></div></div>`;
+        g.innerHTML = `<div class="node-top">${symHTML(drag.type, T(drag.type).tag)}<div class="node-title"><b>${esc(T(drag.type).name)}</b></div></div>`;
         document.body.appendChild(g);
         drag.ghost = g;
       }
@@ -888,6 +1072,10 @@
       n.x = clampX(snap(w.x - drag.dx)); n.y = clampY(snap(w.y - drag.dy));
       drag.el.style.left = n.x + 'px'; drag.el.style.top = n.y + 'px';
       drag.el.classList.add('dragging');
+      drag.kids.forEach(c => {
+        c.k.x = clampX(c.x + n.x - drag.x0); c.k.y = clampY(c.y + n.y - drag.y0);
+        if (c.el) { c.el.style.left = c.k.x + 'px'; c.el.style.top = c.k.y + 'px'; }
+      });
       drawWires();
     } else if (drag.mode === 'link') {
       const from = nodeById(loop, drag.from);
@@ -969,6 +1157,7 @@
   }
   function onInspectorInput(e) {
     const t = e.target;
+    if (t.dataset.tf && typeDraft) { onTypeInput(e); return; }
     const bind = t.dataset.bind;
     const se = selectedEntity();
     if (bind && se && se.kind !== 'general') {
@@ -981,6 +1170,7 @@
         if (!c.field) { se.ent.armoured = false; se.ent.route = 'duct'; }
         else if (se.ent.route === 'duct') se.ent.route = 'tray';
       }
+      if (bind === 'inside') v = v || null;
       setPath(se.ent, bind, v);
       if (e.type === 'change' && t.dataset.rerender) { renderInspector(); refreshLight(); return; }
       if (bind === 'tag') { const h = document.querySelector('.inspector h2'); if (h) h.textContent = v; }
@@ -996,6 +1186,10 @@
   function onInspectorClick(e) {
     const t = e.target;
     const loop = cur();
+    const ta = t.closest('[data-tact]');
+    if (ta) { onTypeAction(ta.dataset.tact, ta); return; }
+    const et = t.closest('[data-edit-type]');
+    if (et) { openTypeEditor(et.dataset.editType); return; }
     const st = t.closest('.status[data-i]');
     if (st) { const it = currentChecklist[Number(st.dataset.i)]; setItem(it, { s: cycle(it.status) }); refreshLight(); return; }
     const rm = t.closest('[data-rm]');
@@ -1027,13 +1221,14 @@
   }
   function deleteSelected() {
     const loop = cur();
-    if (!sel) return;
+    if (!sel || (sel.kind !== 'node' && sel.kind !== 'link')) return;
     snapshot();
     if (sel.kind === 'node') {
       const n = nodeById(loop, sel.id);
       const nl = loop.links.filter(l => l.a === n.id || l.b === n.id).length;
       loop.nodes = loop.nodes.filter(x => x.id !== n.id);
       loop.links = loop.links.filter(l => l.a !== n.id && l.b !== n.id);
+      loop.nodes.forEach(x => { if (x.inside === n.id) x.inside = null; });
       toast(`Deleted ${n.tag}${nl ? ` and ${nl} cable${nl > 1 ? 's' : ''}` : ''}.`, true);
     } else {
       const l = linkById(loop, sel.id);
@@ -1081,6 +1276,12 @@
     $('zoomIn').onclick = () => applyZoom(zoom * 1.15);
     $('zoomOut').onclick = () => applyZoom(zoom / 1.15);
     $('zoomFit').onclick = fit;
+    $('btnMirror').onclick = mirror;
+    $('paletteList').addEventListener('click', e => {
+      const et = e.target.closest('[data-edit-type]');
+      if (et) { openTypeEditor(et.dataset.editType); return; }
+      if (e.target.closest('#btnNewType')) openTypeEditor(null);
+    });
 
     const insp = $('inspector');
     insp.addEventListener('input', onInspectorInput);
@@ -1138,8 +1339,9 @@
         snapshot();
         state = data;
         if (!state.loops.length) state.loops.push(newLoop('Loop 1'));
+        if (!Array.isArray(state.customTypes)) state.customTypes = starterTypes();
         if (!state.loops.find(l => l.id === state.currentId)) state.currentId = state.loops[0].id;
-        sel = null; renderAll(); save(); requestAnimationFrame(fit);
+        sel = null; typeDraft = null; renderPalette(); renderAll(); save(); requestAnimationFrame(fit);
         toast(`Imported ${state.loops.length} loop(s).`, true);
       }).catch(() => toast('That file is not a Loop Planner export.'));
       e.target.value = '';
@@ -1180,24 +1382,29 @@
   function exampleLoop() {
     const loop = newLoop('Example: pump skid PT-101 / XV-102');
     const N = (type, tag, desc, x, y) => { const n = { id: uid(), type, tag, desc, notes: '', x, y, st: {}, custom: [] }; loop.nodes.push(n); return n; };
-    const pt = N('tx', 'PT-101', 'Pump discharge pressure', 80, 140);
-    const xv = N('valve', 'XV-102', 'Recirculation valve', 80, 420);
-    const jb = N('jb', 'JB-01', 'Pump skid JB', 440, 280);
-    const x10 = N('tb', 'X10', 'Marshalling, CP-01', 820, 280);
-    const ai = N('plc', 'AI-04', 'AI card, rack 1 slot 4', 1180, 120);
-    const dq = N('plc', 'DO-06', 'DO card, rack 1 slot 6', 1180, 440);
-    const psu = N('psu', 'PSU-01', '24 VDC loop supply', 820, 560);
+    const ai = N('plc', 'AI-04', 'AI card, rack 1 slot 4', 80, 120);
+    const dq = N('plc', 'DO-06', 'DO card, rack 1 slot 6', 80, 440);
+    const x10 = N('tb', 'X10', 'Marshalling, CP-01', 440, 280);
+    const psu = N('psu', 'PSU-01', '24 VDC loop supply', 440, 560);
+    const jb = N('jb', 'JB-01', 'Pump skid JB', 820, 280);
+    const ca = N('u_camp', 'CA-103', 'Charge amplifier', 820, 480);
+    ca.inside = jb.id;
+    const pt = N('tx', 'PT-101', 'Pump discharge pressure', 1220, 120);
+    const xv = N('valve', 'XV-102', 'Recirculation valve', 1220, 330);
+    const hs = N('u_hall', 'HS-103', 'Pump speed pickup', 1220, 540);
     const L = (a, b, tag, cable, opts) => {
       const l = makeLink(loop, a.id, b.id);
       Object.assign(l, { tag, cable, n: CABLES[cable].defN || null }, opts || {});
       loop.links.push(l); return l;
     };
-    const c101 = L(pt, jb, 'C-101', 'pair', { length: 25, size: '1.0 mm²' });
-    const c102 = L(xv, jb, 'C-102', 'control', { n: 3, length: 22, size: '1.5 mm²' });
-    const c110 = L(jb, x10, 'C-110', 'multipair', { n: 4, length: 120, armoured: true, size: '1.0 mm²' });
-    const w1 = L(x10, ai, 'W-101', 'wire', { n: 2, length: 3, route: 'duct', size: '0.75 mm²' });
-    const w2 = L(x10, dq, 'W-102', 'wire', { n: 2, length: 3, route: 'duct', size: '0.75 mm²' });
-    const w3 = L(psu, x10, 'W-103', 'wire', { n: 2, length: 2, route: 'duct', size: '1.5 mm²' });
+    const c101 = L(jb, pt, 'C-101', 'pair', { length: 25, size: '1.0 mm²' });
+    const c102 = L(jb, xv, 'C-102', 'control', { n: 3, length: 22, size: '1.5 mm²' });
+    L(ca, hs, 'C-103', 'triad', { length: 15, size: '0.5 mm²' });
+    L(jb, ca, 'W-104', 'wire', { n: 3, length: 1, route: 'duct', size: '0.75 mm²' });
+    const c110 = L(x10, jb, 'C-110', 'multipair', { n: 4, length: 120, armoured: true, size: '1.0 mm²' });
+    const w1 = L(ai, x10, 'W-101', 'wire', { n: 2, length: 3, route: 'duct', size: '0.75 mm²' });
+    const w2 = L(dq, x10, 'W-102', 'wire', { n: 2, length: 3, route: 'duct', size: '0.75 mm²' });
+    const w3 = L(x10, psu, 'W-103', 'wire', { n: 2, length: 2, route: 'duct', size: '1.5 mm²' });
     // some realistic progress so the colours show
     const S = (ent, map) => { Object.keys(map).forEach(k => { ent.st[k] = { s: map[k] }; }); };
     S(pt, { dev: 'ordered', mount: 'ordered', proc: 'have', blank: 'na' });
