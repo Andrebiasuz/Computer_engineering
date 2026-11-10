@@ -202,7 +202,8 @@ input[type="number"] { width: 72px; }
 .inside-tag { color: var(--accent) !important; font-family: var(--f-mono); font-size: .72rem !important; }
 .encl-box { fill: var(--accent-soft); stroke: var(--accent); stroke-width: 1.5; stroke-dasharray: 7 5; opacity: .8; }
 .encl-label { fill: var(--accent); font: 600 12px var(--f-mono); letter-spacing: .04em; }
-.selbox { position: absolute; border: 1.5px dashed var(--accent); background: var(--accent-soft); pointer-events: none; border-radius: 2px; }
+.selbox { position: absolute; border: 1.5px solid var(--accent); background: var(--accent-soft); pointer-events: none; border-radius: 2px; }
+.selbox.crossing { border: 1.5px dashed var(--have); background: var(--have-soft); }
 .viewport.panning, .viewport.panning .node { cursor: grab; }
 .multi-list { display: flex; flex-wrap: wrap; gap: 4px; margin-top: 10px; font-family: var(--f-mono); }
 .node.target { border-color: var(--accent); background: var(--accent-soft); }

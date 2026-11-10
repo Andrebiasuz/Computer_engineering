@@ -49,7 +49,8 @@ makes sure nothing is forgotten on the purchase list.
    PLC on the left and the field instruments on the right.
 
 10. **Select and move**: drag on an empty part of the sheet to draw a
-    selection box, or Shift+click (Ctrl+click) items to add or remove them;
+    selection box (like CAD: left → right selects only items fully inside
+    the box, right → left selects everything it touches), or Shift+click (Ctrl+click) items to add or remove them;
     Ctrl+A selects everything. Drag any selected item to move them all,
     nudge with the arrow keys (Shift for bigger steps), Delete removes them
     (with Undo). Hold Space and drag, or drag with the middle mouse button,
