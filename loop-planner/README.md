@@ -63,6 +63,9 @@ makes sure nothing is forgotten on the purchase list.
 Cables are drawn at right angles: each leaves from the side of the item
 facing the other end, and cables sharing a side are fanned out.
 
+The **◐ Auto / ☀ Light / ☾ Dark** button in the top bar switches the colour
+theme. Auto follows your operating system; the choice is remembered.
+
 Quantities are suggestions (cores + drain wire for ferrules, route length
 +10% for cable, terminals from the cores landing on a strip). Type your own
 number in the quantity box to override.

@@ -9,6 +9,10 @@
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Barlow:wght@400;500;600&family=Barlow+Condensed:wght@500;600;700&family=IBM+Plex+Mono:wght@500;600&display=swap" rel="stylesheet">
+<script>
+  // Apply the saved theme before anything is drawn (no flash). "auto" follows the system.
+  try { var t = localStorage.getItem('loop-planner-theme'); if (t === 'light' || t === 'dark') document.documentElement.dataset.theme = t; } catch (e) {}
+</script>
 <!-- ARTIFACT-HEAD-END -->
 <link rel="stylesheet" href="style.css?v=dev">
 </head>
@@ -33,6 +37,7 @@
     <button id="tabOrders" class="tab" role="tab" aria-selected="false">Order list <span id="tabCount" class="count"></span></button>
   </nav>
   <div class="filemenu">
+    <button id="btnTheme" class="btn ghost theme-btn" title="Colour theme: click to switch Auto / Light / Dark"></button>
     <button id="btnExport" class="btn ghost" title="Save all loops to a .json file">Export</button>
     <label class="btn ghost" title="Load loops from a .json file">Import<input id="fileImport" type="file" accept=".json,application/json" hidden></label>
   </div>
