@@ -21,6 +21,7 @@
   --na: #8a979c;
   --na-soft: rgba(138, 151, 156, .16);
   --shadow: 0 1px 2px rgba(20, 35, 45, .10), 0 6px 16px -8px rgba(20, 35, 45, .30);
+  --flag-yellow: #e0a800; --flag-pink: #e0338a; --flag-cyan: #0a9cba; --flag-violet: #8b5cf6;
   --hl: #b11fc7;
   --hl-soft: rgba(177, 31, 199, .14);
   --hl-ink: #ffffff;
@@ -40,6 +41,7 @@
     --na: #6f7f87; --na-soft: rgba(111, 127, 135, .2);
     --shadow: 0 1px 2px rgba(0, 0, 0, .4), 0 8px 18px -8px rgba(0, 0, 0, .7);
     --hl: #e27bf5; --hl-soft: rgba(226, 123, 245, .18); --hl-ink: #1b0f20;
+    --flag-yellow: #ffd23f; --flag-pink: #ff6bb5; --flag-cyan: #3dd6f5; --flag-violet: #b69bff;
     color-scheme: dark;
   }
 }
@@ -54,6 +56,7 @@
   --na: #6f7f87; --na-soft: rgba(111, 127, 135, .2);
   --shadow: 0 1px 2px rgba(0, 0, 0, .4), 0 8px 18px -8px rgba(0, 0, 0, .7);
   --hl: #e27bf5; --hl-soft: rgba(226, 123, 245, .18); --hl-ink: #1b0f20;
+  --flag-yellow: #ffd23f; --flag-pink: #ff6bb5; --flag-cyan: #3dd6f5; --flag-violet: #b69bff;
   color-scheme: dark;
 }
 
@@ -244,6 +247,33 @@ body.resizing, body.resizing * { cursor: col-resize !important; user-select: non
 .ci.ci-hl { box-shadow: inset 0 0 0 2px var(--hl); }
 .otable tr.row-hl td { background: var(--hl-soft); }
 .otable tr.row-hl td:first-child { box-shadow: inset 3px 0 0 var(--hl); }
+.flags-btn.on { border-color: var(--flag-yellow); }
+/* flagged components: thick border in the flag colour, a pin, and the note under the card */
+.node.flagged, .wlabel.flagged { border: 2.5px solid var(--flag); box-shadow: 0 0 0 4px color-mix(in srgb, var(--flag) 22%, transparent), var(--shadow); }
+.flag-pin { position: absolute; top: -13px; left: 10px; width: 22px; height: 22px; display: grid; place-items: center; border-radius: 4px 4px 4px 0; background: var(--flag); color: #111; font-size: .8rem; line-height: 1; z-index: 2; box-shadow: var(--shadow); }
+.wlabel .flag-pin { top: -12px; left: -10px; width: 18px; height: 18px; font-size: .7rem; }
+.flag-note { position: absolute; left: -2px; right: -2px; top: calc(100% + 6px); background: color-mix(in srgb, var(--flag) 26%, var(--surface)); border-left: 4px solid var(--flag); color: var(--ink); font-size: .74rem; line-height: 1.25; padding: 3px 6px; border-radius: 3px; box-shadow: var(--shadow); white-space: normal; overflow-wrap: anywhere; pointer-events: none; }
+.wlabel .flag-note { min-width: 140px; }
+.flag-focus .node:not(.flagged), .flag-focus .wlabel:not(.flagged) { opacity: .2; }
+.flag-focus .wire, .flag-focus .wire-end { opacity: .25; }
+.flag-row { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 10px; margin: 10px 0 2px; padding: 8px 10px; border: 1px dashed var(--line); border-radius: 6px; }
+.flag-row.on { border: 2px solid var(--flag); background: color-mix(in srgb, var(--flag) 10%, transparent); }
+.flag-title { font: 600 .8rem/1 var(--f-label); text-transform: uppercase; letter-spacing: .08em; }
+.flag-colors { display: flex; align-items: center; gap: 5px; }
+.flag-dot { width: 22px; height: 22px; border-radius: 50%; border: 2px solid var(--surface); background: var(--flag); box-shadow: 0 0 0 1px var(--line); cursor: pointer; padding: 0; display: inline-block; flex: none; }
+.flag-dot.on { box-shadow: 0 0 0 2px var(--ink); }
+.flag-row input { flex: 1 1 100%; min-width: 0; }
+.flag-hint { font-size: .82rem; }
+.flag-fade { font: 400 .78rem var(--f-body); text-transform: none; letter-spacing: 0; color: var(--ink); display: inline-flex; gap: 4px; align-items: center; }
+.flag-list { list-style: none; margin: 0; padding: 0; display: grid; gap: 4px; }
+.flag-list button { width: 100%; display: flex; align-items: center; gap: 8px; text-align: left; border: 1px solid var(--line); border-left: 4px solid var(--flag); background: transparent; border-radius: 4px; padding: 6px 8px; cursor: pointer; }
+.flag-list button:hover { background: color-mix(in srgb, var(--flag) 12%, transparent); }
+.flag-list .flag-dot { width: 12px; height: 12px; border: 0; box-shadow: none; cursor: inherit; }
+.fl-main { flex: 1; min-width: 0; display: grid; }
+.fl-main b { font: 600 .85rem var(--f-mono); }
+.fl-main span { font-size: .8rem; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.fl-state { font-size: .75rem; white-space: nowrap; }
+.flag-mini { display: inline-grid; place-items: center; width: 16px; height: 16px; margin-right: 5px; border-radius: 3px; background: var(--flag); color: #111; font-size: .65rem; vertical-align: middle; }
 .keep-opt { flex-basis: 100%; display: flex; gap: 6px; align-items: flex-start; font-size: .85rem; line-height: 1.3; }
 .keep-opt input { margin-top: 2px; }
 .multi-list { display: flex; flex-wrap: wrap; gap: 4px; margin-top: 10px; font-family: var(--f-mono); }

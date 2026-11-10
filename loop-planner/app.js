@@ -446,6 +446,75 @@
     const c = counts(items);
     return c.todo ? 'todo' : c.ordered ? 'ordered' : c.have ? 'have' : 'na';
   }
+  // ---------------------------------------------------------------- flags (components to keep track of)
+  const FLAGS = { yellow: 'Yellow', pink: 'Pink', cyan: 'Cyan', violet: 'Violet' };
+  let flagFocus = false;     // fade everything that is not flagged
+  let labelPts = {};         // cable label positions, to jump to a flagged cable
+  const flagged = loop => loop.nodes.filter(n => n.flag).map(n => ({ kind: 'node', ent: n })).concat(loop.links.filter(l => l.flag).map(l => ({ kind: 'link', ent: l })));
+  function flagPin(ent) {
+    if (!ent.flag) return '';
+    return `<span class="flag-pin" title="Flagged${ent.flag.note ? ': ' + esc(ent.flag.note) : ''}">⚑</span>${ent.flag.note ? `<div class="flag-note">${esc(ent.flag.note)}</div>` : ''}`;
+  }
+  const flagCls = ent => ent.flag ? ' flagged' : '';
+  const flagStyle = ent => ent.flag ? `--flag: var(--flag-${ent.flag.color});` : '';
+  function flagRow(ent) {
+    const f = ent.flag;
+    return `<div class="flag-row${f ? ' on' : ''}"${f ? ` style="--flag: var(--flag-${f.color})"` : ''}>
+        <span class="flag-title">⚑ Keep track</span>
+        <div class="flag-colors" role="group" aria-label="Flag colour">
+          ${Object.keys(FLAGS).map(c => `<button class="flag-dot${f && f.color === c ? ' on' : ''}" data-flag="${c}" style="--flag: var(--flag-${c})" title="${FLAGS[c]} flag" aria-pressed="${!!(f && f.color === c)}"></button>`).join('')}
+          ${f ? '<button class="btn ghost small" data-flag="none" title="Remove the flag (F)">Unflag</button>' : ''}
+        </div>
+        ${f ? `<label class="sr" for="flagNote">Flag note</label><input id="flagNote" type="text" value="${esc(f.note || '')}" placeholder="What to keep track of, e.g. waiting for quote">` : '<span class="muted flag-hint">Pick a colour (or press F) to flag it.</span>'}
+      </div>`;
+  }
+  function setFlag(ents, color) {
+    ents.forEach(e => {
+      if (color === 'none') delete e.flag;
+      else e.flag = { color, note: (e.flag && e.flag.note) || '' };
+    });
+    renderDiagram(); renderInspector(); updateFlagButton(); save();
+  }
+  function toggleFlagSelection() {
+    const loop = cur();
+    let ents = selectedIds().map(id => nodeById(loop, id)).filter(Boolean);
+    if (sel && sel.kind === 'link' && linkById(loop, sel.id)) ents = [linkById(loop, sel.id)];
+    if (!ents.length) { toast('Select an item or a cable to flag it.'); return; }
+    const allOn = ents.every(e => e.flag);
+    setFlag(ents, allOn ? 'none' : 'yellow');
+    toast(allOn ? 'Flag removed.' : `Flagged ${ents.length > 1 ? ents.length + ' items' : (ents[0].tag)}. Add a note in the side panel.`);
+  }
+  function updateFlagButton() {
+    const n = flagged(cur()).length;
+    $('btnFlags').textContent = n ? `⚑ Flagged (${n})` : '⚑ Flags';
+    $('btnFlags').classList.toggle('on', n > 0);
+    $('viewport').classList.toggle('flag-focus', flagFocus && n > 0);
+  }
+  // centre the view on an item or cable
+  function focusOn(kind, ent) {
+    const vp = $('viewport');
+    let x, y;
+    if (kind === 'node') { const c = center(ent); x = c.x; y = c.y; }
+    else { const p = labelPts[ent.id]; if (!p) return; x = p.x; y = p.y; }
+    if (zoom < 0.6) zoom = 0.8;
+    panX = vp.clientWidth / 2 - x * zoom; panY = vp.clientHeight / 2 - y * zoom;
+    updateView();
+  }
+  function flagListHTML(loop) {
+    const list = flagged(loop);
+    if (!list.length) return `<h3><span>⚑ Flagged</span></h3><p class="tip" style="margin-top:0">Nothing flagged. Select an item or a cable and pick a flag colour (or press F) to keep track of it.</p>`;
+    return `<h3 id="flagListHead"><span>⚑ Flagged (${list.length})</span>
+        <label class="flag-fade"><input id="flagFade" type="checkbox" ${flagFocus ? 'checked' : ''}> Fade everything else</label></h3>
+      <ul class="flag-list">${list.map(({ kind, ent }) => {
+        const c = counts(kind === 'node' ? nodeItems(loop, ent) : linkItems(loop, ent));
+        return `<li><button data-flag-go="${kind}:${ent.id}" style="--flag: var(--flag-${ent.flag.color})">
+          <span class="flag-dot on"></span>
+          <span class="fl-main"><b>${esc(ent.tag)}</b>${ent.flag.note ? `<span>${esc(ent.flag.note)}</span>` : `<span class="muted">${kind === 'node' ? esc(ent.desc || T(ent.type).name) : 'cable'}</span>`}</span>
+          <span class="fl-state" style="color:var(--${c.todo ? 'todo' : c.ordered ? 'ordered' : 'have'})">${c.todo ? c.todo + ' to order' : c.ordered ? c.ordered + ' ordered' : 'done'}</span>
+        </button></li>`;
+      }).join('')}</ul>`;
+  }
+
   // ---------------------------------------------------------------- highlight (materials of interest)
   const HL_NAMES = { cable: 'Cable', term: 'Lugs & ferrules', gland: 'Glands', mark: 'Markers', terminal: 'Terminals',
     device: 'Devices', protect: 'Protection', mount: 'Mounting', process: 'Process', consum: 'Consumables', other: 'Other' };
@@ -461,7 +530,7 @@
   function renderHighlightBar() {
     $('hlChips').innerHTML = CAT_KEYS.map(k => `<button class="hl-chip${hl.cats.has(k) ? ' on' : ''}" data-hlcat="${k}" aria-pressed="${hl.cats.has(k)}" title="${esc(CAT[k].n)}"><b>${CAT[k].s}</b> ${esc(HL_NAMES[k])}</button>`).join('');
     $('btnHighlight').classList.toggle('on', hlActive());
-    $('btnHighlight').textContent = hlActive() ? 'Highlight ●' : 'Highlight';
+    $('btnHighlight').textContent = hlActive() ? 'Find material ●' : 'Find material';
     const sum = $('hlSummary');
     if (!hlActive()) { sum.textContent = 'Pick a material type or type a word (e.g. ferrule, gland, M20) to highlight where it is needed.'; return; }
     const loop = cur();
@@ -558,7 +627,7 @@
       const isSel = selectedIds().includes(n.id) || !!(cablePick && cablePick.first === n.id);
       const hits = items.filter(hlMatch).length;
       const hlc = hlActive() ? (hits ? ' hl-on' : ' hl-off') : '';
-      html += `<div class="node${isSel ? ' sel' : ''}${hlc}" data-id="${n.id}" style="left:${n.x}px;top:${n.y}px">${hits ? `<span class="hl-badge" title="${hits} matching line${hits > 1 ? 's' : ''}">${hits}</span>` : ''}
+      html += `<div class="node${isSel ? ' sel' : ''}${hlc}${flagCls(n)}" data-id="${n.id}" style="${flagStyle(n)}left:${n.x}px;top:${n.y}px">${flagPin(n)}${hits ? `<span class="hl-badge" title="${hits} matching line${hits > 1 ? 's' : ''}">${hits}</span>` : ''}
         <div class="node-top">${symHTML(n.type, n.tag)}<div class="node-title"><b>${esc(n.tag)}</b><small>${esc(n.desc || T(n.type).name)}</small>${n.inside && nodeById(loop, n.inside) ? `<small class="inside-tag">in ${esc(nodeById(loop, n.inside).tag)}</small>` : ''}</div></div>
         <div class="chips">${chipsHTML(items)}</div>${badge}
         <div class="port left" title="Drag to another item to add a cable"></div><div class="port" title="Drag to another item to add a cable"></div></div>`;
@@ -572,7 +641,7 @@
       const spec = c.pairs ? `${Math.max(1, Number(l.n) || c.defN)} pr` : c.fixed ? c.short : `${cores(l)}${c.short}`;
       const lhits = items.filter(hlMatch).length;
       const lhl = hlActive() ? (lhits ? ' hl-on' : ' hl-off') : '';
-      html += `<div class="wlabel ${cls}${isSel ? ' sel' : ''}${lhl}" data-link="${l.id}">${lhits ? `<span class="hl-badge" title="${lhits} matching line${lhits > 1 ? 's' : ''}">${lhits}</span>` : ''}
+      html += `<div class="wlabel ${cls}${isSel ? ' sel' : ''}${lhl}${flagCls(l)}" data-link="${l.id}" style="${flagStyle(l)}">${flagPin(l)}${lhits ? `<span class="hl-badge" title="${lhits} matching line${lhits > 1 ? 's' : ''}">${lhits}</span>` : ''}
         <div class="wt">${esc(l.tag)} <small>${esc(spec)}${l.length ? ' · ' + esc(l.length) + ' m' : ''}</small></div>
         <div class="chips">${chipsHTML(items)}</div></div>`;
     });
@@ -582,6 +651,7 @@
     drawWires();
     $('emptyHint').hidden = loop.nodes.length > 0;
     $('viewport').classList.toggle('hl-active', hlActive());
+    updateFlagButton();
     renderHighlightBar();
   }
 
@@ -690,6 +760,7 @@
       svg += `<circle class="wire-end${whl}" cx="${pb.x.toFixed(1)}" cy="${pb.y.toFixed(1)}" r="4" style="fill:var(--${cls === 'done' ? 'have' : cls})"/>`;
       svg += `<path class="wire-hit" data-link="${l.id}" d="${d}"/>`;
       labels[l.id] = best;
+      labelPts[l.id] = best;
     });
     svg += '<path id="tempWire" class="wire-temp" d="" style="display:none"/>';
     // size the SVG to what it draws, since items can be anywhere (also at negative coordinates)
@@ -762,6 +833,7 @@
   function loopInspector(loop) {
     return `<h2>${esc(loop.name || 'Untitled loop')}</h2>
       <div id="summaryGrid" class="summary-grid">${summaryHTML(loop)}</div>
+      ${flagListHTML(loop)}
       <p class="tip">Select an item or a cable on the sheet to see its checklist. Drag from a round handle on the side of an item to another item to draw a cable. Drag a box on an empty part of the sheet to select several items: left to right selects items fully inside, right to left selects anything the box touches. Then drag one of them to move them together (drag an enclosure's dashed outline or label to move it with everything inside); Ctrl+C / Ctrl+V copies and pastes them at the mouse pointer (Ctrl+Shift+V keeps their order statuses). The sheet is endless: the mouse wheel zooms at the cursor, drag with the middle button (or hold Space and drag) to pan, double-click the middle button to zoom extents. Click a status to step it: To order → Ordered → In stock → Not needed.</p>
       ${(() => { const c = readClip(); return c && (c.nodes.length || c.cable) ? `<div class="del-row" style="margin-top:12px"><button class="btn ghost" data-clip="paste" title="Ctrl+V">${c.cable ? `Paste cable ${esc(c.cable.tag)}` : `Paste ${c.nodes.length} copied item${c.nodes.length > 1 ? 's' : ''}`}</button>${keepBox()}</div>` : ''; })()}
       ${checklistBlock('Whole-loop consumables')}`;
@@ -774,7 +846,8 @@
     const c = counts(items);
     return `<h2>${nodes.length} items selected</h2>
       <p class="tip">Drag any of them to move them together, or nudge with the arrow keys (Shift for bigger steps). Shift+click adds or removes an item. Esc clears the selection.</p>
-      <div class="multi-list">${nodes.map(n => `<button class="btn ghost small" data-goto-node="${n.id}">${esc(n.tag)}</button>`).join('')}</div>
+      <div class="multi-list">${nodes.map(n => `<button class="btn ghost small" data-goto-node="${n.id}">${n.flag ? '⚑ ' : ''}${esc(n.tag)}</button>`).join('')}</div>
+      <div class="flag-row"><span class="flag-title">⚑ Flag all</span><div class="flag-colors">${Object.keys(FLAGS).map(c => `<button class="flag-dot" data-flag="${c}" style="--flag: var(--flag-${c})" title="${FLAGS[c]} flag"></button>`).join('')}<button class="btn ghost small" data-flag="none">Unflag all</button></div></div>
       <h3><span>Their checklists</span></h3>
       <p class="tip" style="margin-top:0"><b style="color:var(--todo)">${c.todo}</b> to order · <b style="color:var(--ordered)">${c.ordered}</b> ordered · <b style="color:var(--have)">${c.have}</b> in stock</p>
       <div class="allset"><button class="btn ghost small" data-mall="ordered">Mark all ordered</button><button class="btn ghost small" data-mall="have">Mark all in stock</button><button class="btn ghost small" data-mall="na" title="Mark everything still To order as Not needed">Mark all not needed</button></div>
@@ -789,6 +862,7 @@
     const t = T(n.type);
     const conns = loop.links.filter(l => l.a === n.id || l.b === n.id);
     return `<div class="insp-head">${symHTML(n.type, n.tag)}<div><h2>${esc(n.tag)}</h2><div class="kind">${esc(t.name)}</div></div></div>
+      ${flagRow(n)}
       <div class="form">
         <label for="f-tag">Tag</label><input id="f-tag" type="text" data-bind="tag" value="${esc(n.tag)}">
         <label for="f-desc">Service</label><input id="f-desc" type="text" data-bind="desc" value="${esc(n.desc)}">
@@ -923,6 +997,7 @@
       </div>`;
     };
     return `<div class="insp-head"><div><h2>${esc(l.tag)}</h2><div class="kind">${esc(na ? na.tag : '?')} → ${esc(nb ? nb.tag : '?')}</div></div></div>
+      ${flagRow(l)}
       <div class="form">
         <label for="f-tag">Cable tag</label><input id="f-tag" type="text" data-bind="tag" value="${esc(l.tag)}">
         <label for="f-cable">Type</label><select id="f-cable" data-bind="cable" data-rerender="1">
@@ -1028,7 +1103,7 @@
           const title = r.members.length > 1 ? ` title="Sets all ${r.members.length} lines"` : '';
           return `<tr${r.members.some(hlMatch) ? ' class="row-hl"' : ''}><td><button class="status ${r.status}" data-o="${i}"${title}>${STATUS_LABEL[r.status]}</button></td>
             <td>${esc(r.name)}</td>
-            <td class="where">${r.jump ? `<button class="linkbtn" data-jump="${i}" title="Show on the diagram">${esc(r.forLabel)}</button>` : esc(r.forLabel)}${orderScope === 'all' ? `<div class="loopname">${esc(r.loopLabel)}</div>` : ''}</td>
+            <td class="where">${(() => { const f = r.members.map(m => m.entity && m.entity.flag).find(Boolean); return f ? `<span class="flag-mini" style="--flag: var(--flag-${f.color})" title="Flagged${f.note ? ': ' + esc(f.note) : ''}">⚑</span>` : ''; })()}${r.jump ? `<button class="linkbtn" data-jump="${i}" title="Show on the diagram">${esc(r.forLabel)}</button>` : esc(r.forLabel)}${orderScope === 'all' ? `<div class="loopname">${esc(r.loopLabel)}</div>` : ''}</td>
             <td class="q">${r.qty === '' || r.qty == null ? '<span class="muted">?</span>' : esc(r.qty)} ${esc(r.unit)}</td></tr>`;
         }).join('')}
         </tbody></table></div></section>`;
@@ -1238,7 +1313,7 @@
       map[src.id] = n.id = uid();
       n.tag = freeTag(src.tag, used);
       n.x = src.x + dx; n.y = src.y + dy;
-      if (!keep) resetStatuses(n);
+      if (!keep) { resetStatuses(n); delete n.flag; }
       return n;
     });
     nodes.forEach(n => { n.inside = n.inside && map[n.inside] ? map[n.inside] : null; });
@@ -1259,7 +1334,7 @@
       const l = JSON.parse(JSON.stringify(src));
       l.id = uid(); l.a = map[src.a]; l.b = map[src.b];
       l.tag = freeTag(src.tag, used);
-      if (!keep) resetStatuses(l);
+      if (!keep) { resetStatuses(l); delete l.flag; }
       return l;
     });
     snapshot();
@@ -1603,6 +1678,13 @@
   function onInspectorInput(e) {
     const t = e.target;
     if (t.dataset.tf && typeDraft) { onTypeInput(e); return; }
+    if (t.id === 'flagNote') {
+      const loop = cur();
+      const ent = sel && sel.kind === 'link' ? linkById(loop, sel.id) : sel && sel.kind === 'node' ? nodeById(loop, sel.id) : null;
+      if (ent && ent.flag) { ent.flag.note = t.value; renderDiagram(); save(); }
+      return;
+    }
+    if (t.id === 'flagFade') { if (e.type === 'change') { flagFocus = t.checked; updateFlagButton(); } return; }
     if (t.id === 'keepStatus') { if (e.type === 'change') { setKeepPref(t.checked); toast(t.checked ? 'Copies will keep their order statuses.' : 'Copies will start as To order.'); } return; }
     const bind = t.dataset.bind;
     const se = selectedEntity();
@@ -1632,6 +1714,22 @@
   function onInspectorClick(e) {
     const t = e.target;
     const loop = cur();
+    const fl = t.closest('[data-flag]');
+    if (fl) {
+      let ents = [];
+      if (sel && sel.kind === 'link') ents = [linkById(loop, sel.id)];
+      else ents = selectedIds().map(id => nodeById(loop, id));
+      setFlag(ents.filter(Boolean), fl.dataset.flag);
+      if (fl.dataset.flag !== 'none') { const ni = $('flagNote'); if (ni && !ni.value) ni.focus(); }
+      return;
+    }
+    const fg = t.closest('[data-flag-go]');
+    if (fg) {
+      const [kind, id] = fg.dataset.flagGo.split(':');
+      const ent = kind === 'node' ? nodeById(loop, id) : linkById(loop, id);
+      if (ent) { select(kind === 'node' ? { kind: 'node', id } : { kind: 'link', id }); focusOn(kind, ent); }
+      return;
+    }
     const ta = t.closest('[data-tact]');
     if (ta) { onTypeAction(ta.dataset.tact, ta); return; }
     const et = t.closest('[data-edit-type]');
@@ -1783,6 +1881,13 @@
     $('zoomOut').onclick = () => applyZoom(zoom / 1.15);
     $('zoomFit').onclick = fit;
     $('btnMirror').onclick = mirror;
+    $('btnFlags').onclick = () => {
+      if (view !== 'diagram') setView('diagram');
+      select(null);
+      const h = $('flagListHead') || document.querySelector('.flag-list');
+      const head = h || $('inspector').querySelector('h3');
+      if (head) head.scrollIntoView({ block: 'start', behavior: 'smooth' });
+    };
     const hlRefresh = () => { renderDiagram(); renderChecklist(); renderHighlightBar(); if (view === 'orders') renderOrders(); };
     $('btnHighlight').onclick = () => {
       $('hlBar').hidden = !$('hlBar').hidden;
@@ -1824,6 +1929,7 @@
       if (e.key === ' ' && view === 'diagram') { e.preventDefault(); if (!spaceDown) { spaceDown = true; $('viewport').classList.add('panning'); } return; }
       if ((e.key === 'Delete' || e.key === 'Backspace') && sel && view === 'diagram') { e.preventDefault(); deleteSelected(); }
       if (e.key === 'Escape' && cablePick) { stopCablePick(); toast('Done placing cables.'); return; }
+      if ((e.key === 'f' || e.key === 'F') && !e.ctrlKey && !e.metaKey && !e.altKey && view === 'diagram') { e.preventDefault(); toggleFlagSelection(); return; }
       if (e.key === 'Escape' && sel) select(null);
       if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'a' && view === 'diagram') { e.preventDefault(); setSelection(cur().nodes.map(n => n.id)); }
       if ((e.ctrlKey || e.metaKey) && !e.shiftKey && !e.altKey && view === 'diagram') {
