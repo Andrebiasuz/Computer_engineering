@@ -719,7 +719,8 @@
   function loopInspector(loop) {
     return `<h2>${esc(loop.name || 'Untitled loop')}</h2>
       <div id="summaryGrid" class="summary-grid">${summaryHTML(loop)}</div>
-      <p class="tip">Select an item or a cable on the sheet to see its checklist. Drag from a round handle on the side of an item to another item to draw a cable. Drag a box on an empty part of the sheet to select several items: left to right selects items fully inside, right to left selects anything the box touches. Then drag one of them to move them together. The sheet is endless: the mouse wheel zooms at the cursor, drag with the middle button (or hold Space and drag) to pan, double-click the middle button to zoom extents. Click a status to step it: To order → Ordered → In stock → Not needed.</p>
+      <p class="tip">Select an item or a cable on the sheet to see its checklist. Drag from a round handle on the side of an item to another item to draw a cable. Drag a box on an empty part of the sheet to select several items: left to right selects items fully inside, right to left selects anything the box touches. Then drag one of them to move them together; Ctrl+C / Ctrl+V copies and pastes them at the mouse pointer. The sheet is endless: the mouse wheel zooms at the cursor, drag with the middle button (or hold Space and drag) to pan, double-click the middle button to zoom extents. Click a status to step it: To order → Ordered → In stock → Not needed.</p>
+      ${(() => { const c = readClip(); return c && c.nodes.length ? `<div class="del-row" style="margin-top:12px"><button class="btn ghost" data-clip="paste" title="Ctrl+V">Paste ${c.nodes.length} copied item${c.nodes.length > 1 ? 's' : ''}</button></div>` : ''; })()}
       ${checklistBlock('Whole-loop consumables')}`;
   }
 
@@ -734,7 +735,10 @@
       <h3><span>Their checklists</span></h3>
       <p class="tip" style="margin-top:0"><b style="color:var(--todo)">${c.todo}</b> to order · <b style="color:var(--ordered)">${c.ordered}</b> ordered · <b style="color:var(--have)">${c.have}</b> in stock</p>
       <div class="allset"><button class="btn ghost small" data-mall="ordered">Mark all ordered</button><button class="btn ghost small" data-mall="have">Mark all in stock</button></div>
-      <div class="del-row"><button class="btn ghost danger" data-del="multi">Delete ${nodes.length} items</button></div>`;
+      <div class="del-row">
+        <button class="btn ghost" data-clip="copy" title="Ctrl+C">Copy</button>
+        <button class="btn ghost" data-clip="dup" title="Ctrl+D">Duplicate</button>
+        <button class="btn ghost danger" data-del="multi">Delete ${nodes.length} items</button></div>`;
   }
 
   function nodeInspector(loop, n) {
@@ -758,7 +762,10 @@
         const c = counts(linkItems(loop, l));
         return `<li><button data-goto="${l.id}"><span><b>${esc(l.tag)}</b> to ${esc(other ? other.tag : '?')}</span><span style="color:var(--${c.todo ? 'todo' : 'have'})">${c.todo ? c.todo + ' to order' : 'done'}</span></button></li>`;
       }).join('')}</ul>` : '<p class="tip">No cables yet. Drag from the round handle to another item.</p>'}
-      <div class="del-row"><button class="btn ghost danger" data-del="node">Delete ${esc(n.tag)}</button></div>`;
+      <div class="del-row">
+        <button class="btn ghost" data-clip="copy" title="Ctrl+C">Copy</button>
+        <button class="btn ghost" data-clip="dup" title="Ctrl+D">Duplicate</button>
+        <button class="btn ghost danger" data-del="node">Delete ${esc(n.tag)}</button></div>`;
   }
 
   // ---------------------------------------------------------------- component type editor
@@ -1105,6 +1112,102 @@
     if (ids.length > 1) { selNodes = new Set(ids); sel = { kind: 'multi' }; renderDiagram(); renderInspector(); }
     else select(ids.length ? { kind: 'node', id: ids[0] } : null);
   }
+  // ---------------------------------------------------------------- copy / paste (like CAD)
+  const CLIP_KEY = 'loop-planner-clipboard';
+  let clipMem = null;          // fallback when storage is unavailable
+  let pointerWorld = null;     // last mouse position over the sheet, for paste
+  function readClip() {
+    try { const c = JSON.parse(localStorage.getItem(CLIP_KEY)); if (c && Array.isArray(c.nodes)) return c; } catch (e) { /* ignore */ }
+    return clipMem;
+  }
+  function copySelection(quiet) {
+    const loop = cur();
+    const ids = new Set(selectedIds());
+    if (!ids.size) { if (!quiet) toast(sel && sel.kind === 'link' ? 'Select items to copy; cables between them are copied with them.' : 'Select items to copy first.'); return null; }
+    loop.nodes.forEach(n => { if (ids.has(n.inside)) ids.add(n.id); }); // contents of copied enclosures
+    const nodes = loop.nodes.filter(n => ids.has(n.id));
+    const links = loop.links.filter(l => ids.has(l.a) && ids.has(l.b));
+    const clip = { nodes: JSON.parse(JSON.stringify(nodes)), links: JSON.parse(JSON.stringify(links)) };
+    clipMem = clip;
+    try { localStorage.setItem(CLIP_KEY, JSON.stringify(clip)); } catch (e) { /* memory only */ }
+    if (!quiet) toast(`Copied ${nodes.length} item${nodes.length > 1 ? 's' : ''}${links.length ? ` and ${links.length} cable${links.length > 1 ? 's' : ''}` : ''}. Ctrl+V pastes at the mouse pointer.`);
+    renderInspector();
+    return clip;
+  }
+  // Tag for a pasted item: the same tag if free in this loop, else the next free number (PT-101 -> PT-102).
+  function freeTag(tag, used) {
+    if (!used.has(tag)) { used.add(tag); return tag; } // keep the tag if it is free in this loop
+    const m = String(tag).match(/^(.*?)(\d+)([^\d]*)$/);
+    let t = tag;
+    if (m) {
+      let n = Number(m[2]);
+      do { n++; t = m[1] + String(n).padStart(m[2].length, '0') + m[3]; } while (used.has(t));
+    } else {
+      let k = 2;
+      while (used.has(t)) t = `${tag}-${k++}`;
+    }
+    used.add(t);
+    return t;
+  }
+  function resetStatuses(ent) {
+    Object.keys(ent.st || {}).forEach(k => { delete ent.st[k].s; });
+    (ent.custom || []).forEach(c => { c.s = 'todo'; });
+  }
+  function paste(at) {
+    const clip = readClip();
+    if (!clip || !clip.nodes.length) { toast('Nothing copied yet. Select items and press Ctrl+C.'); return; }
+    const loop = cur();
+    const used = new Set(loop.nodes.map(n => n.tag).concat(loop.links.map(l => l.tag)));
+    let x0 = Infinity, y0 = Infinity;
+    clip.nodes.forEach(n => { x0 = Math.min(x0, n.x); y0 = Math.min(y0, n.y); });
+    let dx, dy;
+    if (at) { dx = snap(at.x) - x0; dy = snap(at.y) - y0; }
+    else { dx = 40; dy = 40; }
+    const map = {};
+    const nodes = clip.nodes.map(src => {
+      const n = JSON.parse(JSON.stringify(src));
+      map[src.id] = n.id = uid();
+      n.tag = freeTag(src.tag, used);
+      n.x = src.x + dx; n.y = src.y + dy;
+      resetStatuses(n);
+      return n;
+    });
+    nodes.forEach(n => { n.inside = n.inside && map[n.inside] ? map[n.inside] : null; });
+    const links = clip.links.filter(l => map[l.a] && map[l.b]).map(src => {
+      const l = JSON.parse(JSON.stringify(src));
+      l.id = uid(); l.a = map[src.a]; l.b = map[src.b];
+      l.tag = freeTag(src.tag, used);
+      resetStatuses(l);
+      return l;
+    });
+    snapshot();
+    loop.nodes.push(...nodes);
+    loop.links.push(...links);
+    if (view !== 'diagram') setView('diagram');
+    setSelection(nodes.map(n => n.id));
+    renderProgress(); save();
+    toast(`Pasted ${nodes.length} item${nodes.length > 1 ? 's' : ''}${links.length ? ` and ${links.length} cable${links.length > 1 ? 's' : ''}` : ''} as new items to order.`, true);
+  }
+  function pasteAtPointer() {
+    const vp = $('viewport'), r = vp.getBoundingClientRect();
+    paste(pointerWorld || toWorld(r.left + vp.clientWidth / 3, r.top + vp.clientHeight / 3));
+  }
+  function cutSelection() {
+    if (!copySelection(true)) { toast('Select items to cut first.'); return; }
+    const n = selectedIds().length;
+    deleteSelected();
+    toast(`Cut ${n} item${n > 1 ? 's' : ''}. Ctrl+V pastes at the mouse pointer.`, true);
+  }
+  function duplicateSelection() {
+    const loop = cur();
+    const ids = selectedIds();
+    if (!ids.length) { toast('Select items to duplicate first.'); return; }
+    if (!copySelection(true)) return;
+    let x0 = Infinity, y0 = Infinity;
+    loop.nodes.filter(n => ids.includes(n.id)).forEach(n => { x0 = Math.min(x0, n.x); y0 = Math.min(y0, n.y); });
+    paste({ x: x0 + 40, y: y0 + 40 });
+  }
+
   function nudge(dx, dy) {
     const loop = cur();
     const ids = new Set(selectedIds());
@@ -1126,6 +1229,9 @@
   }
   function onSheetPointerDown(e) {
     if (e.button > 1) return;
+    // clicking the sheet leaves any text field, so shortcuts (Ctrl+V, Delete...) act on the drawing
+    const ae = document.activeElement;
+    if (ae && /^(INPUT|TEXTAREA|SELECT)$/.test(ae.tagName)) ae.blur();
     if (e.button === 1 || spaceDown) { // middle button or Space held: pan
       e.preventDefault();
       if (e.button === 1) {
@@ -1183,6 +1289,10 @@
     drag = { mode: 'pan', sx: e.clientX, sy: e.clientY, px: panX, py: panY, moved: false };
   }
   function onPointerMove(e) {
+    if (e.pointerType === 'mouse') {
+      const r = $('viewport').getBoundingClientRect();
+      pointerWorld = e.clientX >= r.left && e.clientX <= r.right && e.clientY >= r.top && e.clientY <= r.bottom ? toWorld(e.clientX, e.clientY) : null;
+    }
     if (touches.has(e.pointerId) && (!drag || drag.mode !== 'pinch')) touches.set(e.pointerId, { x: e.clientX, y: e.clientY });
     if (!drag) return;
     const loop = cur();
@@ -1379,6 +1489,13 @@
       [...selNodes].forEach(id => { const n = nodeById(loop, id); if (n) nodeItems(loop, n).forEach(it => { if (it.status === 'todo' || (mall.dataset.mall === 'have' && it.status === 'ordered')) setItem(it, { s: mall.dataset.mall }); }); });
       renderInspector(); refreshLight(); return;
     }
+    const cb = t.closest('[data-clip]');
+    if (cb) {
+      if (cb.dataset.clip === 'copy') copySelection();
+      else if (cb.dataset.clip === 'dup') duplicateSelection();
+      else { const vp = $('viewport'), r = vp.getBoundingClientRect(); paste(toWorld(r.left + vp.clientWidth / 3, r.top + vp.clientHeight / 3)); }
+      return;
+    }
     const del = t.closest('[data-del]');
     if (del) { deleteSelected(); return; }
     void loop;
@@ -1482,6 +1599,13 @@
       if ((e.key === 'Delete' || e.key === 'Backspace') && sel && view === 'diagram') { e.preventDefault(); deleteSelected(); }
       if (e.key === 'Escape' && sel) select(null);
       if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'a' && view === 'diagram') { e.preventDefault(); setSelection(cur().nodes.map(n => n.id)); }
+      if ((e.ctrlKey || e.metaKey) && !e.shiftKey && !e.altKey && view === 'diagram') {
+        const k = e.key.toLowerCase();
+        if (k === 'c') { e.preventDefault(); copySelection(); }
+        else if (k === 'x') { e.preventDefault(); cutSelection(); }
+        else if (k === 'v') { e.preventDefault(); pasteAtPointer(); }
+        else if (k === 'd') { e.preventDefault(); duplicateSelection(); }
+      }
       const arrows = { ArrowLeft: [-1, 0], ArrowRight: [1, 0], ArrowUp: [0, -1], ArrowDown: [0, 1] };
       if (arrows[e.key] && selectedIds().length && view === 'diagram') {
         e.preventDefault();
