@@ -96,6 +96,12 @@ outlined in violet with a count, everything else fades, and the matching
 lines are marked in the checklist and the order list. Tick *Only still to
 order* to see just what is left to buy. **Clear** turns it off.
 
+**Deleting an item keeps its cables**: each one is left with an open end
+(a dashed ◯) where the item was. Drag the open end onto another item to
+reconnect it, or choose an item under *Ends → Connect to…* in the cable's
+panel. The cable keeps its settings and order statuses; Undo restores the
+item.
+
 Drag the border of the component list (left) or the details panel (right)
 to make it wider or narrower; double-click a border to reset it. Widths are
 remembered.

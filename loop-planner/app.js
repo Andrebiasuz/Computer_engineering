@@ -309,7 +309,7 @@
   // Where the cable enters: the enclosure for an item mounted inside one.
   function entryLabel(loop, node) {
     const enc = node && node.inside && nodeById(loop, node.inside);
-    return enc ? `${enc.tag} (for ${node.tag})` : node ? node.tag : '?';
+    return enc ? `${enc.tag} (for ${node.tag})` : node ? node.tag : 'open end';
   }
   function screenEndOf(loop, link) {
     if (!isShielded(link)) return 'none';
@@ -359,7 +359,7 @@
     }
     ['a', 'b'].forEach(end => {
       const node = nodeById(loop, link[end]);
-      const at = node ? node.tag : end.toUpperCase();
+      const at = node ? node.tag : `open end ${end.toUpperCase()}`;
       const term = termAt(loop, link, end);
       if (term === 'connector') {
         out.push({ key: 'term-' + end, name: `Connector at ${at}`, cat: 'term', auto: 1, unit: 'pcs', hint: 'RJ45 / M12 / plug to suit the device' });
@@ -429,7 +429,7 @@
   const generalItems = loop => resolve(loop.general, genGeneral(), { kind: 'general', id: null, label: 'Whole loop' }, loop);
   function linkLabel(loop, link) {
     const a = nodeById(loop, link.a), b = nodeById(loop, link.b);
-    return `${link.tag} (${a ? a.tag : '?'} → ${b ? b.tag : '?'})`;
+    return `${link.tag} (${a ? a.tag : 'open end'} → ${b ? b.tag : 'open end'})`;
   }
   function allItems(loop) {
     let out = [];
@@ -703,10 +703,16 @@
     // Right-angle routing. Each cable leaves from the side of the item facing the other end;
     // cables sharing a side are fanned out so they don't sit on top of each other.
     const R = {};
+    const freeEnd = (l, end) => { // a cable end whose item was deleted: a point on the sheet
+      const pt = l['f' + end] || { x: 0, y: 0 };
+      return { nd: { id: `free-${end}-${l.id}`, x: pt.x, y: pt.y, free: true }, c: { x: pt.x, y: pt.y, w: 0, h: 0 } };
+    };
+    const openEnds = [];
     loop.links.forEach(l => {
-      const na = nodeById(loop, l.a), nb = nodeById(loop, l.b);
-      if (!na || !nb) return;
-      const ca = center(na), cb = center(nb);
+      let na = nodeById(loop, l.a), nb = nodeById(loop, l.b);
+      let ca, cb;
+      if (na) ca = center(na); else { const f = freeEnd(l, 'a'); na = f.nd; ca = f.c; openEnds.push({ l, end: 'a', x: ca.x, y: ca.y }); }
+      if (nb) cb = center(nb); else { const f = freeEnd(l, 'b'); nb = f.nd; cb = f.c; openEnds.push({ l, end: 'b', x: cb.x, y: cb.y }); }
       const gapX = Math.abs(cb.x - ca.x) - (ca.w + cb.w) / 2;
       let sa, sb;
       if (gapX >= 30) { sa = cb.x > ca.x ? 'r' : 'l'; sb = sa === 'r' ? 'l' : 'r'; }
@@ -723,7 +729,7 @@
       list.sort((p, q) => horiz ? p.other.y - q.other.y : p.other.x - q.other.x);
       const n = list.length;
       list.forEach((it, i) => {
-        const lim = horiz ? it.me.h / 2 - 8 : it.me.w / 2 - 12;
+        const lim = Math.max(0, horiz ? it.me.h / 2 - 8 : it.me.w / 2 - 12);
         it.r['off' + it.end] = Math.max(-lim, Math.min(lim, (i - (n - 1) / 2) * 12));
         if (n > 1) it.r.lane += (i - (n - 1) / 2) * 14;
       });
@@ -765,13 +771,15 @@
     svg += '<path id="tempWire" class="wire-temp" d="" style="display:none"/>';
     // size the SVG to what it draws, since items can be anywhere (also at negative coordinates)
     let bx0 = 0, by0 = 0, bx1 = 0, by1 = 0;
-    loop.nodes.forEach((n, i) => { const c = center(n); if (!i) { bx0 = n.x; by0 = n.y; bx1 = n.x; by1 = n.y; } bx0 = Math.min(bx0, n.x); by0 = Math.min(by0, n.y); bx1 = Math.max(bx1, n.x + c.w); by1 = Math.max(by1, n.y + c.h); });
+    const boxes = loop.nodes.map(n => { const c = center(n); return [n.x, n.y, n.x + c.w, n.y + c.h]; }).concat(openEnds.map(o => [o.x, o.y, o.x, o.y]));
+    boxes.forEach((q, i) => { if (!i) { [bx0, by0, bx1, by1] = q; } bx0 = Math.min(bx0, q[0]); by0 = Math.min(by0, q[1]); bx1 = Math.max(bx1, q[2]); by1 = Math.max(by1, q[3]); });
     const m = 300;
     const W = $('wires');
     Object.assign(W.style, { left: (bx0 - m) + 'px', top: (by0 - m) + 'px', width: (bx1 - bx0 + 2 * m) + 'px', height: (by1 - by0 + 2 * m) + 'px' });
     W.innerHTML = `<g transform="translate(${m - bx0},${m - by0})">${svg}</g>`;
-    $('nodes').querySelectorAll('.encl-tab').forEach(el => el.remove());
-    $('nodes').insertAdjacentHTML('beforeend', tabs.join(''));
+    $('nodes').querySelectorAll('.encl-tab, .open-end').forEach(el => el.remove());
+    $('nodes').insertAdjacentHTML('beforeend', tabs.join('') + openEnds.map(o =>
+      `<div class="open-end" data-open="${o.l.id}:${o.end}" style="left:${o.x}px;top:${o.y}px" title="Open end of ${esc(o.l.tag)}: drag it onto an item to connect"></div>`).join(''));
     document.querySelectorAll('.wlabel').forEach(el => {
       const p = labels[el.dataset.link];
       if (p) { el.style.left = p.x + 'px'; el.style.top = p.y + 'px'; el.hidden = false; } else el.hidden = true;
@@ -987,7 +995,11 @@
     const endHTML = (end, node) => {
       const autoTerm = (() => { const keep = l.ends[end].term; l.ends[end].term = 'auto'; const t = termAt(loop, l, end); l.ends[end].term = keep; return t; })();
       return `<div class="end">
-        <div class="end-h"><span>${end.toUpperCase()} end</span><b>${esc(node ? node.tag : '?')}</b></div>
+        <div class="end-h"><span>${end.toUpperCase()} end</span><b>${node ? esc(node.tag) : '<span class="open-tag">open end</span>'}</b></div>
+        ${node ? '' : `<div class="row"><label class="sr" for="conn-${end}">Connect the ${end.toUpperCase()} end to</label><select id="conn-${end}" data-connect="${end}">
+            <option value="">Connect to…</option>
+            ${loop.nodes.filter(o => o.id !== l[end === 'a' ? 'b' : 'a']).map(o => `<option value="${o.id}">${esc(o.tag)} (${esc(o.desc || T(o.type).name)})</option>`).join('')}
+          </select></div>`}
         <div class="row"><label class="sr" for="term-${end}">Termination at ${end.toUpperCase()} end</label>
           <select id="term-${end}" data-bind="ends.${end}.term" data-rerender="1">
             <option value="auto" ${l.ends[end].term === 'auto' ? 'selected' : ''}>Auto: ${esc(TERMS[autoTerm])}</option>
@@ -996,7 +1008,8 @@
         <div class="row"><label><input id="gland-${end}" type="checkbox" data-bind="ends.${end}.gland" ${glandAt(loop, l, end) ? 'checked' : ''}> Cable gland at this end</label></div>
       </div>`;
     };
-    return `<div class="insp-head"><div><h2>${esc(l.tag)}</h2><div class="kind">${esc(na ? na.tag : '?')} → ${esc(nb ? nb.tag : '?')}</div></div></div>
+    return `<div class="insp-head"><div><h2>${esc(l.tag)}</h2><div class="kind">${esc(na ? na.tag : 'open end')} → ${esc(nb ? nb.tag : 'open end')}</div></div></div>
+      ${!na || !nb ? '<p class="open-warn">This cable has an open end. Drag the ◯ on the drawing onto an item, or choose one under Ends.</p>' : ''}
       ${flagRow(l)}
       <div class="form">
         <label for="f-tag">Cable tag</label><input id="f-tag" type="text" data-bind="tag" value="${esc(l.tag)}">
@@ -1020,8 +1033,8 @@
       <div class="form"><label for="f-notes">Notes</label><textarea id="f-notes" data-bind="notes" placeholder="Supplier, drum number, PO…">${esc(l.notes)}</textarea></div>
       ${checklistBlock('To order for this cable')}
       <div class="del-row">
-        <button class="btn ghost small" data-goto-node="${l.a}">Go to ${esc(na ? na.tag : 'A')}</button>
-        <button class="btn ghost small" data-goto-node="${l.b}">Go to ${esc(nb ? nb.tag : 'B')}</button>
+        ${na ? `<button class="btn ghost small" data-goto-node="${l.a}">Go to ${esc(na.tag)}</button>` : ''}
+        ${nb ? `<button class="btn ghost small" data-goto-node="${l.b}">Go to ${esc(nb.tag)}</button>` : ''}
         <button class="btn ghost small" data-clip="copy" title="Ctrl+C: copy this cable's settings">Copy cable</button>
         ${(() => { const c = readClip(); return c && c.cable && c.cable.id !== l.id ? `<button class="btn ghost small" data-clip="match" title="Give this cable the settings of ${esc(c.cable.tag)}">Paste settings of ${esc(c.cable.tag)}</button>` : ''; })()}
         <button class="btn ghost danger" data-del="link">Delete ${esc(l.tag)}</button>
@@ -1206,6 +1219,7 @@
     let x0 = Infinity, x1 = -Infinity;
     loop.nodes.forEach(n => { const w = (sizes[n.id] || { w: NODE_W }).w; x0 = Math.min(x0, n.x); x1 = Math.max(x1, n.x + w); });
     loop.nodes.forEach(n => { const w = (sizes[n.id] || { w: NODE_W }).w; n.x = clampX(snap(x0 + x1 - n.x - w)); });
+    loop.links.forEach(l => ['fa', 'fb'].forEach(k => { if (l[k]) l[k].x = x0 + x1 - l[k].x; }));
     renderDiagram(); save();
     toast('Loop mirrored left ↔ right.', true);
   }
@@ -1486,6 +1500,13 @@
       document.body.classList.add('linking');
       return;
     }
+    const oe = e.target.closest('[data-open]');
+    if (oe) { // open cable end: drag it onto an item to connect, or anywhere to move it
+      e.preventDefault();
+      const [lid, end] = oe.dataset.open.split(':');
+      drag = { mode: 'openend', lid, end, el: oe, sx: e.clientX, sy: e.clientY, moved: false, target: null };
+      return;
+    }
     const encl = e.target.closest('[data-encl]');
     if (encl && !nodeEl) { // dashed outline / label: move the enclosure with everything inside
       e.preventDefault();
@@ -1558,6 +1579,21 @@
         if (c.el) { c.el.style.left = c.k.x + 'px'; c.el.style.top = c.k.y + 'px'; c.el.classList.add('dragging'); }
       });
       drawWires();
+    } else if (drag.mode === 'openend') {
+      if (!drag.moved && Math.hypot(e.clientX - drag.sx, e.clientY - drag.sy) < 3) return;
+      drag.moved = true;
+      const l = linkById(loop, drag.lid);
+      const w = toWorld(e.clientX, e.clientY);
+      l['f' + drag.end] = { x: Math.round(w.x), y: Math.round(w.y) };
+      drag.el.style.pointerEvents = 'none';
+      const under = document.elementFromPoint(e.clientX, e.clientY);
+      const t = under && under.closest('.node');
+      const tid = t ? t.dataset.id : null;
+      document.querySelectorAll('.node.target').forEach(x => x.classList.remove('target'));
+      if (tid) t.classList.add('target');
+      drag.target = tid;
+      drawWires();
+      const h = document.querySelector(`[data-open="${drag.lid}:${drag.end}"]`); if (h) { h.style.pointerEvents = 'none'; drag.el = h; }
     } else if (drag.mode === 'box') {
       if (!drag.moved && Math.hypot(e.clientX - drag.sx, e.clientY - drag.sy) < 4) return;
       drag.moved = true;
@@ -1634,6 +1670,18 @@
     } else if (d.mode === 'node') {
       if (d.moved) { save(); renderDiagram(); }
       else setSelection([d.id]);
+    } else if (d.mode === 'openend') {
+      document.querySelectorAll('.node.target').forEach(x => x.classList.remove('target'));
+      const l = linkById(loop, d.lid);
+      if (d.target && l) {
+        l[d.end] = d.target; delete l['f' + d.end];
+        sel = { kind: 'link', id: l.id };
+        renderAll(); save();
+        toast(`${l.tag} connected to ${nodeById(loop, d.target).tag}.`);
+      } else {
+        if (!d.moved && l) select({ kind: 'link', id: l.id }); else renderDiagram();
+        save();
+      }
     } else if (d.mode === 'toggle') {
       const ids = selectedIds();
       setSelection(ids.includes(d.id) ? ids.filter(x => x !== d.id) : ids.concat(d.id));
@@ -1678,6 +1726,15 @@
   function onInspectorInput(e) {
     const t = e.target;
     if (t.dataset.tf && typeDraft) { onTypeInput(e); return; }
+    if (t.dataset.connect) {
+      if (e.type === 'change' && t.value) {
+        const l = linkById(cur(), sel.id);
+        l[t.dataset.connect] = t.value; delete l['f' + t.dataset.connect];
+        renderAll(); save();
+        toast(`${l.tag} connected to ${nodeById(cur(), t.value).tag}.`);
+      }
+      return;
+    }
     if (t.id === 'flagNote') {
       const loop = cur();
       const ent = sel && sel.kind === 'link' ? linkById(loop, sel.id) : sel && sel.kind === 'node' ? nodeById(loop, sel.id) : null;
@@ -1777,25 +1834,46 @@
     refreshLight();
     $('addName').focus();
   }
+  // Cables of deleted items stay, with an open end where the item was.
+  function detachCables(loop, ids) {
+    let kept = 0;
+    const slots = {}; // several cables leaving the same side of a deleted item: stack their open ends
+    loop.links.forEach(l => {
+      ['a', 'b'].forEach(end => {
+        if (!ids.has(l[end])) return;
+        const n = nodeById(loop, l[end]);
+        const c = center(n);
+        const other = nodeById(loop, l[end === 'a' ? 'b' : 'a']);
+        // leave the open end on the side of the deleted item facing the other end
+        const oc = other ? center(other) : c;
+        const right = oc.x >= c.x;
+        const k = n.id + (right ? 'r' : 'l');
+        const i = slots[k] = (slots[k] || 0) + 1;
+        l['f' + end] = { x: Math.round(right ? n.x + c.w : n.x), y: Math.round(c.y + (i - 1) * 22) };
+        l[end] = null;
+        kept++;
+      });
+    });
+    return loop.links.filter(l => !l.a || !l.b).length && kept;
+  }
   function deleteSelected() {
     const loop = cur();
     if (!sel || !['node', 'link', 'multi'].includes(sel.kind)) return;
     snapshot();
     if (sel.kind === 'multi') {
       const ids = new Set(selNodes);
+      const touched = loop.links.filter(l => ids.has(l.a) || ids.has(l.b)).length;
+      detachCables(loop, ids);
       loop.nodes = loop.nodes.filter(x => !ids.has(x.id));
-      const before = loop.links.length;
-      loop.links = loop.links.filter(l => !ids.has(l.a) && !ids.has(l.b));
       loop.nodes.forEach(x => { if (ids.has(x.inside)) x.inside = null; });
-      const nl = before - loop.links.length;
-      toast(`Deleted ${ids.size} items${nl ? ` and ${nl} cable${nl > 1 ? 's' : ''}` : ''}.`, true);
+      toast(`Deleted ${ids.size} items.${touched ? ` ${touched} cable${touched > 1 ? 's were' : ' was'} kept with an open end: drag it onto an item to reconnect.` : ''}`, true);
     } else if (sel.kind === 'node') {
       const n = nodeById(loop, sel.id);
       const nl = loop.links.filter(l => l.a === n.id || l.b === n.id).length;
+      detachCables(loop, new Set([n.id]));
       loop.nodes = loop.nodes.filter(x => x.id !== n.id);
-      loop.links = loop.links.filter(l => l.a !== n.id && l.b !== n.id);
       loop.nodes.forEach(x => { if (x.inside === n.id) x.inside = null; });
-      toast(`Deleted ${n.tag}${nl ? ` and ${nl} cable${nl > 1 ? 's' : ''}` : ''}.`, true);
+      toast(`Deleted ${n.tag}.${nl ? ` Its ${nl} cable${nl > 1 ? 's were' : ' was'} kept with an open end: drag it onto an item to reconnect.` : ''}`, true);
     } else {
       const l = linkById(loop, sel.id);
       loop.links = loop.links.filter(x => x.id !== l.id);
