@@ -713,7 +713,7 @@
   function loopInspector(loop) {
     return `<h2>${esc(loop.name || 'Untitled loop')}</h2>
       <div id="summaryGrid" class="summary-grid">${summaryHTML(loop)}</div>
-      <p class="tip">Select an item or a cable on the sheet to see its checklist. Drag from a round handle on the side of an item to another item to draw a cable. Drag on an empty part of the sheet to select several items, then drag one of them to move them together. Hold Space and drag (or use the middle mouse button) to pan. Click a status to step it: To order → Ordered → In stock → Not needed.</p>
+      <p class="tip">Select an item or a cable on the sheet to see its checklist. Drag from a round handle on the side of an item to another item to draw a cable. Drag a box on an empty part of the sheet to select several items: left to right selects items fully inside, right to left selects anything the box touches. Then drag one of them to move them together. Hold Space and drag (or use the middle mouse button) to pan. Click a status to step it: To order → Ordered → In stock → Not needed.</p>
       ${checklistBlock('Whole-loop consumables')}`;
   }
 
@@ -1186,7 +1186,15 @@
       let box = $('selBox');
       if (!box) { box = document.createElement('div'); box.id = 'selBox'; box.className = 'selbox'; $('world').appendChild(box); }
       Object.assign(box.style, { left: x0 + 'px', top: y0 + 'px', width: (x1 - x0) + 'px', height: (y1 - y0) + 'px' });
-      drag.hits = loop.nodes.filter(n => { const c = center(n); return n.x < x1 && n.x + c.w > x0 && n.y < y1 && n.y + c.h > y0; }).map(n => n.id);
+      // Like CAD: left-to-right is a window (only items fully inside), right-to-left is crossing (anything touched).
+      const crossing = w.x < drag.wx;
+      box.classList.toggle('crossing', crossing);
+      drag.hits = loop.nodes.filter(n => {
+        const c = center(n);
+        return crossing
+          ? n.x < x1 && n.x + c.w > x0 && n.y < y1 && n.y + c.h > y0
+          : n.x >= x0 && n.x + c.w <= x1 && n.y >= y0 && n.y + c.h <= y1;
+      }).map(n => n.id);
       const on = new Set(drag.add ? drag.base.concat(drag.hits) : drag.hits);
       document.querySelectorAll('.node').forEach(el => el.classList.toggle('sel', on.has(el.dataset.id)));
     } else if (drag.mode === 'link') {
