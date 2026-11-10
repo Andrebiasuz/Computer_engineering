@@ -34,6 +34,20 @@ makes sure nothing is forgotten on the purchase list.
    "Totals" sums identical items (e.g. all 1.0 mm² ferrules). Copy it as text
    or download a CSV.
 
+7. **Your own components**: under *My components* in the palette, click
+   **+ New component** to define an item you use often (e.g. a Hall sensor
+   or a charge amplifier): name, tag prefix, symbol, and the list of things
+   to order every time it appears. Click ✎ to edit one later; changes apply
+   to every copy on your loops. Hall sensor and charge amplifier are
+   included as examples.
+8. **Mounted inside**: select an item and set *Mounted inside* to a junction
+   box or cabinet. It is drawn inside that enclosure's dashed outline and
+   moves with it. A cable coming from outside gets its gland on the
+   enclosure ("Cable gland at JB-01 (for CA-101)"), and wiring between items
+   in the same enclosure defaults to panel wire with no glands.
+9. **Mirror** (above the sheet) flips the loop left ↔ right, e.g. to put the
+   PLC on the left and the field instruments on the right.
+
 Quantities are suggestions (cores + drain wire for ferrules, route length
 +10% for cable, terminals from the cores landing on a strip). Type your own
 number in the quantity box to override.

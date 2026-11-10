@@ -113,6 +113,16 @@ input[type="number"] { width: 72px; }
 /* ---------- Diagram view ---------- */
 .diagram { flex: 1; min-height: 0; display: grid; grid-template-columns: 210px minmax(0, 1fr) 360px; }
 .palette { background: var(--surface); border-right: 1px solid var(--line); overflow-y: auto; padding: 12px 10px 20px; }
+.pal-row { display: flex; align-items: center; gap: 2px; }
+.pal-row .pal-item { flex: 1; min-width: 0; }
+.pal-edit { flex: none; border: 1px solid transparent; background: transparent; color: var(--muted); border-radius: 4px; width: 28px; height: 28px; cursor: pointer; }
+.pal-edit:hover { border-color: var(--line); color: var(--accent); }
+.pal-new { width: 100%; margin-top: 6px; border: 1px dashed var(--line); background: transparent; border-radius: 5px; padding: 7px 6px; cursor: pointer; color: var(--accent); font-weight: 600; text-align: left; }
+.pal-new:hover { border-color: var(--accent); }
+.titems { display: grid; gap: 6px; }
+.titem { display: grid; grid-template-columns: minmax(0, 1fr) 60px 52px auto; gap: 4px; align-items: center; padding-bottom: 6px; border-bottom: 1px solid var(--line); }
+.titem input[data-tf$=".name"] { grid-column: 1 / -1; }
+.titem input, .titem select { width: 100%; min-width: 0; padding: 4px 5px; font-size: .85rem; }
 .palette .hint { margin: 0 4px 10px; font-size: .85rem; color: var(--muted); }
 .pal-group { font: 600 .78rem/1 var(--f-label); text-transform: uppercase; letter-spacing: .12em; color: var(--muted); margin: 14px 4px 6px; }
 .pal-item {
@@ -187,7 +197,11 @@ input[type="number"] { width: 72px; }
   background: var(--surface); border: 2px solid var(--accent); cursor: crosshair; touch-action: none;
 }
 .port::after { content: ""; position: absolute; inset: 3px; border-radius: 50%; background: var(--accent); transform: scale(.4); transition: transform .12s; }
+.port.left { right: auto; left: -9px; }
 .port:hover::after, .linking .port::after { transform: scale(1); }
+.inside-tag { color: var(--accent) !important; font-family: var(--f-mono); font-size: .72rem !important; }
+.encl-box { fill: var(--accent-soft); stroke: var(--accent); stroke-width: 1.5; stroke-dasharray: 7 5; opacity: .8; }
+.encl-label { fill: var(--accent); font: 600 12px var(--f-mono); letter-spacing: .04em; }
 .node.target { border-color: var(--accent); background: var(--accent-soft); }
 
 .chips { display: flex; flex-wrap: wrap; gap: 3px; margin-top: 7px; }
@@ -322,6 +336,8 @@ input[type="number"] { width: 72px; }
   .palette .hint { display: none; }
   #paletteList { display: flex; gap: 4px; width: max-content; }
   .pal-group { display: none; }
+  .pal-row { flex-direction: column; }
+  .pal-new { width: 82px; margin-top: 0; text-align: center; font-size: .75rem; }
   .pal-item { flex-direction: column; width: 82px; text-align: center; gap: 4px; cursor: pointer; touch-action: auto; }
   .pal-item span { font-size: .72rem; }
   .sheet { height: 62vh; min-height: 380px; }
