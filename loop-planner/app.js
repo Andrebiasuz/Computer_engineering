@@ -6,7 +6,7 @@
 
   // ---------------------------------------------------------------- constants
   const STORE_KEY = 'loop-planner-v1';
-  const GRID = 10, NODE_W = 168, ZMIN = 0.1, ZMAX = 4;
+  const GRID = 10, NODE_W = 60, ZMIN = 0.1, ZMAX = 4; // NODE_W: default symbol width
 
   const STATUS = ['todo', 'ordered', 'have', 'na'];
   const STATUS_LABEL = { todo: 'To order', ordered: 'Ordered', have: 'In stock', na: 'Not needed' };
@@ -58,7 +58,7 @@
       ['tagplate', 'Tag plate', 'mark', () => 1, 'pcs'],
       ['blank', 'Blanking plug for the spare cable entry', 'gland', () => 1, 'pcs']
     ] },
-    valve: { group: 'Field devices', name: 'Solenoid valve / actuator', shape: 'bubble', tag: 'XV-', desc: 'On/off valve', items: [
+    valve: { group: 'Field devices', name: 'Solenoid valve / actuator', shape: 'valve', tag: 'XV-', desc: 'On/off valve', items: [
       ['dev', 'Valve / actuator', 'device', () => 1, 'pcs'],
       ['coil', 'Solenoid coil (check voltage: 24 VDC / 230 VAC)', 'device', () => 1, 'pcs'],
       ['plug', 'Coil connector plug (DIN 43650 / M12)', 'term', () => 1, 'pcs'],
@@ -72,14 +72,14 @@
       ['entry', 'Thread adaptor / reducer for the terminal box entry', 'gland'],
       ['tagplate', 'Tag plate', 'mark', () => 1, 'pcs']
     ] },
-    jb: { group: 'Enclosures', name: 'Junction box', shape: 'box', sym: 'JB', tag: 'JB-', desc: 'Field junction box', items: [
+    jb: { group: 'Enclosures', name: 'Junction box', shape: 'jb', sym: 'JB', tag: 'JB-', desc: 'Field junction box', items: [
       ['encl', 'Enclosure (IP rating, size, material)', 'device', () => 1, 'pcs'],
       ...TB_ITEMS,
       ['plugs', 'Blanking / stopping plugs for unused entries', 'gland', null, 'pcs'],
       ['breather', 'Breather / drain plug', 'gland', () => 1, 'pcs'],
       ['tagplate', 'Tag plate', 'mark', () => 1, 'pcs']
     ] },
-    panel: { group: 'Enclosures', name: 'Cabinet / panel', shape: 'box', sym: 'CP', tag: 'CP-', desc: 'Control panel', items: [
+    panel: { group: 'Enclosures', name: 'Cabinet / panel', shape: 'panel', sym: 'CP', tag: 'CP-', desc: 'Control panel', items: [
       ['encl', 'Enclosure / cabinet', 'device', () => 1, 'pcs'],
       ['gplate', 'Gland plate (drilled for all entries)', 'gland', () => 1, 'pcs'],
       ['duct', 'Wire duct + covers', 'mount', null, 'm'],
@@ -90,36 +90,36 @@
       ['pocket', 'Drawing pocket', 'other', () => 1, 'pcs'],
       ['labels', 'Engraved labels for door devices', 'mark']
     ] },
-    tb: { group: 'Panel', name: 'Terminal strip', shape: 'box', sym: 'X', tag: 'X', desc: 'Marshalling terminals', items: [
+    tb: { group: 'Panel', name: 'Terminal strip', shape: 'terminal', sym: 'X', tag: 'X', desc: 'Marshalling terminals', items: [
       ...TB_ITEMS,
       ['group', 'Strip marker / group label carrier', 'mark', () => 1, 'pcs']
     ] },
-    plc: { group: 'Panel', name: 'PLC I/O card', shape: 'box', sym: 'I/O', tag: 'AI-', desc: 'Analog input card', items: [
+    plc: { group: 'Panel', name: 'PLC I/O card', shape: 'io', sym: 'I/O', tag: 'AI-', desc: 'Analog input card', items: [
       ['dev', 'I/O module', 'device', () => 1, 'pcs'],
       ['front', 'Front connector / terminal plug', 'term', () => 1, 'pcs'],
       ['base', 'Base unit / bus connector / free slot', 'device', () => 1, 'pcs'],
       ['shield', 'Shield clamp / shield bus', 'terminal'],
       ['labels', 'Channel labelling strips', 'mark', () => 1, 'pcs']
     ] },
-    iso: { group: 'Panel', name: 'Isolator / IS barrier', shape: 'box', sym: 'ISO', tag: 'ISO-', desc: 'Signal isolator', items: [
+    iso: { group: 'Panel', name: 'Isolator / IS barrier', shape: 'isolator', sym: 'ISO', tag: 'ISO-', desc: 'Signal isolator', items: [
       ['dev', 'Isolator / barrier module', 'device', () => 1, 'pcs'],
       ['pbus', 'Power rail / bus connector', 'terminal', () => 1, 'pcs'],
       ['ex', 'Light-blue IS wire, duct and IS labels (if Ex i)', 'mark']
     ] },
-    relay: { group: 'Panel', name: 'Interposing relay', shape: 'box', sym: 'K', tag: 'K', desc: 'Interposing relay', items: [
+    relay: { group: 'Panel', name: 'Interposing relay', shape: 'relay', sym: 'K', tag: 'K', desc: 'Interposing relay', items: [
       ['dev', 'Relay', 'device', () => 1, 'pcs'],
       ['socket', 'Relay socket / base', 'device', () => 1, 'pcs'],
       ['clip', 'Retaining clip', 'device', () => 1, 'pcs'],
       ['supp', 'Suppression diode / RC module', 'protect', () => 1, 'pcs'],
       ['mark', 'Relay marker', 'mark', () => 1, 'pcs']
     ] },
-    psu: { group: 'Power', name: 'Power supply 24 VDC', shape: 'box', sym: 'PSU', tag: 'PSU-', desc: '24 VDC loop supply', items: [
+    psu: { group: 'Power', name: 'Power supply 24 VDC', shape: 'psu', sym: 'PSU', tag: 'PSU-', desc: '24 VDC loop supply', items: [
       ['dev', 'Power supply unit (check current)', 'device', () => 1, 'pcs'],
       ['mcb', 'Upstream MCB', 'protect', () => 1, 'pcs'],
       ['dist', 'Distribution terminals for +24 V / 0 V', 'terminal'],
       ['outfuse', 'Output fuse terminals per loop', 'protect']
     ] },
-    mcb: { group: 'Power', name: 'Breaker / fuse', shape: 'box', sym: 'F', tag: 'F', desc: 'Loop fuse', items: [
+    mcb: { group: 'Power', name: 'Breaker / fuse', shape: 'fuse', sym: 'F', tag: 'F', desc: 'Loop fuse', items: [
       ['dev', 'MCB / fuse terminal', 'protect', () => 1, 'pcs'],
       ['links', 'Fuse links + spares', 'protect'],
       ['comb', 'Busbar comb', 'terminal'],
@@ -142,7 +142,7 @@
     const own = (c.items || []).map(it => [it.key, it.name || 'Item', CAT[it.cat] ? it.cat : 'other',
       it.qty === '' || it.qty == null || isNaN(Number(it.qty)) ? null : () => Number(it.qty), it.unit || 'pcs']);
     return {
-      group: 'My components', name: c.name || 'Component', shape: c.shape === 'bubble' ? 'bubble' : 'box',
+      group: 'My components', name: c.name || 'Component', shape: SYMBOLS[c.shape] ? c.shape : 'box',
       sym: (c.sym || '?').slice(0, 4), tag: c.tag || '', desc: c.desc || '', panel: !!c.panel, enclosure: !!c.enclosure,
       custom: true, items: (c.terminals ? TB_ITEMS : []).concat(own)
     };
@@ -158,7 +158,7 @@
           { key: 'conn', name: 'Connector / pigtail (M8 / M12)', cat: 'term', qty: 1, unit: 'pcs' },
           { key: 'tagplate', name: 'Tag plate', cat: 'mark', qty: 1, unit: 'pcs' }
         ] },
-      { id: 'u_camp', name: 'Charge amplifier', tag: 'CA-', shape: 'box', sym: 'CA', desc: 'Charge amplifier', panel: false, enclosure: false, terminals: false,
+      { id: 'u_camp', name: 'Charge amplifier', tag: 'CA-', shape: 'amplifier', sym: 'CA', desc: 'Charge amplifier', panel: false, enclosure: false, terminals: false,
         items: [
           { key: 'dev', name: 'Charge amplifier', cat: 'device', qty: 1, unit: 'pcs' },
           { key: 'mount', name: 'DIN rail adapter / mounting kit', cat: 'mount', qty: 1, unit: 'pcs' },
@@ -219,6 +219,26 @@
   const esc = s => String(s == null ? '' : s).replace(/[&<>"']/g, ch => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[ch]));
   const cur = () => state.loops.find(l => l.id === state.currentId) || state.loops[0];
 
+  // Items used to be 168 px wide cards; symbols are about 60 px. On first load with symbols,
+  // shift each item so its centre stays where the card's centre was (layout looks the same).
+  let migratedNow = false; // set when an older layout was converted, so it gets saved once
+  function migrateToSymbols(data) {
+    if (data.symbolVersion >= 2) return data;
+    migratedNow = true;
+    (data.customTypes || []).forEach(c => { if (c.id === 'u_camp' && c.shape === 'box') c.shape = 'amplifier'; });
+    const shapeOf = type => {
+      const t = TYPES[type] || (data.customTypes || []).find(c => c.id === type) || {};
+      return SYMBOLS[t.shape] ? SYMBOLS[t.shape] : SYMBOLS.box;
+    };
+    // old card: 168 px wide, centre about 44 px down; new symbol: (w+4) x (h+4) incl. stroke margin
+    (data.loops || []).forEach(l => (l.nodes || []).forEach(n => {
+      const sy = shapeOf(n.type);
+      n.x = Math.round(n.x + 84 - (sy.w + 4) / 2);
+      n.y = Math.round(n.y + 44 - (sy.h + 4) / 2);
+    }));
+    data.symbolVersion = 2;
+    return data;
+  }
   function load() {
     try {
       const raw = localStorage.getItem(STORE_KEY);
@@ -226,14 +246,14 @@
         const data = JSON.parse(raw);
         if (data && Array.isArray(data.loops) && data.loops.length) {
           if (!Array.isArray(data.customTypes)) data.customTypes = starterTypes();
-          return data;
+          return migrateToSymbols(data);
         }
       }
     } catch (e) { /* storage unavailable: start with the example */ }
     state = { version: 1, customTypes: starterTypes(), loops: [] };
     const ex = exampleLoop();
     state.loops.push(ex); state.currentId = ex.id;
-    return state;
+    return migrateToSymbols(state);
   }
   let saveTimer = null;
   // ---------------------------------------------------------------- images (stored in IndexedDB, not localStorage)
@@ -646,16 +666,43 @@
   }
 
   // ---------------------------------------------------------------- symbols
-  function symHTML(type, tag, cls) {
+  // ---------------------------------------------------------------- IEC symbols
+  // Drawn in SVG with currentColor, after IEC 60617 (electrical) and IEC 62424 / ISA 5.1
+  // (instrument bubbles: field-mounted, no line). w/h are the symbol's size on the sheet;
+  // cables attach at the left/right edges, half-way down.
+  const SYMBOLS = {
+    bubble:    { name: 'Instrument (circle)', w: 56, h: 56, draw: (L, N) => `<circle cx="28" cy="28" r="26" class="s-f"/><text x="28" y="${N ? 25 : 32}" class="s-t">${L}</text>${N ? `<text x="28" y="40" class="s-n">${N}</text>` : ''}` },
+    valve:     { name: 'Valve with solenoid actuator', w: 56, h: 60, draw: () => `<rect x="17" y="2" width="22" height="16" class="s-f"/><path d="M17 18 L39 2"/><path d="M28 18 V42"/><path d="M6 32 L28 42 L6 52 Z M50 32 L28 42 L50 52 Z" class="s-f"/><path d="M0 42 H6 M50 42 H56" class="s-thin"/>` },
+    motor:     { name: 'Motor', w: 56, h: 56, draw: () => `<circle cx="28" cy="28" r="26" class="s-f"/><text x="28" y="31" class="s-t s-big">M</text><text x="28" y="45" class="s-n">3~</text>` },
+    jb:        { name: 'Junction box', w: 64, h: 52, draw: L => `<rect x="2" y="2" width="60" height="48" rx="2" class="s-f"/><text x="32" y="23" class="s-t">${L}</text>${[14, 26, 38, 50].map(x => `<circle cx="${x}" cy="38" r="3.2" class="s-f"/>`).join('')}` },
+    panel:     { name: 'Cabinet / enclosure', w: 64, h: 52, draw: L => `<rect x="2" y="2" width="60" height="48" class="s-f s-dashdot"/><text x="32" y="31" class="s-t">${L}</text>` },
+    terminal:  { name: 'Terminal strip', w: 32, h: 64, draw: () => `<rect x="6" y="2" width="20" height="60" class="s-f"/><path d="M6 17 H26 M6 32 H26 M6 47 H26" class="s-thin"/>${[9.5, 24.5, 39.5, 54.5].map(y => `<circle cx="16" cy="${y}" r="3" class="s-f"/>`).join('')}` },
+    io:        { name: 'PLC I/O card', w: 56, h: 64, draw: L => `<rect x="8" y="2" width="46" height="60" class="s-f"/><path d="M8 17 H54" class="s-thin"/><text x="31" y="13" class="s-n">${L}</text>${[28, 40, 52].map((y, i) => `<path d="M0 ${y} H8" class="s-thin"/><circle cx="8" cy="${y}" r="2.2" class="s-f"/><text x="15" y="${y + 3.5}" class="s-n s-l">${i + 1}</text>`).join('')}` },
+    isolator:  { name: 'Signal isolator / barrier', w: 60, h: 48, draw: () => `<rect x="2" y="2" width="56" height="44" class="s-f"/><path d="M27 7 V41 M33 7 V41"/><path d="M8 24 h5 l3 -5 l4 10 l3 -5 h1 M37 24 h5 l3 -5 l4 10 l3 -5 h1" class="s-thin"/>` },
+    relay:     { name: 'Relay (coil + contact)', w: 64, h: 48, draw: () => `<path d="M15 2 V12 M15 36 V46 M46 2 V14 M46 34 V46" class="s-thin"/><rect x="4" y="12" width="22" height="24" class="s-f"/><path d="M46 34 L38 16"/><path d="M26 24 H41" class="s-dash"/>` },
+    psu:       { name: 'Power supply (AC/DC)', w: 56, h: 56, draw: () => `<rect x="2" y="2" width="52" height="52" class="s-f"/><path d="M2 54 L54 2" class="s-thin"/><text x="16" y="24" class="s-t s-mid">~</text><text x="40" y="46" class="s-t s-mid">=</text>` },
+    fuse:      { name: 'Fuse / breaker', w: 56, h: 24, draw: () => `<path d="M0 12 H12 M44 12 H56" class="s-thin"/><rect x="12" y="4" width="32" height="16" class="s-f"/><path d="M12 12 H44" class="s-thin"/>` },
+    amplifier: { name: 'Amplifier', w: 60, h: 44, draw: () => `<rect x="2" y="2" width="56" height="40" class="s-f"/><path d="M18 9 V35 L44 22 Z" class="s-f"/>` },
+    box:       { name: 'Box with letters', w: 60, h: 44, draw: L => `<rect x="2" y="2" width="56" height="40" rx="2" class="s-f"/><text x="30" y="27" class="s-t">${L}</text>` }
+  };
+  function symParts(type, tag) {
     const t = T(type);
-    if (t.shape === 'bubble') {
-      const m = String(tag || t.tag).match(/^([A-Za-z]+)[-\s]?(.*)$/);
-      const top = m ? m[1].toUpperCase().slice(0, 4) : (tag || '').slice(0, 4);
-      const bot = m ? m[2].slice(0, 5) : '';
-      return `<div class="sym bubble ${cls || ''}"><div class="tg"><span>${esc(top)}</span>${bot ? `<span>${esc(bot)}</span>` : ''}</div></div>`;
-    }
-    if (t.shape === 'motor') return `<div class="sym motor ${cls || ''}">M</div>`;
-    return `<div class="sym box ${cls || ''}">${esc(t.sym)}</div>`;
+    const m = String(tag || t.tag || '').match(/^([A-Za-z]+)[-\s]?(.*)$/);
+    const letters = m ? m[1].toUpperCase().slice(0, 4) : '';
+    const number = m ? m[2].slice(0, 5) : '';
+    const key = SYMBOLS[t.shape] ? t.shape : 'box';
+    // the letters inside a symbol: instrument letters from the tag; for I/O cards the card type (AI, DO…)
+    const L = key === 'bubble' || key === 'io' ? (letters || t.sym || '') : (t.sym || letters);
+    return { key, sym: SYMBOLS[key], L: esc(L), N: esc(number) };
+  }
+  // The symbol as inline SVG. size: null = real size on the sheet, or a box size in px for lists.
+  function symSVG(type, tag, size) {
+    const { sym, L, N } = symParts(type, tag);
+    const k = size ? Math.min(size / sym.w, size / sym.h) : 1;
+    return `<svg class="isym" viewBox="-2 -2 ${sym.w + 4} ${sym.h + 4}" width="${((sym.w + 4) * k).toFixed(1)}" height="${((sym.h + 4) * k).toFixed(1)}" aria-hidden="true">${sym.draw(L, N)}</svg>`;
+  }
+  function symHTML(type, tag, cls) {
+    return `<span class="symbox ${cls || ''}">${symSVG(type, tag, cls === 'big' ? 46 : 34)}</span>`;
   }
 
   // ---------------------------------------------------------------- rendering
@@ -719,9 +766,10 @@
       const isSel = selectedIds().includes(n.id) || !!(cablePick && cablePick.first === n.id);
       const hits = items.filter(hlMatch).length;
       const hlc = hlActive() ? (hits ? ' hl-on' : ' hl-off') : '';
-      html += `<div class="node${isSel ? ' sel' : ''}${hlc}${flagCls(n)}" data-id="${n.id}" style="${flagStyle(n)}left:${n.x}px;top:${n.y}px">${flagPin(n)}${hits ? `<span class="hl-badge" title="${hits} matching line${hits > 1 ? 's' : ''}">${hits}</span>` : ''}
-        <div class="node-top">${symHTML(n.type, n.tag)}<div class="node-title"><b>${esc(n.tag)}</b><small>${esc(n.desc || T(n.type).name)}</small>${n.inside && nodeById(loop, n.inside) ? `<small class="inside-tag">in ${esc(nodeById(loop, n.inside).tag)}</small>` : ''}</div></div>
-        <div class="chips">${chipsHTML(items)}</div>${badge}
+      html += `<div class="node${isSel ? ' sel' : ''}${hlc}${flagCls(n)}" data-id="${n.id}" style="${flagStyle(n)}left:${n.x}px;top:${n.y}px">${n.flag ? `<span class="flag-pin" title="Flagged${n.flag.note ? ': ' + esc(n.flag.note) : ''}">⚑</span>` : ''}${hits ? `<span class="hl-badge" title="${hits} matching line${hits > 1 ? 's' : ''}">${hits}</span>` : ''}
+        <div class="nsym">${symSVG(n.type, n.tag)}</div>${badge}
+        <div class="nlabel"><div class="node-title"><b>${esc(n.tag)}</b><small>${esc(n.desc || T(n.type).name)}</small>${n.inside && nodeById(loop, n.inside) ? `<small class="inside-tag">in ${esc(nodeById(loop, n.inside).tag)}</small>` : ''}</div>
+          <div class="chips">${chipsHTML(items)}</div>${n.flag && n.flag.note ? `<div class="flag-note inline">${esc(n.flag.note)}</div>` : ''}</div>
         <div class="port left" title="Drag to another item to add a cable"></div><div class="port" title="Drag to another item to add a cable"></div></div>`;
     });
     loop.links.forEach(l => {
@@ -739,7 +787,10 @@
     });
     nodesEl.innerHTML = html;
     sizes = {};
-    nodesEl.querySelectorAll('.node').forEach(el => { sizes[el.dataset.id] = { w: el.offsetWidth, h: el.offsetHeight }; });
+    nodesEl.querySelectorAll('.node').forEach(el => {
+      const lb = el.querySelector('.nlabel');
+      sizes[el.dataset.id] = { w: el.offsetWidth, h: el.offsetHeight, lw: lb ? lb.offsetWidth : 0, lh: lb ? lb.offsetHeight + 4 : 0 };
+    });
     drawWires();
     $('emptyHint').hidden = loop.nodes.length > 0 || (loop.images || []).length > 0;
     renderImages(loop);
@@ -762,9 +813,15 @@
     $('imgFront').innerHTML = html.front;
   }
 
+  // the symbol plus its tag block underneath, for selection boxes, zones and zoom extents
+  function fullBox(n) {
+    const s = sizes[n.id] || { w: NODE_W, h: 56, lw: 140, lh: 44 };
+    const half = Math.max(s.w, s.lw || 0) / 2, cx = n.x + s.w / 2;
+    return { x0: cx - half, y0: n.y, x1: cx + half, y1: n.y + s.h + (s.lh || 0) };
+  }
   function center(n) {
-    const s = sizes[n.id] || { w: NODE_W, h: 80 };
-    return { x: n.x + s.w / 2, y: n.y + s.h / 2, w: s.w, h: s.h };
+    const s = sizes[n.id] || { w: NODE_W, h: 56 };
+    return { x: n.x + s.w / 2, y: n.y + s.h / 2, w: s.w, h: s.h, lh: s.lh || 0 };
   }
   function clip(c, toward) {
     const dx = toward.x - c.x, dy = toward.y - c.y;
@@ -799,7 +856,7 @@
       const kids = loop.nodes.filter(n => n.inside === enc.id);
       if (!kids.length) return;
       let x0 = Infinity, y0 = Infinity, x1 = -Infinity, y1 = -Infinity;
-      [enc].concat(kids).forEach(n => { const c = center(n); x0 = Math.min(x0, n.x); y0 = Math.min(y0, n.y); x1 = Math.max(x1, n.x + c.w); y1 = Math.max(y1, n.y + c.h); });
+      [enc].concat(kids).forEach(n => { const f = fullBox(n); x0 = Math.min(x0, f.x0); y0 = Math.min(y0, f.y0); x1 = Math.max(x1, f.x1); y1 = Math.max(y1, f.y1); });
       const pad = 18;
       const rx = x0 - pad, ry = y0 - pad - 14, rw = x1 - x0 + pad * 2, rh = y1 - y0 + pad * 2 + 14;
       svg += `<rect class="encl-box" x="${rx}" y="${ry}" width="${rw}" height="${rh}" rx="8"/>`;
@@ -842,7 +899,7 @@
       });
     });
     const portPt = (nd, c, side, off) => side === 'r' ? { x: nd.x + c.w, y: c.y + off } : side === 'l' ? { x: nd.x, y: c.y + off }
-      : side === 'b' ? { x: c.x + off, y: nd.y + c.h } : { x: c.x + off, y: nd.y };
+      : side === 'b' ? { x: c.x + off, y: nd.y + c.h + (c.lh || 0) } : { x: c.x + off, y: nd.y };
     Object.values(R).forEach(r => {
       const l = r.l;
       const k = [l.a, l.b].sort().join('|');
@@ -886,7 +943,7 @@
     svg += '<path id="tempWire" class="wire-temp" d="" style="display:none"/>';
     // size the SVG to what it draws, since items can be anywhere (also at negative coordinates)
     let bx0 = 0, by0 = 0, bx1 = 0, by1 = 0;
-    const boxes = loop.nodes.map(n => { const c = center(n); return [n.x, n.y, n.x + c.w, n.y + c.h]; }).concat(openEnds.map(o => [o.x, o.y, o.x, o.y]))
+    const boxes = loop.nodes.map(n => { const f = fullBox(n); return [f.x0, f.y0, f.x1, f.y1]; }).concat(openEnds.map(o => [o.x, o.y, o.x, o.y]))
       .concat(Object.values(labels).map(q => [q.x, q.y, q.x, q.y]));
     boxes.forEach((q, i) => { if (!i) { [bx0, by0, bx1, by1] = q; } bx0 = Math.min(bx0, q[0]); by0 = Math.min(by0, q[1]); bx1 = Math.max(bx1, q[2]); by1 = Math.max(by1, q[3]); });
     const m = 300;
@@ -1015,7 +1072,7 @@
   function nodeInspector(loop, n) {
     const t = T(n.type);
     const conns = loop.links.filter(l => l.a === n.id || l.b === n.id);
-    return `<div class="insp-head">${symHTML(n.type, n.tag)}<div><h2>${esc(n.tag)}</h2><div class="kind">${esc(t.name)}</div></div></div>
+    return `<div class="insp-head">${symHTML(n.type, n.tag, 'big')}<div><h2>${esc(n.tag)}</h2><div class="kind">${esc(t.name)}</div></div></div>
       ${flagRow(n)}
       <div class="form">
         <label for="f-tag">Tag</label><input id="f-tag" type="text" data-bind="tag" value="${esc(n.tag)}">
@@ -1063,9 +1120,8 @@
         <label for="t-name">Name</label><input id="t-name" type="text" data-tf="name" value="${esc(d.name)}" placeholder="e.g. Hall sensor">
         <label for="t-tag">Tag prefix</label><input id="t-tag" type="text" data-tf="tag" value="${esc(d.tag)}" placeholder="e.g. HS-">
         <label for="t-shape">Symbol</label><select id="t-shape" data-tf="shape" data-rerender="1">
-          <option value="bubble" ${d.shape === 'bubble' ? 'selected' : ''}>Circle (field instrument)</option>
-          <option value="box" ${d.shape !== 'bubble' ? 'selected' : ''}>Square with letters</option></select>
-        ${d.shape === 'bubble' ? '' : `<label for="t-sym">Letters</label><input id="t-sym" type="text" maxlength="4" data-tf="sym" value="${esc(d.sym)}" placeholder="e.g. CA">`}
+          ${Object.keys(SYMBOLS).map(k => `<option value="${k}" ${(SYMBOLS[d.shape] ? d.shape : 'box') === k ? 'selected' : ''}>${esc(SYMBOLS[k].name)}</option>`).join('')}</select>
+        ${['box', 'jb', 'panel'].includes(d.shape) ? `<label for="t-sym">Letters</label><input id="t-sym" type="text" maxlength="4" data-tf="sym" value="${esc(d.sym)}" placeholder="e.g. CA">` : ''}
         <label for="t-desc">Service</label><input id="t-desc" type="text" data-tf="desc" value="${esc(d.desc)}" placeholder="Default description">
         <span></span><div class="row" style="flex-direction:column;align-items:flex-start">
           <label><input id="t-panel" type="checkbox" data-tf="panel" ${d.panel ? 'checked' : ''}> Panel item (wires to other panel items as panel wire)</label>
@@ -1359,7 +1415,7 @@
     const loop = cur(), vp = $('viewport');
     if (!loop.nodes.length && !(loop.images || []).length) { zoom = 1; panX = 40; panY = 40; updateView(); return; }
     let x0 = Infinity, y0 = Infinity, x1 = -Infinity, y1 = -Infinity;
-    loop.nodes.forEach(n => { const s = sizes[n.id] || { w: NODE_W, h: 80 }; x0 = Math.min(x0, n.x); y0 = Math.min(y0, n.y); x1 = Math.max(x1, n.x + s.w); y1 = Math.max(y1, n.y + s.h); });
+    loop.nodes.forEach(n => { const f = fullBox(n); x0 = Math.min(x0, f.x0); y0 = Math.min(y0, f.y0); x1 = Math.max(x1, f.x1); y1 = Math.max(y1, f.y1); });
     (loop.images || []).forEach(im => { x0 = Math.min(x0, im.x); y0 = Math.min(y0, im.y); x1 = Math.max(x1, im.x + im.w); y1 = Math.max(y1, im.y + im.h); });
     const pad = 50;
     zoom = Math.min(1.2, Math.max(ZMIN, Math.min(vp.clientWidth / (x1 - x0 + pad * 2), vp.clientHeight / (y1 - y0 + pad * 2))));
@@ -1385,6 +1441,21 @@
   const clampX = x => x; // endless sheet: no edges
   const clampY = y => y;
 
+  // Nearest grid spot around (wx, wy) where a new symbol and its tag text overlap nothing.
+  function freeSpot(loop, wx, wy) {
+    const CW = 170, CH = 140; // room for a symbol plus its tag block
+    const boxes = loop.nodes.map(fullBox);
+    const free = (x, y) => boxes.every(b => x + CW / 2 <= b.x0 - 10 || x - CW / 2 >= b.x1 + 10 || y + CH <= b.y0 - 10 || y >= b.y1 + 10);
+    for (let ring = 0; ring < 12; ring++) {
+      for (let i = -ring; i <= ring; i++) {
+        for (const [dx, dy] of [[i, -ring], [i, ring], [-ring, i], [ring, i]]) {
+          const x = wx + dx * CW, y = wy - CH / 2 + dy * CH;
+          if (free(x, y)) return { x, y: y + 30 };
+        }
+      }
+    }
+    return { x: wx, y: wy };
+  }
   function addNode(type, wx, wy) {
     const loop = cur();
     const n = makeNode(type, clampX(snap(wx - NODE_W / 2)), clampY(snap(wy - 30)), loop);
@@ -1515,7 +1586,7 @@
     const zones = loop.nodes.filter(e => isEnclosure(e.type)).map(e => {
       const kids = loop.nodes.filter(k => k.inside === e.id);
       let zx0 = Infinity, zy0 = Infinity, zx1 = -Infinity, zy1 = -Infinity;
-      [e].concat(kids).forEach(k => { const c = center(k); zx0 = Math.min(zx0, k.x); zy0 = Math.min(zy0, k.y); zx1 = Math.max(zx1, k.x + c.w); zy1 = Math.max(zy1, k.y + c.h); });
+      [e].concat(kids).forEach(k => { const f = fullBox(k); zx0 = Math.min(zx0, f.x0); zy0 = Math.min(zy0, f.y0); zx1 = Math.max(zx1, f.x1); zy1 = Math.max(zy1, f.y1); });
       return { id: e.id, x0: zx0 - 18, y0: zy0 - 32, x1: zx1 + 18, y1: zy1 + 18, area: (zx1 - zx0) * (zy1 - zy0) };
     }).sort((a, b2) => a.area - b2.area);
     nodes.forEach(n => {
@@ -1772,8 +1843,8 @@
         drag.moved = true;
         const g = document.createElement('div');
         g.className = 'node dragging';
-        g.style.cssText = 'position:fixed;z-index:30;pointer-events:none;width:' + NODE_W + 'px';
-        g.innerHTML = `<div class="node-top">${symHTML(drag.type, T(drag.type).tag)}<div class="node-title"><b>${esc(T(drag.type).name)}</b></div></div>`;
+        g.style.cssText = 'position:fixed;z-index:30;pointer-events:none;';
+        g.innerHTML = `<div class="nsym">${symSVG(drag.type, T(drag.type).tag)}</div><div class="nlabel"><div class="node-title"><b>${esc(T(drag.type).name)}</b></div></div>`;
         document.body.appendChild(g);
         drag.ghost = g;
       }
@@ -1836,10 +1907,11 @@
       // Like CAD: left-to-right is a window (only items fully inside), right-to-left is crossing (anything touched).
       const crossing = w.x < drag.wx;
       box.classList.toggle('crossing', crossing);
+      // window: the symbol must be fully inside; crossing: touching the symbol or its tag text is enough
       drag.hits = loop.nodes.filter(n => {
-        const c = center(n);
+        const f = fullBox(n), c = center(n);
         return crossing
-          ? n.x < x1 && n.x + c.w > x0 && n.y < y1 && n.y + c.h > y0
+          ? f.x0 < x1 && f.x1 > x0 && f.y0 < y1 && f.y1 > y0
           : n.x >= x0 && n.x + c.w <= x1 && n.y >= y0 && n.y + c.h <= y1;
       }).map(n => n.id);
       const on = new Set(drag.add ? drag.base.concat(drag.hits) : drag.hits);
@@ -1892,11 +1964,11 @@
           addNode(d.type, w.x, w.y);
         }
       } else {
-        // tap / click: drop it in the middle of the visible sheet, nudged so repeats don't stack
+        // tap / click: put it in the first free spot near the middle of the visible sheet
         const vp = $('viewport'), r = vp.getBoundingClientRect();
         const w = toWorld(r.left + vp.clientWidth / 2, r.top + vp.clientHeight / 2);
-        const k = loop.nodes.length % 5;
-        addNode(d.type, w.x + k * 30 - 60, w.y + k * 30 - 60);
+        const spot = freeSpot(loop, w.x, w.y);
+        addNode(d.type, spot.x, spot.y);
       }
     } else if (d.mode === 'node') {
       if (d.moved) { save(); renderDiagram(); }
@@ -2185,6 +2257,7 @@
 
   function init() {
     state = load();
+    if (migratedNow) save(); // store the converted layout once
     loadImages();
     renderPalette();
     renderAll();
@@ -2436,7 +2509,7 @@
         delete data.imageData;
         return Promise.all(Object.keys(pics).map(id => imgPut(id, pics[id]))).then(() => data);
       }).then(data => {
-        state = data;
+        state = migrateToSymbols(data);
         if (!state.loops.length) state.loops.push(newLoop('Loop 1'));
         if (!Array.isArray(state.customTypes)) state.customTypes = starterTypes();
         if (!state.loops.find(l => l.id === state.currentId)) state.currentId = state.loops[0].id;
