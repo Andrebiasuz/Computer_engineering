@@ -165,6 +165,24 @@ Quantities are suggestions (cores + drain wire for ferrules, route length
 +10% for cable, terminals from the cores landing on a strip). Type your own
 number in the quantity box to override.
 
+## Drawing aids
+
+- **Resize items:** select an item and drag a corner grip (proportions are
+  kept, the opposite corner stays put), or type a **Size %** (50–300 %) in
+  its panel. The symbol and its terminal strip scale; the tag text does not.
+- **Hide a cable:** click the eye on a cable's tag (or press **H** with the
+  cable selected). Only a small dashed tag stays; click the eye again to
+  show the cable. **N HIDDEN** in the status bar shows all hidden cables
+  temporarily. Hidden cables are still ordered and keep their terminals, but
+  are left out of the PDF.
+- **Status bar** (under the sheet), like AutoCAD:
+  - **SNAP (F9):** moves snap to the grid step (10 / 20 / 50); off moves freely.
+  - **ORTHO (F8):** drags are locked horizontal or vertical.
+  - **OSNAP (F3):** a dragged item aligns with other items' centres (dashed
+    tracking lines); a cable being drawn, or an open end being dragged,
+    snaps to the nearest item.
+  - Live **X / Y** coordinates of the cursor.
+
 ## PDF
 
 **PDF…** (top bar) exports the loop as a drawing sheet: choose the paper

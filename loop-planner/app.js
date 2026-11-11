@@ -430,6 +430,16 @@
     if (na && isPanel(na.type)) return 'a';
     return 'b';
   }
+  // ---------------------------------------------------------------- drafting aids (like AutoCAD)
+  // SNAP (F9): moves and sizes snap to a grid step. ORTHO (F8): drags are locked horizontal or
+  // vertical. OSNAP (F3): dragged items align with other items' centres; cables and open ends
+  // snap to the nearest item.
+  const DRAFT_KEY = 'loop-planner-drafting';
+  const draft = { snap: true, ortho: false, osnap: true, step: 10 };
+  try { Object.assign(draft, JSON.parse(localStorage.getItem(DRAFT_KEY)) || {}); } catch (e) { /* defaults */ }
+  const saveDraft = () => { try { localStorage.setItem(DRAFT_KEY, JSON.stringify(draft)); } catch (e) { /* not saved */ } };
+  let showHiddenAll = false; // temporarily show cables hidden with the eye button
+
   // ---------------------------------------------------------------- terminals (X10:1 …)
   // Items with a terminal strip: panel equipment, enclosures, terminal strips and anything
   // mounted inside a panel / junction box. Cores of a cable land on numbered terminals; each
@@ -500,8 +510,9 @@
     });
     return plan;
   }
-  function stripSVG(rows) {
-    return `<svg class="isym strip" viewBox="0 0 ${TSW} ${rows.length * TROW + 2}" width="${TSW}" height="${rows.length * TROW + 2}" aria-hidden="true">${rows.map((r, i) =>
+  function stripSVG(rows, k) {
+    k = k || 1;
+    return `<svg class="isym strip" viewBox="0 0 ${TSW} ${rows.length * TROW + 2}" width="${(TSW * k).toFixed(1)}" height="${((rows.length * TROW + 2) * k).toFixed(1)}" aria-hidden="true">${rows.map((r, i) =>
       `<rect x="1" y="${1 + i * TROW}" width="${TSW - 2}" height="${TROW}" class="s-f"/><text x="${TSW / 2}" y="${1 + i * TROW + 10.5}" class="s-n">${esc(r)}</text>`).join('')}</svg>`;
   }
   // where the strip of an item sits on the sheet (matches the DOM layout of .nsym)
@@ -509,10 +520,11 @@
     const P = tplan[n.id];
     if (!showTerminals || !P || !P.rows.length) return null;
     const sz = sizes[n.id] || { w: NODE_W };
+    const k = n.scale || 1;
     const cx = n.x + sz.w / 2;
-    const top = n.y + (n.type === 'tb' ? 0 : symParts(n.type, n.tag).sym.h + 4 + 6);
+    const top = n.y + (n.type === 'tb' ? 0 : (symParts(n.type, n.tag).sym.h + 4) * k + 6);
     const idx = {}; P.rows.forEach((r, i) => { idx[r] = i; });
-    return { cx, left: cx - TSW / 2 + 1, right: cx + TSW / 2 - 1, rowY: r => top + 1 + ((idx[r] != null ? idx[r] : 0) + 0.5) * TROW, P };
+    return { cx, left: cx - (TSW / 2 - 1) * k, right: cx + (TSW / 2 - 1) * k, rowY: r => top + (1 + ((idx[r] != null ? idx[r] : 0) + 0.5) * TROW) * k, P };
   }
   const termName = (n, num) => `${n.tag}:${num}`;
 
@@ -782,9 +794,9 @@
     return { key, sym: SYMBOLS[key], L: esc(L), N: esc(number) };
   }
   // The symbol as inline SVG. size: null = real size on the sheet, or a box size in px for lists.
-  function symSVG(type, tag, size) {
+  function symSVG(type, tag, size, scale) {
     const { sym, L, N } = symParts(type, tag);
-    const k = size ? Math.min(size / sym.w, size / sym.h) : 1;
+    const k = size ? Math.min(size / sym.w, size / sym.h) : (scale || 1);
     return `<svg class="isym" viewBox="-2 -2 ${sym.w + 4} ${sym.h + 4}" width="${((sym.w + 4) * k).toFixed(1)}" height="${((sym.h + 4) * k).toFixed(1)}" aria-hidden="true">${sym.draw(L, N)}</svg>`;
   }
   function symHTML(type, tag, cls) {
@@ -839,6 +851,16 @@
     $('tabCount').textContent = c.todo || '';
   }
 
+  const EYE = '<svg viewBox="0 0 16 16" aria-hidden="true"><path d="M1 8s2.5-4.5 7-4.5S15 8 15 8s-2.5 4.5-7 4.5S1 8 1 8z"/><circle cx="8" cy="8" r="2.2"/></svg>';
+  const EYE_OFF = '<svg viewBox="0 0 16 16" aria-hidden="true"><path d="M1 8s2.5-4.5 7-4.5S15 8 15 8s-2.5 4.5-7 4.5S1 8 1 8z"/><path d="M2 14L14 2"/></svg>';
+  function toggleCableHidden(l) {
+    if (!l) return;
+    l.hidden = !l.hidden;
+    if (!l.hidden) delete l.hidden;
+    renderDiagram(); if (sel && sel.kind === 'link' && sel.id === l.id) renderInspector(); save();
+    updateStatusBar();
+    toast(l.hidden ? `${l.tag} hidden. Click the eye on its tag (or press H) to show it again.` : `${l.tag} shown.`);
+  }
   function renderDiagram() {
     const loop = cur();
     tplan = terminalPlan(loop);
@@ -857,8 +879,11 @@
       html += `<div class="node${isSel ? ' sel' : ''}${hlc}${flagCls(n)}${hasStrip ? ' has-strip' : ''}" data-id="${n.id}" style="${flagStyle(n)}left:${n.x}px;top:${n.y}px">${n.flag ? `<span class="flag-pin" title="Flagged${n.flag.note ? ': ' + esc(n.flag.note) : ''}">⚑</span>` : ''}${hits ? `<span class="hl-badge" title="${hits} matching line${hits > 1 ? 's' : ''}">${hits}</span>` : ''}
         <div class="nsym">${(() => {
           const P = tplan[n.id];
-          if (!showTerminals || !P || !P.rows.length) return symSVG(n.type, n.tag);
-          return (n.type === 'tb' ? '' : symSVG(n.type, n.tag)) + stripSVG(P.rows); // the terminal strip under the symbol
+          const k = n.scale || 1;
+          const one = selectedIds().length === 1 && selectedIds()[0] === n.id; // corner grips to resize, like images
+          const grips = one ? ['nw', 'ne', 'sw', 'se'].map(g => `<span class="grip ${g}" data-ngrip="${g}" title="Drag to resize"></span>`).join('') : '';
+          if (!showTerminals || !P || !P.rows.length) return symSVG(n.type, n.tag, null, k) + grips;
+          return (n.type === 'tb' ? '' : symSVG(n.type, n.tag, null, k)) + stripSVG(P.rows, k) + grips; // the terminal strip under the symbol
         })()}</div>${badge}
         <div class="nlabel"><div class="node-title"><b>${esc(n.tag)}</b><small>${esc(n.desc || T(n.type).name)}</small>${n.inside && nodeById(loop, n.inside) ? `<small class="inside-tag">in ${esc(nodeById(loop, n.inside).tag)}</small>` : ''}</div>
           <div class="chips">${chipsHTML(items)}</div>${n.flag && n.flag.note ? `<div class="flag-note inline">${esc(n.flag.note)}</div>` : ''}</div>
@@ -873,7 +898,9 @@
       const spec = c.pairs ? `${Math.max(1, Number(l.n) || c.defN)} pr` : c.fixed ? c.short : `${cores(l)}${c.short}`;
       const lhits = items.filter(hlMatch).length;
       const lhl = hlActive() ? (lhits ? ' hl-on' : ' hl-off') : '';
-      html += `<div class="wlabel ${cls}${isSel ? ' sel' : ''}${lhl}${flagCls(l)}" data-link="${l.id}" style="${flagStyle(l)}">${flagPin(l)}${lhits ? `<span class="hl-badge" title="${lhits} matching line${lhits > 1 ? 's' : ''}">${lhits}</span>` : ''}
+      const hid = l.hidden && !showHiddenAll;
+      html += `<div class="wlabel ${cls}${isSel ? ' sel' : ''}${lhl}${flagCls(l)}${hid ? ' is-hidden' : ''}${l.hidden && showHiddenAll ? ' was-hidden' : ''}" data-link="${l.id}" style="${flagStyle(l)}">${flagPin(l)}${lhits ? `<span class="hl-badge" title="${lhits} matching line${lhits > 1 ? 's' : ''}">${lhits}</span>` : ''}
+        <button class="eye" data-eye="${l.id}" title="${l.hidden ? 'Show this cable (H)' : 'Hide this cable (H)'}" aria-label="${l.hidden ? 'Show' : 'Hide'} cable ${esc(l.tag)}">${l.hidden ? EYE_OFF : EYE}</button>
         <div class="wt">${esc(l.tag)} <small>${esc(spec)}${l.length ? ' · ' + esc(l.length) + ' m' : ''}</small></div>
         <div class="chips">${chipsHTML(items)}</div></div>`;
     });
@@ -887,6 +914,7 @@
     $('emptyHint').hidden = loop.nodes.length > 0 || (loop.images || []).length > 0;
     renderImages(loop);
     $('viewport').classList.toggle('hl-active', hlActive());
+    if ($('tg-hidden')) updateStatusBar();
     updateFlagButton();
     renderHighlightBar();
   }
@@ -1034,6 +1062,8 @@
       const isSel = sel && sel.kind === 'link' && sel.id === l.id;
       const d = roundedPath(pts, 8);
       const whl = hlActive() ? (items.some(hlMatch) ? ' hl-on' : ' hl-off') : '';
+      const svgBefore = svg; // a hidden cable draws nothing but its small tag
+      const hideIt = l.hidden && !showHiddenAll;
       if (whl === ' hl-on') svg += `<path class="wire-glow" d="${d}"/>`;
       svg += `<path class="wire ${cls}${isSel ? ' sel' : ''}${whl}" d="${d}"/>`;
       svg += `<circle class="wire-end${whl}" cx="${pa.x.toFixed(1)}" cy="${pa.y.toFixed(1)}" r="4" style="fill:var(--${cls === 'done' ? 'have' : cls})"/>`;
@@ -1056,6 +1086,7 @@
         svg += `<path class="leader${whl}" d="M${best.x.toFixed(1)},${best.y.toFixed(1)} L${pos.x.toFixed(1)},${pos.y.toFixed(1)}"/>`;
         svg += `<circle class="leader-dot${whl}" cx="${best.x.toFixed(1)}" cy="${best.y.toFixed(1)}" r="3.5"/>`;
       }
+      if (hideIt) svg = svgBefore;
       labels[l.id] = pos;
       labelPts[l.id] = pos;
       labelAnchors[l.id] = best;
@@ -1140,7 +1171,7 @@
     return `<h2>${esc(loop.name || 'Untitled loop')}</h2>
       <div id="summaryGrid" class="summary-grid">${summaryHTML(loop)}</div>
       ${flagListHTML(loop)}
-      <p class="tip">Select an item or a cable on the sheet to see its checklist. Drag from a round handle on the side of an item to another item to draw a cable. Drag a box on an empty part of the sheet to select several items: left to right selects items fully inside, right to left selects anything the box touches. Then drag one of them to move them together (drag an enclosure's dashed outline or label to move it with everything inside); Ctrl+C / Ctrl+V copies and pastes them at the mouse pointer (Ctrl+Shift+V keeps their order statuses). Ctrl+V with a picture on the clipboard (e.g. a screenshot) inserts it as an image; you can also drop image files on the sheet. The sheet is endless: the mouse wheel zooms at the cursor, drag with the middle button (or hold Space and drag) to pan, double-click the middle button to zoom extents. Click a status to step it: To order → Ordered → In stock → Not needed.</p>
+      <p class="tip">Select an item or a cable on the sheet to see its checklist. Drag from a round handle on the side of an item to another item to draw a cable. Drag a box on an empty part of the sheet to select several items: left to right selects items fully inside, right to left selects anything the box touches. Then drag one of them to move them together (drag an enclosure's dashed outline or label to move it with everything inside); Ctrl+C / Ctrl+V copies and pastes them at the mouse pointer (Ctrl+Shift+V keeps their order statuses). Ctrl+V with a picture on the clipboard (e.g. a screenshot) inserts it as an image; you can also drop image files on the sheet. Drag a selected item's corner grip to resize it. The eye on a cable's tag hides the cable (H). The status bar under the sheet has SNAP (F9), ORTHO (F8) and OSNAP (F3). The sheet is endless: the mouse wheel zooms at the cursor, drag with the middle button (or hold Space and drag) to pan, double-click the middle button to zoom extents. Click a status to step it: To order → Ordered → In stock → Not needed.</p>
       ${(() => { const c = readClip(); return c && (c.nodes.length || c.cable) ? `<div class="del-row" style="margin-top:12px"><button class="btn ghost" data-clip="paste" title="Ctrl+V">${c.cable ? `Paste cable ${esc(c.cable.tag)}` : `Paste ${c.nodes.length} copied item${c.nodes.length > 1 ? 's' : ''}`}</button>${keepBox()}</div>` : ''; })()}
       ${checklistBlock('Whole-loop consumables')}`;
   }
@@ -1197,6 +1228,8 @@
       <div class="form">
         <label for="f-tag">Tag</label><input id="f-tag" type="text" data-bind="tag" value="${esc(n.tag)}">
         <label for="f-desc">Service</label><input id="f-desc" type="text" data-bind="desc" value="${esc(n.desc)}">
+        <label for="f-scale">Size</label><div class="row"><input id="f-scale" type="number" min="50" max="300" step="5" data-scale="1" value="${Math.round((n.scale || 1) * 100)}" style="width:5.5em"> %
+          ${(n.scale || 1) !== 1 ? '<button class="btn ghost small" data-scalereset="1">Reset</button>' : ''}<span class="muted" style="font-size:.8rem">or drag a corner grip</span></div>
         <label for="f-inside">Mounted inside</label><select id="f-inside" data-bind="inside" data-rerender="1">
           <option value="">Not inside another item</option>
           ${loop.nodes.filter(o => o.id !== n.id && isEnclosure(o.type) && o.inside !== n.id).map(o => `<option value="${o.id}" ${n.inside === o.id ? 'selected' : ''}>${esc(o.tag)} (${esc(T(o.type).name)})</option>`).join('')}
@@ -1377,6 +1410,7 @@
         <span></span><div class="row">
           <label><input id="f-shield" type="checkbox" data-bind="shielded" data-rerender="1" ${shielded ? 'checked' : ''}> Shielded</label>
           ${c.field ? `<label><input id="f-arm" type="checkbox" data-bind="armoured" ${l.armoured ? 'checked' : ''}> Armoured</label>` : ''}
+          <label title="Hide the cable's line on the drawing (H)"><input id="f-hidden" type="checkbox" data-bind="hidden" ${l.hidden ? 'checked' : ''}> Hidden on the drawing</label>
         </div>
         ${shielded ? `<label for="f-screen">Screen earth</label><select id="f-screen" data-bind="screenEnd">
           ${[['auto', 'Auto (panel side)'], ['a', `A end (${na ? na.tag : ''})`], ['b', `B end (${nb ? nb.tag : ''})`], ['both', 'Both ends'], ['none', 'Not earthed']]
@@ -1590,7 +1624,7 @@
     renderDiagram(); save();
     toast('Loop mirrored left ↔ right.', true);
   }
-  const snap = v => Math.round(v / GRID) * GRID;
+  const snap = v => draft.snap ? Math.round(v / draft.step) * draft.step : Math.round(v);
   const clampX = x => x; // endless sheet: no edges
   const clampY = y => y;
 
@@ -1608,6 +1642,18 @@
       }
     }
     return { x: wx, y: wy };
+  }
+  // resize an item about its centre (from the Size field)
+  function setItemScale(n, k) {
+    k = Math.min(3, Math.max(0.5, k || 1));
+    const s0 = sizes[n.id] || { w: NODE_W, h: 56 };
+    const cx = n.x + s0.w / 2, cy = n.y + s0.h / 2;
+    snapshot();
+    if (k === 1) delete n.scale; else n.scale = Math.round(k * 100) / 100;
+    renderDiagram();
+    const s1 = sizes[n.id] || s0;
+    n.x = Math.round(cx - s1.w / 2); n.y = Math.round(cy - s1.h / 2);
+    renderDiagram(); renderInspector(); save();
   }
   function addNode(type, wx, wy) {
     const loop = cur();
@@ -1893,6 +1939,8 @@
       return;
     }
     const loop = cur();
+    const eye = e.target.closest('[data-eye]');
+    if (eye && e.button === 0) { e.preventDefault(); e.stopPropagation(); toggleCableHidden(linkById(loop, eye.dataset.eye)); return; }
     if (cablePick && e.button === 0) { // picking items / cables for a copied cable
       const pn = e.target.closest('.node'), pc = e.target.closest('.wlabel') || e.target.closest('.wire-hit');
       if (pc) { e.preventDefault(); applyCableTo(linkById(loop, pc.dataset.link), cablePick.keep); select(null); updateModeBar(); return; }
@@ -1906,6 +1954,15 @@
       e.preventDefault();
       drag = { mode: 'link', from: nodeEl.dataset.id, target: null };
       document.body.classList.add('linking');
+      return;
+    }
+    const ngrip = e.target.closest('[data-ngrip]');
+    if (ngrip && nodeEl) { // resize an item from a corner, opposite corner fixed (like images)
+      e.preventDefault();
+      const n = nodeById(loop, nodeEl.dataset.id), sz = sizes[n.id] || { w: NODE_W, h: 56 }, g = ngrip.dataset.ngrip;
+      snapshot();
+      drag = { mode: 'nscale', id: n.id, g, k0: n.scale || 1, w0: sz.w, h0: sz.h,
+        ax: g.includes('w') ? n.x + sz.w : n.x, ay: g.includes('n') ? n.y + sz.h : n.y, moved: false };
       return;
     }
     const grip = e.target.closest('[data-grip]');
@@ -1988,6 +2045,7 @@
     if (e.pointerType === 'mouse') {
       const r = $('viewport').getBoundingClientRect();
       pointerWorld = e.clientX >= r.left && e.clientX <= r.right && e.clientY >= r.top && e.clientY <= r.bottom ? toWorld(e.clientX, e.clientY) : null;
+      if (pointerWorld && !(drag && drag.mode === 'nscale')) $('sbCoords').textContent = `X ${Math.round(pointerWorld.x)}   Y ${Math.round(pointerWorld.y)}`;
     }
     if (touches.has(e.pointerId) && (!drag || drag.mode !== 'pinch')) touches.set(e.pointerId, { x: e.clientX, y: e.clientY });
     if (!drag) return;
@@ -2007,23 +2065,51 @@
       if (!drag.moved && Math.hypot(e.clientX - drag.sx, e.clientY - drag.sy) < 4) return;
       drag.moved = true;
       const w = toWorld(e.clientX, e.clientY);
-      const ddx = snap(w.x - drag.dx) - drag.x0, ddy = snap(w.y - drag.dy) - drag.y0;
+      let nx = w.x - drag.dx, ny = w.y - drag.dy, lockX = false, lockY = false;
+      if (draft.ortho) { // keep the larger movement, lock the other axis at the start position
+        if (Math.abs(nx - drag.x0) >= Math.abs(ny - drag.y0)) { ny = drag.y0; lockY = true; } else { nx = drag.x0; lockX = true; }
+      }
+      if (!lockX) nx = snap(nx);
+      if (!lockY) ny = snap(ny);
+      if (draft.osnap) {
+        const r = osnapAlign(loop, nodeById(loop, drag.id), nx, ny, new Set(drag.movers.map(c => c.k.id)), lockX, lockY);
+        nx = Math.round(r.nx); ny = Math.round(r.ny);
+        showGuides(r.guides);
+      }
+      const ddx = nx - drag.x0, ddy = ny - drag.y0;
       drag.movers.forEach(c => {
         c.k.x = clampX(c.x + ddx); c.k.y = clampY(c.y + ddy);
         if (c.el) { c.el.style.left = c.k.x + 'px'; c.el.style.top = c.k.y + 'px'; c.el.classList.add('dragging'); }
       });
       drawWires();
+    } else if (drag.mode === 'nscale') {
+      drag.moved = true;
+      const n = nodeById(loop, drag.id), w = toWorld(e.clientX, e.clientY);
+      const ratio = Math.max(Math.abs(w.x - drag.ax) / drag.w0, Math.abs(w.y - drag.ay) / drag.h0);
+      let k = Math.min(3, Math.max(0.5, drag.k0 * ratio));
+      if (draft.snap) k = Math.round(k * 20) / 20; // 5 % steps
+      const nw = drag.w0 * k / drag.k0, nh = drag.h0 * k / drag.k0;
+      n.x = Math.round(drag.g.includes('w') ? drag.ax - nw : drag.ax);
+      n.y = Math.round(drag.g.includes('n') ? drag.ay - nh : drag.ay);
+      if (k === 1) delete n.scale; else n.scale = k;
+      renderDiagram();
+      const tip = $('sbCoords'); if (tip) tip.textContent = `SIZE ${Math.round(k * 100)} %`;
     } else if (drag.mode === 'label') {
       if (!drag.moved && Math.hypot(e.clientX - drag.sx, e.clientY - drag.sy) < 4) return;
       if (!drag.moved) { drag.moved = true; document.body.classList.add('moving-label'); }
       const l = linkById(loop, drag.id);
-      l.lblOff = { dx: Math.round(drag.off0.dx + (e.clientX - drag.sx) / zoom), dy: Math.round(drag.off0.dy + (e.clientY - drag.sy) / zoom) };
+      let mdx = (e.clientX - drag.sx) / zoom, mdy = (e.clientY - drag.sy) / zoom;
+      if (draft.ortho) { if (Math.abs(mdx) >= Math.abs(mdy)) mdy = 0; else mdx = 0; }
+      l.lblOff = { dx: snap(drag.off0.dx + mdx), dy: snap(drag.off0.dy + mdy) };
       drawWires();
     } else if (drag.mode === 'imgmove') {
       if (!drag.moved && Math.hypot(e.clientX - drag.sx, e.clientY - drag.sy) < 3) return;
       drag.moved = true;
       const im = imageById(loop, drag.id), w = toWorld(e.clientX, e.clientY);
-      im.x = snap(w.x - drag.dx); im.y = snap(w.y - drag.dy);
+      if (drag.ix0 == null) { drag.ix0 = im.x; drag.iy0 = im.y; }
+      let ix = w.x - drag.dx, iy = w.y - drag.dy;
+      if (draft.ortho) { if (Math.abs(ix - drag.ix0) >= Math.abs(iy - drag.iy0)) iy = drag.iy0; else ix = drag.ix0; }
+      im.x = snap(ix); im.y = snap(iy);
       drag.el.style.left = im.x + 'px'; drag.el.style.top = im.y + 'px';
     } else if (drag.mode === 'imgscale') {
       drag.moved = true;
@@ -2042,12 +2128,14 @@
       const w = toWorld(e.clientX, e.clientY);
       l['f' + drag.end] = { x: Math.round(w.x), y: Math.round(w.y) };
       drag.el.style.pointerEvents = 'none';
-      const under = document.elementFromPoint(e.clientX, e.clientY);
-      const t = under && under.closest('.node');
-      const tid = t ? t.dataset.id : null;
+      const oe0 = l[drag.end === 'a' ? 'b' : 'a'];
+      const tn = osnapTarget(loop, e, w, oe0);
+      const tid = tn ? tn.id : null;
       document.querySelectorAll('.node.target').forEach(x => x.classList.remove('target'));
-      if (tid) t.classList.add('target');
+      const te = tid && document.querySelector(`#nodes .node[data-id="${tid}"]`);
+      if (te) te.classList.add('target');
       drag.target = tid;
+      if (tn) { const c2 = center(tn); showGuides([{ kind: 'm', x: c2.x, y: c2.y, text: `Connect to ${tn.tag}` }]); } else clearGuides();
       drawWires();
       const h = document.querySelector(`[data-open="${drag.lid}:${drag.end}"]`); if (h) { h.style.pointerEvents = 'none'; drag.el = h; }
     } else if (drag.mode === 'box') {
@@ -2079,14 +2167,15 @@
       const tw = $('tempWire');
       tw.style.display = '';
       tw.setAttribute('d', `M${p.x},${p.y} H${mx} V${w.y} H${w.x}`);
-      const under = document.elementFromPoint(e.clientX, e.clientY);
-      const t = under && under.closest('.node');
-      const tid = t && t.dataset.id !== drag.from ? t.dataset.id : null;
+      const tn = osnapTarget(loop, e, w, drag.from);
+      const tid = tn ? tn.id : null;
       if (tid !== drag.target) {
         document.querySelectorAll('.node.target').forEach(x => x.classList.remove('target'));
-        if (tid) t.classList.add('target');
+        const te = tid && document.querySelector(`#nodes .node[data-id="${tid}"]`);
+        if (te) te.classList.add('target');
         drag.target = tid;
       }
+      if (tn) { const c2 = center(tn); showGuides([{ kind: 'm', x: c2.x, y: c2.y, text: `Connect to ${tn.tag}` }]); } else clearGuides();
     } else if (drag.mode === 'pan') {
       const dx = e.clientX - drag.sx, dy = e.clientY - drag.sy;
       if (!drag.moved && Math.hypot(dx, dy) < 4) return;
@@ -2125,8 +2214,11 @@
         addNode(d.type, spot.x, spot.y);
       }
     } else if (d.mode === 'node') {
+      clearGuides();
       if (d.moved) { save(); renderDiagram(); }
       else setSelection([d.id]);
+    } else if (d.mode === 'nscale') {
+      if (d.moved) { save(); renderInspector(); }
     } else if (d.mode === 'label') {
       document.body.classList.remove('moving-label');
       const l = linkById(loop, d.id);
@@ -2138,6 +2230,7 @@
     } else if (d.mode === 'imgmove' || d.mode === 'imgscale') {
       if (d.moved) { save(); renderInspector(); }
     } else if (d.mode === 'openend') {
+      clearGuides();
       document.querySelectorAll('.node.target').forEach(x => x.classList.remove('target'));
       const l = linkById(loop, d.lid);
       if (d.target && l) {
@@ -2158,6 +2251,7 @@
       else if (d.imgClick) select({ kind: 'image', id: d.imgClick });
       else if (sel) select(null);
     } else if (d.mode === 'link') {
+      clearGuides();
       document.body.classList.remove('linking');
       document.querySelectorAll('.node.target').forEach(x => x.classList.remove('target'));
       if (d.target) {
@@ -2175,6 +2269,7 @@
     }
   }
   function onPointerCancel(e) {
+    clearGuides();
     document.body.classList.remove('moving-label');
     if (e) touches.delete(e.pointerId);
     if (drag && drag.ghost) drag.ghost.remove();
@@ -2196,6 +2291,12 @@
   function onInspectorInput(e) {
     const t = e.target;
     if (t.dataset.tf && typeDraft) { onTypeInput(e); return; }
+    if (t.dataset.scale) {
+      if (e.type !== 'change' || t.value === '') return;
+      const n = sel && sel.kind === 'node' && nodeById(cur(), sel.id);
+      if (n) setItemScale(n, Number(t.value) / 100);
+      return;
+    }
     if (t.dataset.tmap) {
       if (e.type !== 'change') return;
       const l = sel && sel.kind === 'link' && linkById(cur(), sel.id);
@@ -2287,6 +2388,11 @@
     if (t.closest('[data-tmreset]')) {
       const l = sel && sel.kind === 'link' && linkById(loop, sel.id);
       if (l) { delete l.ends.a.tmap; delete l.ends.b.tmap; renderDiagram(); renderInspector(); save(); }
+      return;
+    }
+    if (t.closest('[data-scalereset]')) {
+      const n = sel && sel.kind === 'node' && nodeById(loop, sel.id);
+      if (n) setItemScale(n, 1);
       return;
     }
     if (t.closest('[data-lblreset]')) {
@@ -2409,6 +2515,66 @@
     renderAll(); save();
   }
 
+  // ---------------------------------------------------------------- status bar and object snap
+  function updateStatusBar() {
+    ['snap', 'ortho', 'osnap'].forEach(k => { const b = $('tg-' + k); b.classList.toggle('on', !!draft[k]); b.setAttribute('aria-pressed', !!draft[k]); });
+    $('snapStep').value = String(draft.step);
+    const nh = cur().links.filter(l => l.hidden).length;
+    const hb = $('tg-hidden');
+    hb.hidden = nh === 0;
+    hb.textContent = showHiddenAll ? `HIDDEN SHOWN (${nh})` : `${nh} HIDDEN`;
+    hb.classList.toggle('on', showHiddenAll);
+    hb.setAttribute('aria-pressed', showHiddenAll);
+  }
+  function toggleDraft(k) {
+    draft[k] = !draft[k]; saveDraft(); updateStatusBar();
+    toast(`${k.toUpperCase()} ${draft[k] ? 'on' : 'off'}`);
+  }
+  // guide lines and snap markers, drawn in world coordinates above the drawing
+  function showGuides(list) {
+    let layer = document.querySelector('#world > .osnap-layer');
+    if (!layer) { layer = document.createElement('div'); layer.className = 'osnap-layer'; $('world').appendChild(layer); }
+    layer.innerHTML = list.map(g => g.kind === 'v'
+      ? `<div class="og-line v" style="left:${g.x}px;top:${Math.min(g.y0, g.y1)}px;height:${Math.abs(g.y1 - g.y0)}px"></div>`
+      : g.kind === 'h' ? `<div class="og-line h" style="top:${g.y}px;left:${Math.min(g.x0, g.x1)}px;width:${Math.abs(g.x1 - g.x0)}px"></div>`
+      : `<div class="og-mark" style="left:${g.x}px;top:${g.y}px"></div>${g.text ? `<div class="og-tip" style="left:${g.x}px;top:${g.y}px">${esc(g.text)}</div>` : ''}`).join('');
+  }
+  const clearGuides = () => { const l = document.querySelector('#world > .osnap-layer'); if (l) l.innerHTML = ''; };
+  // align the moving item's centre with other items' centres (x and y separately)
+  function osnapAlign(loop, prim, nx, ny, skip, lockX, lockY) {
+    const s = sizes[prim.id] || { w: NODE_W, h: 56 };
+    const cx = nx + s.w / 2, cy = ny + s.h / 2;
+    const thr = 9 / zoom;
+    let bx = null, by = null;
+    loop.nodes.forEach(o => {
+      if (skip.has(o.id)) return;
+      const c = center(o);
+      if (!lockX && Math.abs(c.x - cx) <= thr && (!bx || Math.abs(c.x - cx) < Math.abs(bx.c.x - cx))) bx = { o, c };
+      if (!lockY && Math.abs(c.y - cy) <= thr && (!by || Math.abs(c.y - cy) < Math.abs(by.c.y - cy))) by = { o, c };
+    });
+    const guides = [];
+    if (bx) { nx += bx.c.x - cx; guides.push({ kind: 'v', x: bx.c.x, y0: bx.c.y, y1: (by ? by.c.y : cy) }); guides.push({ kind: 'm', x: bx.c.x, y: bx.c.y, text: `Centre: ${bx.o.tag}` }); }
+    if (by) { ny += by.c.y - cy; guides.push({ kind: 'h', y: by.c.y, x0: by.c.x, x1: nx + s.w / 2 }); if (!bx || by.o !== bx.o) guides.push({ kind: 'm', x: by.c.x, y: by.c.y, text: `Centre: ${by.o.tag}` }); }
+    return { nx, ny, guides };
+  }
+  // the item a cable end would snap to: under the pointer, or the nearest one within reach
+  function osnapTarget(loop, e, w, exclude) {
+    const under = document.elementFromPoint(e.clientX, e.clientY);
+    const t = under && under.closest('#nodes .node');
+    if (t && t.dataset.id !== exclude) return nodeById(loop, t.dataset.id);
+    if (!draft.osnap) return null;
+    const reach = 40 / zoom;
+    let best = null, bd = Infinity;
+    loop.nodes.forEach(n => {
+      if (n.id === exclude) return;
+      const f = fullBox(n);
+      const dx = Math.max(f.x0 - w.x, 0, w.x - f.x1), dy = Math.max(f.y0 - w.y, 0, w.y - f.y1);
+      const d = Math.hypot(dx, dy);
+      if (d <= reach && d < bd) { bd = d; best = n; }
+    });
+    return best;
+  }
+
   // ---------------------------------------------------------------- PDF export
   // The drawing is HTML + SVG, so the browser's print engine produces a vector PDF ("Save as
   // PDF"): sharp at any zoom, searchable text, no external library. We build a print-only sheet
@@ -2437,19 +2603,19 @@
     const margin = 10, tbH = 24; // mm: page margin and title block height
     const areaW = (pw - 2 * margin) * MM, areaH = (ph - 2 * margin - tbH) * MM;
     // render the drawing as on screen (no selection, no highlight), then copy it
-    const prevSel = sel, prevSelNodes = selNodes;
-    sel = null; selNodes = new Set();
+    const prevSel = sel, prevSelNodes = selNodes, prevShowAll = showHiddenAll;
+    sel = null; selNodes = new Set(); showHiddenAll = false;
     renderDiagram();
     const ext = drawingExtents(loop);
     const world = $('world').cloneNode(true);
-    sel = prevSel; selNodes = prevSelNodes;
+    sel = prevSel; selNodes = prevSelNodes; showHiddenAll = prevShowAll;
     renderDiagram();
     world.removeAttribute('id');
     const wl = world.querySelector('#wires'), nl = world.querySelector('#nodes');
     if (wl) wl.classList.add('ps-wires');
     if (nl) nl.classList.add('ps-nodes');
     world.querySelectorAll('[id]').forEach(e => e.removeAttribute('id')); // no duplicate ids in the page
-    world.querySelectorAll('.port, .grip, .selbox').forEach(e => e.remove());
+    world.querySelectorAll('.port, .grip, .selbox, .eye, .wlabel.is-hidden, .osnap-layer').forEach(e => e.remove());
     world.querySelectorAll('.sel').forEach(e => e.classList.remove('sel'));
     let scale = 1, tx = 0, ty = 0;
     if (ext) {
@@ -2599,6 +2765,10 @@
     $('zoomOut').onclick = () => applyZoom(zoom / 1.15);
     $('zoomFit').onclick = fit;
     $('btnMirror').onclick = mirror;
+    ['snap', 'ortho', 'osnap'].forEach(k => { $('tg-' + k).onclick = () => toggleDraft(k); });
+    $('snapStep').onchange = e => { draft.step = Number(e.target.value) || 10; saveDraft(); };
+    $('tg-hidden').onclick = () => { showHiddenAll = !showHiddenAll; renderDiagram(); updateStatusBar(); };
+    updateStatusBar();
     // PDF dialog
     let pdfOpts = { paper: 'A3', orient: 'landscape', colour: 'colour', orders: 'none' };
     try { pdfOpts = Object.assign(pdfOpts, JSON.parse(localStorage.getItem('loop-planner-pdf')) || {}); } catch (e) { /* defaults */ }
@@ -2673,6 +2843,9 @@
       if ((e.key === 'Delete' || e.key === 'Backspace') && sel && view === 'diagram') { e.preventDefault(); deleteSelected(); }
       if (e.key === 'Escape' && cablePick) { stopCablePick(); toast('Done placing cables.'); return; }
       if ((e.key === 'f' || e.key === 'F') && !e.ctrlKey && !e.metaKey && !e.altKey && view === 'diagram') { e.preventDefault(); toggleFlagSelection(); return; }
+      if ((e.key === 'h' || e.key === 'H') && !e.ctrlKey && !e.metaKey && !e.altKey && view === 'diagram' && sel && sel.kind === 'link') { e.preventDefault(); toggleCableHidden(linkById(cur(), sel.id)); return; }
+      const fk = { F9: 'snap', F8: 'ortho', F3: 'osnap' }[e.key];
+      if (fk && view === 'diagram') { e.preventDefault(); toggleDraft(fk); return; }
       if (e.key === 'Escape' && sel) select(null);
       if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'a' && view === 'diagram') { e.preventDefault(); setSelection(cur().nodes.map(n => n.id)); }
       if ((e.ctrlKey || e.metaKey) && !e.shiftKey && !e.altKey && view === 'diagram') {

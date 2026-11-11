@@ -95,6 +95,15 @@
         <span>Drag a transmitter, junction box, terminal strip or I/O card onto the sheet. Then drag from a round handle on one item to another to draw a cable.</span>
       </div>
     </div>
+    <div class="statusbar" role="toolbar" aria-label="Drafting aids">
+      <button id="tg-snap" class="tg" aria-pressed="true" title="SNAP (F9): moves snap to the grid step">SNAP</button>
+      <label class="sr" for="snapStep">Snap step</label>
+      <select id="snapStep" title="Snap step"><option value="10">10</option><option value="20">20</option><option value="50">50</option></select>
+      <button id="tg-ortho" class="tg" aria-pressed="false" title="ORTHO (F8): drags only horizontal or vertical">ORTHO</button>
+      <button id="tg-osnap" class="tg" aria-pressed="true" title="OSNAP (F3): align with other items; cables snap to the nearest item">OSNAP</button>
+      <button id="tg-hidden" class="tg" aria-pressed="false" title="Show cables you hid, temporarily" hidden></button>
+      <span id="sbCoords" class="sb-coords" aria-live="off">X 0   Y 0</span>
+    </div>
     <div class="legend">
       <span><i class="dot todo"></i>To order</span>
       <span><i class="dot ordered"></i>Ordered</span>
