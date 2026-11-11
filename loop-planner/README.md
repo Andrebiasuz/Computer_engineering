@@ -136,6 +136,20 @@ line points back to the cable when it is moved away. *Reset label position*
 in the cable's panel puts it back; a plain click on a label still selects
 the cable.
 
+**Terminals on the canvas:** double-click a terminal of a strip to open a
+small editor. It shows what lands on each side, lets you give the terminal
+another number (every core on it follows) and deletes a spare terminal; the
+numbers after it close up. *Remove spares* deletes every spare terminal of
+that strip at once (also in the item's terminal schedule). A terminal that
+still carries cores cannot be deleted: move its cores first.
+
+**Wiring cores on the canvas:** select a cable (or a strip) and every core
+landing on a strip gets a small round grip at its terminal. Drag a grip onto
+any terminal of any strip to land that core there; the target terminal is
+highlighted while you drag. Dropping on an item with terminals but not on a
+terminal uses its next free number. The *Cores & terminals* table in the
+cable's panel shows the same connections.
+
 **Item text** (tag, service and chips under a symbol) can be dragged
 anywhere too: only the text moves, with a dashed leader line back to its
 symbol, and it travels with the symbol when the item is moved. Dropping it
