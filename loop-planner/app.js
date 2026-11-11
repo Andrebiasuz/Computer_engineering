@@ -29,7 +29,8 @@
 
   // Item spec: [key, name, category, qty(ctx) -> number, unit, hint(ctx) -> string]
   const TB_ITEMS = [
-    ['tb', 'Terminal blocks', 'terminal', c => c.terminals || '', 'pcs', c => c.cores ? `${c.terminals} terminals used by ${c.cores} cores landing. Add spares.` : 'Count follows the cables you connect'],
+    ['tb', 'Terminal blocks', 'terminal', c => (c.terminals - (c.exiTerminals || 0)) || '', 'pcs', c => c.cores ? `${c.terminals - (c.exiTerminals || 0)} terminals used by ${c.cores} cores landing. Add spares.` : 'Count follows the cables you connect'],
+    ['tbexi', 'Ex i terminal blocks (light blue)', 'terminal', c => c.exiTerminals || '', 'pcs', c => `${c.exiTerminals} terminals of intrinsically safe circuits`],
     ['endplate', 'End plates', 'terminal', () => 1, 'pcs'],
     ['endstop', 'End stops / end clamps', 'terminal', () => 2, 'pcs'],
     ['jumper', 'Bridging jumpers (commons, 0 V, screens)', 'terminal', null, 'pcs'],
@@ -222,6 +223,10 @@
   // Items used to be 168 px wide cards; symbols are about 60 px. On first load with symbols,
   // shift each item so its centre stays where the card's centre was (layout looks the same).
   let migratedNow = false; // set when an older layout was converted, so it gets saved once
+  function migrateHiddenInfo(data) { // earlier versions hid the whole cable; now only its information
+    (data.loops || []).forEach(lp => (lp.links || []).forEach(k => { if (k.hidden) { k.infoHidden = true; delete k.hidden; } }));
+    return data;
+  }
   function migrateToSymbols(data) {
     if (data.symbolVersion >= 2) return data;
     migratedNow = true;
@@ -246,7 +251,7 @@
         const data = JSON.parse(raw);
         if (data && Array.isArray(data.loops) && data.loops.length) {
           if (!Array.isArray(data.customTypes)) data.customTypes = starterTypes();
-          return migrateToSymbols(data);
+          return migrateToSymbols(migrateHiddenInfo(data));
         }
       }
     } catch (e) { /* storage unavailable: start with the example */ }
@@ -438,7 +443,7 @@
   const draft = { snap: true, ortho: false, osnap: true, step: 10 };
   try { Object.assign(draft, JSON.parse(localStorage.getItem(DRAFT_KEY)) || {}); } catch (e) { /* defaults */ }
   const saveDraft = () => { try { localStorage.setItem(DRAFT_KEY, JSON.stringify(draft)); } catch (e) { /* not saved */ } };
-  let showHiddenAll = false; // temporarily show cables hidden with the eye button
+  let showHiddenAll = false; // temporarily show cable information hidden with the eye button
 
   // ---------------------------------------------------------------- terminals (X10:1 …)
   // Items with a terminal strip: panel equipment, enclosures, terminal strips and anything
@@ -466,54 +471,94 @@
     if (Math.abs(co.x - cm.x) < (cm.w + co.w) / 2 + 30) return 'r'; // stacked: both ends on the right
     return co.x > cm.x ? 'r' : 'l';
   }
+  // the item a core lands on: the cable end's item, or another strip chosen for that core
+  function coreTarget(loop, l, end, core, plan) {
+    const t = (l.ends[end].cmap || {})[core];
+    return t && t !== l[end] && plan[t] ? t : l[end];
+  }
+  // side of `target` that faces the cable end's item (for cores moved to another strip)
+  function sideFacing(loop, l, end, target) {
+    const me = center(nodeById(loop, target));
+    const fromN = nodeById(loop, l[end]);
+    const from = fromN ? center(fromN) : Object.assign({ w: 0, h: 0 }, l['f' + end] || { x: me.x + 1, y: me.y });
+    if (Math.abs(from.x - me.x) < (me.w + from.w) / 2 + 30) return 'r';
+    return from.x > me.x ? 'r' : 'l';
+  }
   function terminalPlan(loop) {
     const plan = {};
-    loop.nodes.forEach(n => { if (isTermItem(n)) plan[n.id] = { used: { l: {}, r: {} }, ends: {}, rows: [] }; });
-    const ends = [];
-    loop.links.forEach(l => ['a', 'b'].forEach(end => { if (plan[l[end]]) ends.push({ l, end, P: plan[l[end]], side: endSide(loop, l, end) }); }));
-    // numbers typed by the user first, then automatic numbers fill the free terminals
-    ends.forEach(e => Object.entries(e.l.ends[e.end].tmap || {}).forEach(([core, num]) => {
-      if (coreKeys(e.l).includes(core) && String(num).trim()) (e.P.used[e.side][String(num).trim()] = e.P.used[e.side][String(num).trim()] || []).push({ l: e.l, core });
+    loop.nodes.forEach(n => { if (isTermItem(n)) plan[n.id] = { used: { l: {}, r: {} }, ends: {}, rows: [], exi: new Set(), mixed: new Set() }; });
+    // groups: the cores of one cable end landing on one item (the end's own item, or another strip)
+    const groups = [];
+    loop.links.forEach(l => ['a', 'b'].forEach(end => {
+      const byItem = {};
+      coreKeys(l).forEach(core => { const t = coreTarget(loop, l, end, core, plan); (byItem[t] = byItem[t] || []).push(core); });
+      Object.entries(byItem).forEach(([item, coresHere]) => {
+        if (!item || !plan[item]) return;
+        const main = item === l[end];
+        groups.push({ l, end, item, P: plan[item], main, cores: coresHere, side: main ? endSide(loop, l, end) : sideFacing(loop, l, end, item), key: l.id + ':' + end + (main ? '' : ':f') });
+      });
     }));
-    // natural numbers: every core of every cable, in order, per item side (1, 2, 3 …).
-    // A core keeps its natural number unless the user typed one, so changing one core never
-    // renumbers the others; a moved core leaves its terminal free (a spare).
+    const use = (P, side, num, l, core) => {
+      (P.used[side][num] = P.used[side][num] || []).push({ l, core });
+      if (l.exi) P.exi.add(num);
+    };
+    // numbers typed by the user first
+    groups.forEach(g => Object.entries(g.l.ends[g.end].tmap || {}).forEach(([core, num]) => {
+      if (g.cores.includes(core) && String(num).trim()) use(g.P, g.side, String(num).trim(), g.l, core);
+    }));
+    // natural numbers on the cable end's own item: every core of the cable counts (1, 2, 3 …), so
+    // changing or moving one core never renumbers the others; a moved core leaves a spare terminal
     const natural = {};
-    const bumped = [];
-    ends.forEach(e => {
-      const tm = e.l.ends[e.end].tmap || {};
-      const nk = e.l[e.end] + e.side;
-      const list = coreKeys(e.l).map(core => {
+    const later = []; // cores whose natural terminal is taken, and cores moved to another strip
+    groups.filter(g => g.main).forEach(g => {
+      const tm = g.l.ends[g.end].tmap || {};
+      const nk = g.item + g.side;
+      const list = [];
+      coreKeys(g.l).forEach(core => {
         const nat = natural[nk] = (natural[nk] || 0) + 1;
-        const manual = tm[core] != null && String(tm[core]).trim();
-        if (manual) return { core, num: String(tm[core]).trim(), manual: true };
+        if (!g.cores.includes(core)) return; // moved to another strip: its terminal here stays free
+        if (tm[core] != null && String(tm[core]).trim()) { list.push({ core, num: String(tm[core]).trim(), manual: true }); return; }
         const c = { core, num: String(nat), manual: false };
-        if (e.P.used[e.side][c.num]) bumped.push({ e, c }); // its terminal was taken by a typed number
-        else e.P.used[e.side][c.num] = [{ l: e.l, core }];
+        if (g.P.used[g.side][c.num]) later.push({ g, c }); else use(g.P, g.side, c.num, g.l, core);
+        list.push(c);
+      });
+      if (list.length) g.P.ends[g.key] = { side: g.side, list };
+    });
+    groups.filter(g => !g.main).forEach(g => {
+      const tm = g.l.ends[g.end].tmap || {};
+      const list = g.cores.map(core => {
+        if (tm[core] != null && String(tm[core]).trim()) return { core, num: String(tm[core]).trim(), manual: true };
+        const c = { core, num: '', manual: false };
+        later.push({ g, c });
         return c;
       });
-      e.P.ends[e.l.id + ':' + e.end] = { side: e.side, list };
+      g.P.ends[g.key] = { side: g.side, list, from: g.end };
     });
-    // cores pushed off their terminal go to the next free numbers after the last one used
-    bumped.forEach(({ e, c }) => {
-      const nums = Object.keys(e.P.used[e.side]).filter(x => /^\d+$/.test(x)).map(Number);
-      let n = Math.max(natural[e.l[e.end] + e.side] || 0, nums.length ? Math.max(...nums) : 0) + 1;
-      while (e.P.used[e.side][String(n)]) n++;
+    // the rest go to the next free numbers after the last one used on that side
+    later.forEach(({ g, c }) => {
+      const nums = Object.keys(g.P.used[g.side]).filter(x => /^\d+$/.test(x)).map(Number);
+      let n = Math.max(natural[g.item + g.side] || 0, nums.length ? Math.max(...nums) : 0) + 1;
+      while (g.P.used[g.side][String(n)]) n++;
       c.num = String(n);
-      e.P.used[e.side][c.num] = [{ l: e.l, core: c.core }];
+      use(g.P, g.side, c.num, g.l, c.core);
     });
     Object.values(plan).forEach(P => {
       const labels = new Set([...Object.keys(P.used.l), ...Object.keys(P.used.r)]);
       const nums = [...labels].filter(x => /^\d+$/.test(x)).map(Number);
       const max = nums.length ? Math.max(...nums) : 0;
       P.rows = Array.from({ length: max }, (_, i) => String(i + 1)).concat([...labels].filter(x => !/^\d+$/.test(x)).sort());
+      // intrinsically safe and other circuits must not share a terminal
+      labels.forEach(r => {
+        const all = [...(P.used.l[r] || []), ...(P.used.r[r] || [])];
+        if (all.some(u => u.l.exi) && all.some(u => !u.l.exi)) P.mixed.add(r);
+      });
     });
     return plan;
   }
-  function stripSVG(rows, k) {
+  function stripSVG(rows, k, exi) {
     k = k || 1;
     return `<svg class="isym strip" viewBox="0 0 ${TSW} ${rows.length * TROW + 2}" width="${(TSW * k).toFixed(1)}" height="${((rows.length * TROW + 2) * k).toFixed(1)}" aria-hidden="true">${rows.map((r, i) =>
-      `<rect x="1" y="${1 + i * TROW}" width="${TSW - 2}" height="${TROW}" class="s-f"/><text x="${TSW / 2}" y="${1 + i * TROW + 10.5}" class="s-n">${esc(r)}</text>`).join('')}</svg>`;
+      `<rect x="1" y="${1 + i * TROW}" width="${TSW - 2}" height="${TROW}" class="s-f${exi && exi.has(r) ? ' exi' : ''}"/><text x="${TSW / 2}" y="${1 + i * TROW + 10.5}" class="s-n">${esc(r)}</text>`).join('')}</svg>`;
   }
   // where the strip of an item sits on the sheet (matches the DOM layout of .nsym)
   function stripGeom(n) {
@@ -536,7 +581,8 @@
     return {
       cores: sum, cables: ls.length,
       shielded: ls.filter(isShielded).length,
-      terminals: isTermItem(node) ? (terminalPlan(loop)[node.id] || { rows: [] }).rows.length : (sum ? Math.max(max, Math.ceil(sum / 2)) : 0)
+      terminals: isTermItem(node) ? (terminalPlan(loop)[node.id] || { rows: [] }).rows.length : (sum ? Math.max(max, Math.ceil(sum / 2)) : 0),
+      exiTerminals: isTermItem(node) ? ((terminalPlan(loop)[node.id] || {}).exi || new Set()).size : 0
     };
   }
   function specToGen(spec, ctx) {
@@ -545,7 +591,7 @@
   }
   function genNode(loop, node) {
     const ctx = nodeCtx(loop, node);
-    return T(node.type).items.map(s => specToGen(s, ctx));
+    return T(node.type).items.filter(s => s[0] !== 'tbexi' || ctx.exiTerminals).map(s => specToGen(s, ctx));
   }
   function genLink(loop, link) {
     const c = CABLES[link.cable];
@@ -560,6 +606,7 @@
       else if (!c.fixed) desc += `, ${n} cores`;
       desc += size;
       if (link.armoured) desc += ', armoured';
+      if (link.exi) desc += ', Ex i (light blue sheath)';
       out.push({ key: 'cable', name: desc, cat: 'cable', auto: len ? Math.ceil(len * 1.1) : '', unit: 'm',
         hint: len ? `${len} m route + 10% for terminations and slack` : 'Set the route length to get a quantity' });
     } else {
@@ -854,13 +901,14 @@
 
   const EYE = '<svg viewBox="0 0 16 16" aria-hidden="true"><path d="M1 8s2.5-4.5 7-4.5S15 8 15 8s-2.5 4.5-7 4.5S1 8 1 8z"/><circle cx="8" cy="8" r="2.2"/></svg>';
   const EYE_OFF = '<svg viewBox="0 0 16 16" aria-hidden="true"><path d="M1 8s2.5-4.5 7-4.5S15 8 15 8s-2.5 4.5-7 4.5S1 8 1 8z"/><path d="M2 14L14 2"/></svg>';
+  // hide a cable's information box (tag, type, chips); the cable itself stays on the drawing
   function toggleCableHidden(l) {
     if (!l) return;
-    l.hidden = !l.hidden;
-    if (!l.hidden) delete l.hidden;
+    l.infoHidden = !l.infoHidden;
+    if (!l.infoHidden) delete l.infoHidden;
     renderDiagram(); if (sel && sel.kind === 'link' && sel.id === l.id) renderInspector(); save();
     updateStatusBar();
-    toast(l.hidden ? `${l.tag} hidden. Click the eye on its tag (or press H) to show it again.` : `${l.tag} shown.`);
+    toast(l.infoHidden ? `Information of ${l.tag} hidden. Click the small eye (or press H) to show it again.` : `Information of ${l.tag} shown.`);
   }
   function renderDiagram() {
     const loop = cur();
@@ -884,7 +932,7 @@
           const one = selectedIds().length === 1 && selectedIds()[0] === n.id; // corner grips to resize, like images
           const grips = one ? ['nw', 'ne', 'sw', 'se'].map(g => `<span class="grip ${g}" data-ngrip="${g}" title="Drag to resize"></span>`).join('') : '';
           if (!showTerminals || !P || !P.rows.length) return symSVG(n.type, n.tag, null, k) + grips;
-          return (n.type === 'tb' ? '' : symSVG(n.type, n.tag, null, k)) + stripSVG(P.rows, k) + grips; // the terminal strip under the symbol
+          return (n.type === 'tb' ? '' : symSVG(n.type, n.tag, null, k)) + stripSVG(P.rows, k, P.exi) + grips; // the terminal strip under the symbol
         })()}</div>${badge}
         <div class="nlabel"><div class="node-title"><b>${esc(n.tag)}</b><small>${esc(n.desc || T(n.type).name)}</small>${n.inside && nodeById(loop, n.inside) ? `<small class="inside-tag">in ${esc(nodeById(loop, n.inside).tag)}</small>` : ''}</div>
           <div class="chips">${chipsHTML(items)}</div>${n.flag && n.flag.note ? `<div class="flag-note inline">${esc(n.flag.note)}</div>` : ''}</div>
@@ -899,10 +947,10 @@
       const spec = c.pairs ? `${Math.max(1, Number(l.n) || c.defN)} pr` : c.fixed ? c.short : `${cores(l)}${c.short}`;
       const lhits = items.filter(hlMatch).length;
       const lhl = hlActive() ? (lhits ? ' hl-on' : ' hl-off') : '';
-      const hid = l.hidden && !showHiddenAll;
-      html += `<div class="wlabel ${cls}${isSel ? ' sel' : ''}${lhl}${flagCls(l)}${hid ? ' is-hidden' : ''}${l.hidden && showHiddenAll ? ' was-hidden' : ''}" data-link="${l.id}" style="${flagStyle(l)}">${flagPin(l)}${lhits ? `<span class="hl-badge" title="${lhits} matching line${lhits > 1 ? 's' : ''}">${lhits}</span>` : ''}
-        <button class="eye" data-eye="${l.id}" title="${l.hidden ? 'Show this cable (H)' : 'Hide this cable (H)'}" aria-label="${l.hidden ? 'Show' : 'Hide'} cable ${esc(l.tag)}">${l.hidden ? EYE_OFF : EYE}</button>
-        <div class="wt">${esc(l.tag)} <small>${esc(spec)}${l.length ? ' · ' + esc(l.length) + ' m' : ''}</small></div>
+      const hid = l.infoHidden && !showHiddenAll;
+      html += `<div class="wlabel ${cls}${isSel ? ' sel' : ''}${lhl}${flagCls(l)}${hid ? ' info-hidden' : ''}${l.infoHidden && showHiddenAll ? ' was-hidden' : ''}${l.exi ? ' exi' : ''}" data-link="${l.id}" style="${flagStyle(l)}">${flagPin(l)}${lhits ? `<span class="hl-badge" title="${lhits} matching line${lhits > 1 ? 's' : ''}">${lhits}</span>` : ''}
+        <button class="eye" data-eye="${l.id}" title="${l.infoHidden ? `Show the information of ${esc(l.tag)} (H)` : 'Hide this information (H)'}" aria-label="${l.infoHidden ? 'Show' : 'Hide'} the information of cable ${esc(l.tag)}">${l.infoHidden ? EYE_OFF : EYE}</button>
+        <div class="wt">${esc(l.tag)} <small>${esc(spec)}${l.length ? ' · ' + esc(l.length) + ' m' : ''}</small>${l.exi ? '<b class="exi-tag" title="Intrinsically safe circuit">Ex i</b>' : ''}</div>
         <div class="chips">${chipsHTML(items)}</div></div>`;
     });
     nodesEl.innerHTML = html;
@@ -1098,12 +1146,12 @@
       const isSel = sel && sel.kind === 'link' && sel.id === l.id;
       const d = roundedPath(pts, 8);
       const whl = hlActive() ? (items.some(hlMatch) ? ' hl-on' : ' hl-off') : '';
-      const svgBefore = svg; // a hidden cable draws nothing but its small tag
-      const hideIt = l.hidden && !showHiddenAll;
+      const exi = l.exi ? ' exi' : ''; // intrinsically safe: blue cable and cores
       if (whl === ' hl-on') svg += `<path class="wire-glow" d="${d}"/>`;
-      svg += `<path class="wire ${cls}${isSel ? ' sel' : ''}${whl}" d="${d}"/>`;
-      svg += `<circle class="wire-end${whl}" cx="${pa.x.toFixed(1)}" cy="${pa.y.toFixed(1)}" r="4" style="fill:var(--${cls === 'done' ? 'have' : cls})"/>`;
-      svg += `<circle class="wire-end${whl}" cx="${pb.x.toFixed(1)}" cy="${pb.y.toFixed(1)}" r="4" style="fill:var(--${cls === 'done' ? 'have' : cls})"/>`;
+      svg += `<path class="wire ${cls}${isSel ? ' sel' : ''}${whl}${exi}" d="${d}"/>`;
+      const endFill = l.exi ? 'exi' : (cls === 'done' ? 'have' : cls);
+      svg += `<circle class="wire-end${whl}" cx="${pa.x.toFixed(1)}" cy="${pa.y.toFixed(1)}" r="4" style="fill:var(--${endFill})"/>`;
+      svg += `<circle class="wire-end${whl}" cx="${pb.x.toFixed(1)}" cy="${pb.y.toFixed(1)}" r="4" style="fill:var(--${endFill})"/>`;
       svg += `<path class="wire-hit" data-link="${l.id}" d="${d}"/>`;
       // cores: from the breakout point along a short trunk to each terminal of the strip
       [[r.ea, r.ga, r.sa, pa], [r.eb, r.gb, r.sb, pb]].forEach(([e, g, side, p]) => {
@@ -1111,18 +1159,43 @@
         const edge = side === 'r' ? g.right : g.left, dir = side === 'r' ? 1 : -1;
         e.list.forEach(c => {
           const y = g.rowY(c.num);
-          svg += `<path class="core ${cls}${whl}" d="M${p.x.toFixed(1)},${p.y.toFixed(1)} V${y.toFixed(1)} H${edge.toFixed(1)}"/>`;
+          svg += `<path class="core ${cls}${whl}${exi}" d="M${p.x.toFixed(1)},${p.y.toFixed(1)} V${y.toFixed(1)} H${edge.toFixed(1)}"/>`;
           svg += `<text class="core-no${whl}" x="${(edge + dir * 8).toFixed(1)}" y="${(y - 2.5).toFixed(1)}" text-anchor="middle">${esc(c.core)}</text>`;
+        });
+      });
+      // cores moved to another strip: from this cable end's point to their own terminals there
+      // they leave outward, pass above or below the cable end's own item, then run to the target strip
+      [['a', pa, r.sa], ['b', pb, r.sb]].forEach(([end, p, side]) => {
+        Object.keys(tplan).forEach(itemId => {
+          const fe = tplan[itemId].ends[l.id + ':' + end + ':f'];
+          const tn = fe && nodeById(loop, itemId);
+          const g = tn && stripGeom(tn);
+          if (!g) return;
+          const edge = fe.side === 'r' ? g.right : g.left, dir = fe.side === 'r' ? 1 : -1;
+          const tx = edge + dir * 14;
+          const src = nodeById(loop, l[end]);
+          fe.list.forEach((c, i) => {
+            const y = g.rowY(c.num);
+            let d = `M${p.x.toFixed(1)},${p.y.toFixed(1)}`;
+            if (src) {
+              const fb = fullBox(src);
+              const ox = p.x + (side === 'l' ? -1 : 1) * (8 + i * 3);
+              const cy = y >= p.y ? fb.y1 + 10 + i * 3 : fb.y0 - 10 - i * 3;
+              d += ` H${ox.toFixed(1)} V${cy.toFixed(1)}`;
+            }
+            d += ` H${tx.toFixed(1)} V${y.toFixed(1)} H${edge.toFixed(1)}`;
+            svg += `<path class="core moved ${cls}${whl}${exi}" d="${d}"/>`;
+            svg += `<text class="core-no${whl}" x="${(edge + dir * 8).toFixed(1)}" y="${(y - 2.5).toFixed(1)}" text-anchor="middle">${esc(c.core)}</text>`;
+          });
         });
       });
       // the label sits on the route unless the user dragged it; then a leader line ties it back
       const off = l.lblOff;
       const pos = off ? { x: best.x + off.dx, y: best.y + off.dy } : best;
-      if (off && Math.hypot(off.dx, off.dy) > 18) {
+      if (off && Math.hypot(off.dx, off.dy) > 18 && !(l.infoHidden && !showHiddenAll)) {
         svg += `<path class="leader${whl}" d="M${best.x.toFixed(1)},${best.y.toFixed(1)} L${pos.x.toFixed(1)},${pos.y.toFixed(1)}"/>`;
         svg += `<circle class="leader-dot${whl}" cx="${best.x.toFixed(1)}" cy="${best.y.toFixed(1)}" r="3.5"/>`;
       }
-      if (hideIt) svg = svgBefore;
       labels[l.id] = pos;
       labelPts[l.id] = pos;
       labelAnchors[l.id] = best;
@@ -1141,7 +1214,7 @@
     let cgrips = '';
     const sl = sel && sel.kind === 'link' && !cablePick && linkById(loop, sel.id);
     const ri = sl && routeInfo[sl.id];
-    if (ri && !(sl.hidden && !showHiddenAll)) { // AutoCAD-style grips: drag an end onto another item, or move the middle run
+    if (ri) { // AutoCAD-style grips: drag an end onto another item, or move the middle run
       if (!ri.freeA) cgrips += `<div class="cgrip end" data-endgrip="${sl.id}:a" style="left:${ri.pa.x}px;top:${ri.pa.y}px" title="Drag onto another item to move this end"></div>`;
       if (!ri.freeB) cgrips += `<div class="cgrip end" data-endgrip="${sl.id}:b" style="left:${ri.pb.x}px;top:${ri.pb.y}px" title="Drag onto another item to move this end"></div>`;
       cgrips += `<div class="cgrip mid ${ri.orient}" data-bendgrip="${sl.id}" style="left:${ri.mid.x}px;top:${ri.mid.y}px" title="Drag to move this run of the cable"></div>`;
@@ -1215,7 +1288,7 @@
     return `<h2>${esc(loop.name || 'Untitled loop')}</h2>
       <div id="summaryGrid" class="summary-grid">${summaryHTML(loop)}</div>
       ${flagListHTML(loop)}
-      <p class="tip">Select an item or a cable on the sheet to see its checklist. Drag from a round handle on the side of an item to another item to draw a cable. Drag a box on an empty part of the sheet to select several items: left to right selects items fully inside, right to left selects anything the box touches. Then drag one of them to move them together (drag an enclosure's dashed outline or label to move it with everything inside); Ctrl+C / Ctrl+V copies and pastes them at the mouse pointer (Ctrl+Shift+V keeps their order statuses). Ctrl+V with a picture on the clipboard (e.g. a screenshot) inserts it as an image; you can also drop image files on the sheet. Drag a selected item's corner grip to resize it. A selected cable has grips: drag an end onto another item to reroute it, or drag the middle grip to move its path. The eye on a cable's tag hides the cable (H). The status bar under the sheet has SNAP (F9), ORTHO (F8) and OSNAP (F3). The sheet is endless: the mouse wheel zooms at the cursor, drag with the middle button (or hold Space and drag) to pan, double-click the middle button to zoom extents. Click a status to step it: To order → Ordered → In stock → Not needed.</p>
+      <p class="tip">Select an item or a cable on the sheet to see its checklist. Drag from a round handle on the side of an item to another item to draw a cable. Drag a box on an empty part of the sheet to select several items: left to right selects items fully inside, right to left selects anything the box touches. Then drag one of them to move them together (drag an enclosure's dashed outline or label to move it with everything inside); Ctrl+C / Ctrl+V copies and pastes them at the mouse pointer (Ctrl+Shift+V keeps their order statuses). Ctrl+V with a picture on the clipboard (e.g. a screenshot) inserts it as an image; you can also drop image files on the sheet. Drag a selected item's corner grip to resize it. A selected cable has grips: drag an end onto another item to reroute it, or drag the middle grip to move its path. The eye on a cable's tag hides its information box (H); the cable stays drawn. The status bar under the sheet has SNAP (F9), ORTHO (F8) and OSNAP (F3). The sheet is endless: the mouse wheel zooms at the cursor, drag with the middle button (or hold Space and drag) to pan, double-click the middle button to zoom extents. Click a status to step it: To order → Ordered → In stock → Not needed.</p>
       ${(() => { const c = readClip(); return c && (c.nodes.length || c.cable) ? `<div class="del-row" style="margin-top:12px"><button class="btn ghost" data-clip="paste" title="Ctrl+V">${c.cable ? `Paste cable ${esc(c.cable.tag)}` : `Paste ${c.nodes.length} copied item${c.nodes.length > 1 ? 's' : ''}`}</button>${keepBox()}</div>` : ''; })()}
       ${checklistBlock('Whole-loop consumables')}`;
   }
@@ -1390,22 +1463,28 @@
   // which core goes to which terminal at each end; typing a number overrides the automatic one
   function coresTable(loop, l, na, nb) {
     const plan = terminalPlan(loop);
-    const at = (n, end) => n && plan[n.id] && plan[n.id].ends[l.id + ':' + end];
-    const ea = at(na, 'a'), eb = at(nb, 'b');
-    if (!ea && !eb) return '';
-    const cell = (n, end, e, core) => {
-      if (!e) return `<td class="muted">${n ? 'device' : 'open end'}</td>`;
-      const c = e.list.find(x => x.core === core);
-      const users = (plan[n.id].used[e.side][c.num] || []).filter(u => !(u.l.id === l.id && u.core === core));
+    const strips = loop.nodes.filter(o => plan[o.id]);
+    if (!strips.length || (!na && !nb)) return '';
+    const cell = (n, end, core) => {
+      if (!n) return '<td class="muted">open end</td>';
+      const target = coreTarget(loop, l, end, core, plan);
+      const tn = nodeById(loop, target);
+      const P = plan[target];
+      const entry = P && (P.ends[l.id + ':' + end + (target === l[end] ? '' : ':f')]);
+      const c = entry && entry.list.find(x => x.core === core);
+      const opts = [n].concat(strips.filter(o => o.id !== n.id && o.id !== l[end === 'a' ? 'b' : 'a']));
+      const select = `<select class="cmap" data-cmap="${end}|${esc(core)}" aria-label="Item for core ${esc(core)} at the ${end.toUpperCase()} end">${opts.map(o => `<option value="${o.id}" ${o.id === target ? 'selected' : ''}>${o.id === n.id ? '' : '→ '}${esc(o.tag)}</option>`).join('')}</select>`;
+      if (!c) return `<td title="Lands on the device itself"><div class="ccell">${select}</div></td>`;
+      const users = (P.used[entry.side][c.num] || []).filter(u => !(u.l.id === l.id && u.core === core));
       const clash = users.length ? ` title="Also used by ${users.map(u => `${u.l.tag} core ${u.core}`).join(', ')}"` : '';
-      return `<td class="${users.length ? 'clash' : ''}"${clash}><span class="tprefix">${esc(n.tag)}:</span><input type="text" data-tmap="${end}|${esc(core)}" value="${c.manual ? esc(c.num) : ''}" placeholder="${esc(c.num)}" aria-label="Terminal for core ${esc(core)} at ${esc(n.tag)}">${users.length ? '<b class="clash-mark">!</b>' : ''}</td>`;
+      return `<td class="${users.length ? 'clash' : ''}${target !== n.id ? ' moved' : ''}"${clash}><div class="ccell">${select}<span class="tprefix">:</span><input type="text" data-tmap="${end}|${esc(core)}" value="${c.manual ? esc(c.num) : ''}" placeholder="${esc(c.num)}" aria-label="Terminal for core ${esc(core)} at ${esc(tn.tag)}">${users.length ? '<b class="clash-mark">!</b>' : ''}</div></td>`;
     };
-    const anyManual = ['a', 'b'].some(end => Object.keys(l.ends[end].tmap || {}).length);
-    return `<h3><span>Cores &amp; terminals</span>${anyManual ? '<button class="btn ghost small" data-tmreset="1" title="Number all cores automatically again">Automatic numbers</button>' : ''}</h3>
+    const anyManual = ['a', 'b'].some(end => Object.keys(l.ends[end].tmap || {}).length || Object.keys(l.ends[end].cmap || {}).length);
+    return `<h3><span>Cores &amp; terminals</span>${anyManual ? '<button class="btn ghost small" data-tmreset="1" title="Land every core on the cable end\'s own item again, with automatic numbers">Reset cores</button>' : ''}</h3>
       <div class="otable-wrap"><table class="ctable"><thead><tr><th>Core</th><th>A end</th><th>B end</th></tr></thead><tbody>
-      ${coreKeys(l).map(core => `<tr><td class="cno">${core === 'S' ? 'Screen' : esc(core)}</td>${cell(na, 'a', ea, core)}${cell(nb, 'b', eb, core)}</tr>`).join('')}
+      ${coreKeys(l).map(core => `<tr><td class="cno">${core === 'S' ? 'Screen' : esc(core)}</td>${cell(na, 'a', core)}${cell(nb, 'b', core)}</tr>`).join('')}
       </tbody></table></div>
-      <p class="tip">Grey numbers are automatic. Type a terminal number to fix it; a red mark means two cores share a terminal on the same side.</p>`;
+      <p class="tip">Each core can land on another strip (choose it in the list) and terminal (type the number; grey numbers are automatic). A red mark means two cores share a terminal on the same side.</p>`;
   }
   // what lands on each terminal of an item, left and right side
   function terminalSchedule(loop, n) {
@@ -1414,8 +1493,8 @@
     const who = (side, r) => (P.used[side][r] || []).map(u => `${esc(u.l.tag)} <span class="muted">core ${esc(u.core)}</span>`).join('<br>') || '<span class="muted">–</span>';
     return `<h3><span>Terminals (${P.rows.length})</span></h3>
       <div class="otable-wrap"><table class="ctable"><thead><tr><th>Terminal</th><th>Left side</th><th>Right side</th></tr></thead><tbody>
-      ${P.rows.map(r => `<tr><td class="cno">${esc(termName(n, r))}</td><td${(P.used.l[r] || []).length > 1 ? ' class="clash"' : ''}>${who('l', r)}</td><td${(P.used.r[r] || []).length > 1 ? ' class="clash"' : ''}>${who('r', r)}</td></tr>`).join('')}
-      </tbody></table></div>`;
+      ${P.rows.map(r => `<tr${P.mixed.has(r) ? ' class="mixed" title="Ex i and other circuits on the same terminal: keep intrinsically safe circuits separate"' : ''}><td class="cno${P.exi.has(r) ? ' exi' : ''}">${esc(termName(n, r))}${P.mixed.has(r) ? ' <b class="clash-mark">!</b>' : ''}</td><td${(P.used.l[r] || []).length > 1 ? ' class="clash"' : ''}>${who('l', r)}</td><td${(P.used.r[r] || []).length > 1 ? ' class="clash"' : ''}>${who('r', r)}</td></tr>`).join('')}
+      </tbody></table></div>${P.mixed.size ? `<p class="tip warn-text">${P.mixed.size} terminal${P.mixed.size > 1 ? 's carry' : ' carries'} both Ex i and other circuits. Keep intrinsically safe circuits on their own (blue) terminals.</p>` : ''}`;
   }
 
   function linkInspector(loop, l) {
@@ -1454,7 +1533,8 @@
         <span></span><div class="row">
           <label><input id="f-shield" type="checkbox" data-bind="shielded" data-rerender="1" ${shielded ? 'checked' : ''}> Shielded</label>
           ${c.field ? `<label><input id="f-arm" type="checkbox" data-bind="armoured" ${l.armoured ? 'checked' : ''}> Armoured</label>` : ''}
-          <label title="Hide the cable's line on the drawing (H)"><input id="f-hidden" type="checkbox" data-bind="hidden" ${l.hidden ? 'checked' : ''}> Hidden on the drawing</label>
+          <label title="Blue cable and terminals; checked against other circuits"><input id="f-exi" type="checkbox" data-bind="exi" data-rerender="1" ${l.exi ? 'checked' : ''}> Ex i (intrinsically safe)</label>
+          <label title="Hide the information box of this cable on the drawing (H)"><input id="f-hidden" type="checkbox" data-bind="infoHidden" ${l.infoHidden ? 'checked' : ''}> Hide its information</label>
         </div>
         ${shielded ? `<label for="f-screen">Screen earth</label><select id="f-screen" data-bind="screenEnd">
           ${[['auto', 'Auto (panel side)'], ['a', `A end (${na ? na.tag : ''})`], ['b', `B end (${nb ? nb.tag : ''})`], ['both', 'Both ends'], ['none', 'Not earthed']]
@@ -1842,6 +1922,7 @@
     const links = clip.links.filter(l => map[l.a] && map[l.b]).map(src => {
       const l = JSON.parse(JSON.stringify(src));
       l.id = uid(); l.a = map[src.a]; l.b = map[src.b];
+      ['a', 'b'].forEach(e => { const cm = l.ends[e].cmap; if (cm) { Object.keys(cm).forEach(k => { if (map[cm[k]]) cm[k] = map[cm[k]]; else delete cm[k]; }); if (!Object.keys(cm).length) delete l.ends[e].cmap; } });
       l.tag = freeTag(src.tag, used);
       if (!keep) { resetStatuses(l); delete l.flag; }
       return l;
@@ -1859,7 +1940,7 @@
   function cableSettings(src, target, keep) {
     const c = JSON.parse(JSON.stringify(src));
     delete c.id; delete c.a; delete c.b; delete c.tag; delete c.lblOff; delete c.bend;
-    if (c.ends) { delete c.ends.a.tmap; delete c.ends.b.tmap; } // terminal numbers belong to the original items
+    if (c.ends) { delete c.ends.a.tmap; delete c.ends.b.tmap; delete c.ends.a.cmap; delete c.ends.b.cmap; } // terminal numbers belong to the original items
     if (!keep) {
       if (target) c.st = JSON.parse(JSON.stringify(target.st || {})); // matching settings keeps the target's own statuses
       else resetStatuses(c);
@@ -2322,7 +2403,7 @@
       if (!d.moved || !l) { if (l) select({ kind: 'link', id: l.id }); }
       else if (d.target && d.target !== d.orig) { // re-connect to the new item
         l[d.end] = d.target; delete l['f' + d.end];
-        delete l.ends[d.end].tmap; // terminal numbers belonged to the old item
+        delete l.ends[d.end].tmap; delete l.ends[d.end].cmap; // terminal numbers belonged to the old item
         delete l.bend;             // the old route no longer fits
         sel = { kind: 'link', id: l.id };
         renderAll(); save();
@@ -2339,7 +2420,7 @@
       document.querySelectorAll('.node.target').forEach(x => x.classList.remove('target'));
       const l = linkById(loop, d.lid);
       if (d.target && l) {
-        l[d.end] = d.target; delete l['f' + d.end]; delete l.ends[d.end].tmap;
+        l[d.end] = d.target; delete l['f' + d.end]; delete l.ends[d.end].tmap; delete l.ends[d.end].cmap;
         sel = { kind: 'link', id: l.id };
         renderAll(); save();
         toast(`${l.tag} connected to ${nodeById(loop, d.target).tag}.`);
@@ -2406,6 +2487,19 @@
       if (n) setItemScale(n, Number(t.value) / 100);
       return;
     }
+    if (t.dataset.cmap) {
+      if (e.type !== 'change') return;
+      const l = sel && sel.kind === 'link' && linkById(cur(), sel.id);
+      if (!l) return;
+      const [end, core] = t.dataset.cmap.split('|');
+      snapshot();
+      const cm = l.ends[end].cmap = l.ends[end].cmap || {};
+      if (t.value === l[end]) delete cm[core]; else cm[core] = t.value;
+      if (!Object.keys(cm).length) delete l.ends[end].cmap;
+      if (l.ends[end].tmap) { delete l.ends[end].tmap[core]; if (!Object.keys(l.ends[end].tmap).length) delete l.ends[end].tmap; } // the number belonged to the old strip
+      renderDiagram(); renderInspector(); save();
+      return;
+    }
     if (t.dataset.tmap) {
       if (e.type !== 'change') return;
       const l = sel && sel.kind === 'link' && linkById(cur(), sel.id);
@@ -2437,7 +2531,7 @@
       if (e.type === 'change' && t.value) {
         const l = linkById(cur(), sel.id);
         snapshot();
-        l[t.dataset.connect] = t.value; delete l['f' + t.dataset.connect]; delete l.ends[t.dataset.connect].tmap; delete l.bend;
+        l[t.dataset.connect] = t.value; delete l['f' + t.dataset.connect]; delete l.ends[t.dataset.connect].tmap; delete l.ends[t.dataset.connect].cmap; delete l.bend;
         renderAll(); save();
         toast(`${l.tag} now goes from ${nodeById(cur(), l.a) ? nodeById(cur(), l.a).tag : 'open end'} to ${nodeById(cur(), l.b) ? nodeById(cur(), l.b).tag : 'open end'}.`, true);
       }
@@ -2497,7 +2591,7 @@
     }
     if (t.closest('[data-tmreset]')) {
       const l = sel && sel.kind === 'link' && linkById(loop, sel.id);
-      if (l) { delete l.ends.a.tmap; delete l.ends.b.tmap; renderDiagram(); renderInspector(); save(); }
+      if (l) { snapshot(); delete l.ends.a.tmap; delete l.ends.b.tmap; delete l.ends.a.cmap; delete l.ends.b.cmap; renderDiagram(); renderInspector(); save(); }
       return;
     }
     if (t.closest('[data-scalereset]')) {
@@ -2590,7 +2684,7 @@
         const i = slots[k] = (slots[k] || 0) + 1;
         l['f' + end] = { x: Math.round(right ? n.x + c.w : n.x), y: Math.round(c.y + (i - 1) * 22) };
         l[end] = null;
-        delete l.ends[end].tmap;
+        delete l.ends[end].tmap; delete l.ends[end].cmap;
         kept++;
       });
     });
@@ -2634,10 +2728,10 @@
   function updateStatusBar() {
     ['snap', 'ortho', 'osnap'].forEach(k => { const b = $('tg-' + k); b.classList.toggle('on', !!draft[k]); b.setAttribute('aria-pressed', !!draft[k]); });
     $('snapStep').value = String(draft.step);
-    const nh = cur().links.filter(l => l.hidden).length;
+    const nh = cur().links.filter(l => l.infoHidden).length;
     const hb = $('tg-hidden');
     hb.hidden = nh === 0;
-    hb.textContent = showHiddenAll ? `HIDDEN SHOWN (${nh})` : `${nh} HIDDEN`;
+    hb.textContent = showHiddenAll ? `INFO SHOWN (${nh})` : `${nh} INFO HIDDEN`;
     hb.classList.toggle('on', showHiddenAll);
     hb.setAttribute('aria-pressed', showHiddenAll);
   }
@@ -2730,7 +2824,7 @@
     if (wl) wl.classList.add('ps-wires');
     if (nl) nl.classList.add('ps-nodes');
     world.querySelectorAll('[id]').forEach(e => e.removeAttribute('id')); // no duplicate ids in the page
-    world.querySelectorAll('.port, .grip, .selbox, .eye, .wlabel.is-hidden, .osnap-layer').forEach(e => e.remove());
+    world.querySelectorAll('.port, .grip, .cgrip, .selbox, .eye, .wlabel.info-hidden, .osnap-layer').forEach(e => e.remove());
     world.querySelectorAll('.sel').forEach(e => e.classList.remove('sel'));
     let scale = 1, tx = 0, ty = 0;
     if (ext) {
@@ -3091,7 +3185,7 @@
         delete data.imageData;
         return Promise.all(Object.keys(pics).map(id => imgPut(id, pics[id]))).then(() => data);
       }).then(data => {
-        state = migrateToSymbols(data);
+        state = migrateToSymbols(migrateHiddenInfo(data));
         if (!state.loops.length) state.loops.push(newLoop('Loop 1'));
         if (!Array.isArray(state.customTypes)) state.customTypes = starterTypes();
         if (!state.loops.find(l => l.id === state.currentId)) state.currentId = state.loops[0].id;
