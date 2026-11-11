@@ -8,6 +8,17 @@ screen earth terminals, tray or conduit, and so on.
 It is not a parts database. It doesn't know part numbers or prices; it only
 makes sure nothing is forgotten on the purchase list.
 
+## Symbols
+
+Components are drawn with IEC symbols, like a loop diagram: instrument
+circles per IEC 62424 / ISA 5.1 (field-mounted, letters and loop number),
+and IEC 60617 symbols for the motor (M 3~), valve with solenoid actuator,
+terminal strip, junction box, cabinet (dash-dot), PLC I/O card with
+channels, signal isolator (galvanic separation), relay (coil + contact),
+AC/DC power supply, fuse and amplifier. The tag, service, order status and
+material chips are written under each symbol, and cables attach to the
+symbol's edges. Your own components can use any of these symbols.
+
 ## How to use it
 
 1. **Add items**: drag a component from the left (transmitter, valve, motor,

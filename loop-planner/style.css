@@ -146,13 +146,10 @@ body.resizing, body.resizing * { cursor: col-resize !important; user-select: non
   border: 1px solid transparent; background: transparent; border-radius: 5px; padding: 5px 6px; cursor: grab; touch-action: none;
 }
 .pal-item:hover { background: var(--accent-soft); border-color: var(--line); }
-.pal-item .sym { flex: none; }
+.pal-item .symbox { flex: none; }
 .pal-item span { font-size: .9rem; line-height: 1.15; }
 
-.sym { width: 34px; height: 34px; display: grid; place-items: center; border: 1.6px solid var(--ink); background: var(--surface); font: 600 .62rem/1 var(--f-mono); color: var(--ink); }
-.sym.bubble { border-radius: 50%; }
-.sym.motor { border-radius: 50%; font-size: .9rem; }
-.sym.box { border-radius: 2px; }
+
 
 .sheet { display: flex; flex-direction: column; min-width: 0; min-height: 0; }
 .sheet-tools { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 8px; padding: 8px 12px; border-bottom: 1px solid var(--line); background: var(--surface); }
@@ -203,20 +200,32 @@ body.resizing, body.resizing * { cursor: col-resize !important; user-select: non
 .wire-end { stroke: var(--surface); stroke-width: 1.5; }
 
 .node {
-  position: absolute; pointer-events: auto; width: 168px;
-  background: var(--surface); border: 1.5px solid var(--line); border-radius: 6px; box-shadow: var(--shadow);
-  padding: 8px 10px 8px 8px; cursor: grab; user-select: none; touch-action: none;
+  position: absolute; pointer-events: auto; cursor: grab; user-select: none; touch-action: none;
 }
-.node.sel { border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-soft), var(--shadow); }
+/* IEC symbols: drawn with the ink colour, filled with the sheet so lines behind them stop at the edge */
+.isym { display: block; overflow: visible; color: var(--ink); }
+.isym * { fill: none; stroke: currentColor; stroke-width: 1.7; stroke-linejoin: round; }
+.isym .s-f { fill: var(--sheet); }
+.isym .s-thin { stroke-width: 1.3; }
+.isym .s-dash { stroke-dasharray: 3 2.5; stroke-width: 1.2; }
+.isym .s-dashdot { stroke-dasharray: 9 3 2 3; }
+.isym text { fill: currentColor; stroke: none; font: 600 12px var(--f-mono); text-anchor: middle; }
+.isym text.s-n { font-size: 10.5px; font-weight: 500; }
+.isym text.s-big { font-size: 20px; }
+.isym text.s-mid { font-size: 18px; font-weight: 500; }
+.isym text.s-l { text-anchor: start; font-size: 8px; }
+.nsym { display: block; line-height: 0; border-radius: 4px; }
+.nlabel { position: absolute; top: calc(100% + 4px); left: 50%; transform: translateX(-50%); width: max-content; max-width: 170px; text-align: center; display: grid; justify-items: center; gap: 2px; }
+.nlabel .chips { margin-top: 2px; justify-content: center; }
+.symbox { display: inline-grid; place-items: center; width: 36px; height: 36px; flex: none; }
+.symbox.big { width: 48px; height: 48px; }
+/* CAD-style selection: dashed outline around the symbol and its tag */
+.node.sel .nsym, .node.sel .nlabel { outline: 1.5px dashed var(--accent); outline-offset: 3px; background: var(--accent-soft); }
 .node.dragging { cursor: grabbing; opacity: .92; }
-.node-top { display: flex; align-items: center; gap: 8px; }
-.node-top .sym { width: 42px; height: 42px; font-size: .68rem; }
-.sym .tg { display: grid; place-items: center; line-height: 1.05; text-align: center; }
-.sym.bubble .tg span:first-child { border-bottom: 1.2px solid currentColor; padding-bottom: 1px; }
 .node-title { min-width: 0; }
-.node-title b { display: block; font: 600 .95rem/1.1 var(--f-mono); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.node-title small { display: block; color: var(--muted); font-size: .8rem; line-height: 1.15; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.badge { position: absolute; top: -9px; right: -9px; min-width: 22px; height: 22px; padding: 0 6px; border-radius: 11px; display: grid; place-items: center; font: 600 .75rem/1 var(--f-mono); color: #fff; background: var(--todo); border: 2px solid var(--surface); }
+.node-title b { display: block; font: 600 .82rem/1.1 var(--f-mono); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.node-title small { display: block; color: var(--muted); font-size: .72rem; line-height: 1.15; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.badge { position: absolute; top: -10px; right: -12px; z-index: 1; min-width: 22px; height: 22px; padding: 0 6px; border-radius: 11px; display: grid; place-items: center; font: 600 .75rem/1 var(--f-mono); color: #fff; background: var(--todo); border: 2px solid var(--surface); }
 .badge.ordered { background: var(--ordered); }
 .badge.done { background: var(--have); }
 .port {
@@ -225,6 +234,10 @@ body.resizing, body.resizing * { cursor: col-resize !important; user-select: non
 }
 .port::after { content: ""; position: absolute; inset: 3px; border-radius: 50%; background: var(--accent); transform: scale(.4); transition: transform .12s; }
 .port.left { right: auto; left: -9px; }
+/* cable handles appear only when needed: on hover, on the selected item, or while drawing a cable */
+.node .port { opacity: 0; transition: opacity .12s; }
+.node:hover .port, .node.sel .port, .linking .node .port, .node .port:focus-visible { opacity: 1; }
+@media (hover: none) { .node .port { opacity: 1; } }
 .port:hover::after, .linking .port::after { transform: scale(1); }
 .inside-tag { color: var(--accent) !important; font-family: var(--f-mono); font-size: .72rem !important; }
 .encl-box { fill: var(--accent-soft); stroke: var(--accent); stroke-width: 1.5; stroke-dasharray: 7 5; opacity: .8; }
@@ -254,18 +267,20 @@ body.resizing, body.resizing * { cursor: col-resize !important; user-select: non
 .hl-active .node.hl-off, .hl-active .wlabel.hl-off { opacity: .22; }
 .hl-active .wire.hl-off, .hl-active .wire-end.hl-off { opacity: .15; }
 .hl-active .encl-box { opacity: .35; }
-.node.hl-on { border-color: var(--hl); box-shadow: 0 0 0 3px var(--hl-soft), 0 0 18px var(--hl-soft), var(--shadow); }
+.node.hl-on .nsym { box-shadow: 0 0 0 3px var(--hl), 0 0 18px var(--hl-soft); }
 .wlabel.hl-on { border-color: var(--hl); box-shadow: 0 0 0 3px var(--hl-soft), var(--shadow); }
 .wire-glow { fill: none; stroke: var(--hl); stroke-width: 9; opacity: .35; stroke-linecap: round; stroke-linejoin: round; }
-.hl-badge { position: absolute; top: -9px; left: -9px; min-width: 20px; height: 20px; padding: 0 5px; border-radius: 10px; display: grid; place-items: center; font: 600 .7rem/1 var(--f-mono); background: var(--hl); color: var(--hl-ink); border: 2px solid var(--surface); z-index: 1; }
+.hl-badge { position: absolute; top: -10px; left: -12px; min-width: 20px; height: 20px; padding: 0 5px; border-radius: 10px; display: grid; place-items: center; font: 600 .7rem/1 var(--f-mono); background: var(--hl); color: var(--hl-ink); border: 2px solid var(--surface); z-index: 1; }
 .chip.hl { outline: 2px solid var(--hl); outline-offset: 1px; }
 .ci.ci-hl { box-shadow: inset 0 0 0 2px var(--hl); }
 .otable tr.row-hl td { background: var(--hl-soft); }
 .otable tr.row-hl td:first-child { box-shadow: inset 3px 0 0 var(--hl); }
 .flags-btn.on { border-color: var(--flag-yellow); }
 /* flagged components: thick border in the flag colour, a pin, and the note under the card */
-.node.flagged, .wlabel.flagged { border: 2.5px solid var(--flag); box-shadow: 0 0 0 4px color-mix(in srgb, var(--flag) 22%, transparent), var(--shadow); }
-.flag-pin { position: absolute; top: -13px; left: 10px; width: 22px; height: 22px; display: grid; place-items: center; border-radius: 4px 4px 4px 0; background: var(--flag); color: #111; font-size: .8rem; line-height: 1; z-index: 2; box-shadow: var(--shadow); }
+.wlabel.flagged { border: 2.5px solid var(--flag); box-shadow: 0 0 0 4px color-mix(in srgb, var(--flag) 22%, transparent), var(--shadow); }
+.node.flagged .nsym { outline: 2.5px solid var(--flag); outline-offset: 4px; box-shadow: 0 0 0 8px color-mix(in srgb, var(--flag) 22%, transparent); }
+.flag-note.inline { position: static; margin-top: 3px; max-width: 170px; text-align: left; }
+.flag-pin { position: absolute; top: -18px; left: -6px; width: 22px; height: 22px; display: grid; place-items: center; border-radius: 4px 4px 4px 0; background: var(--flag); color: #111; font-size: .8rem; line-height: 1; z-index: 2; box-shadow: var(--shadow); }
 .wlabel .flag-pin { top: -12px; left: -10px; width: 18px; height: 18px; font-size: .7rem; }
 .flag-note { position: absolute; left: -2px; right: -2px; top: calc(100% + 6px); background: color-mix(in srgb, var(--flag) 26%, var(--surface)); border-left: 4px solid var(--flag); color: var(--ink); font-size: .74rem; line-height: 1.25; padding: 3px 6px; border-radius: 3px; box-shadow: var(--shadow); white-space: normal; overflow-wrap: anywhere; pointer-events: none; }
 .wlabel .flag-note { min-width: 140px; }
@@ -298,7 +313,7 @@ body.moving-label, body.moving-label * { cursor: move !important; user-select: n
 .keep-opt { flex-basis: 100%; display: flex; gap: 6px; align-items: flex-start; font-size: .85rem; line-height: 1.3; }
 .keep-opt input { margin-top: 2px; }
 .multi-list { display: flex; flex-wrap: wrap; gap: 4px; margin-top: 10px; font-family: var(--f-mono); }
-.node.target { border-color: var(--accent); background: var(--accent-soft); }
+.node.target .nsym { outline: 2px solid var(--accent); outline-offset: 3px; background: var(--accent-soft); }
 
 .chips { display: flex; flex-wrap: wrap; gap: 3px; margin-top: 7px; }
 .chip { font: 600 .62rem/1 var(--f-mono); padding: 3px 4px 2px; border-radius: 3px; letter-spacing: .02em; }
@@ -334,7 +349,7 @@ body.moving-label, body.moving-label * { cursor: move !important; user-select: n
 .inspector h2 { margin: 0; font: 700 1.3rem/1.1 var(--f-label); text-transform: uppercase; letter-spacing: .03em; text-wrap: balance; }
 .inspector h3 { margin: 18px 0 8px; font: 600 .8rem/1 var(--f-label); text-transform: uppercase; letter-spacing: .12em; color: var(--muted); display: flex; justify-content: space-between; align-items: center; gap: 8px; }
 .insp-head { display: flex; align-items: center; gap: 10px; margin-bottom: 4px; }
-.insp-head .sym { width: 46px; height: 46px; flex: none; }
+
 .kind { font-size: .85rem; color: var(--muted); }
 .form { display: grid; grid-template-columns: auto minmax(0, 1fr); gap: 7px 10px; align-items: center; margin-top: 12px; }
 .form label { font-size: .85rem; color: var(--muted); }
