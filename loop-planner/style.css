@@ -214,7 +214,9 @@ body.resizing, body.resizing * { cursor: col-resize !important; user-select: non
 .isym text.s-big { font-size: 20px; }
 .isym text.s-mid { font-size: 18px; font-weight: 500; }
 .isym text.s-l { text-anchor: start; font-size: 8px; }
-.nsym { display: block; line-height: 0; border-radius: 4px; }
+.nsym { display: flex; flex-direction: column; align-items: center; line-height: 0; border-radius: 4px; }
+.nsym .strip { margin-top: 6px; }
+.nsym .strip:first-child { margin-top: 0; }
 .nlabel { position: absolute; top: calc(100% + 4px); left: 50%; transform: translateX(-50%); width: max-content; max-width: 170px; text-align: center; display: grid; justify-items: center; gap: 2px; }
 .nlabel .chips { margin-top: 2px; justify-content: center; }
 .symbox { display: inline-grid; place-items: center; width: 36px; height: 36px; flex: none; }
@@ -310,6 +312,22 @@ body.resizing, body.resizing * { cursor: col-resize !important; user-select: non
 .open-tag { color: var(--todo); }
 .open-warn { margin: 8px 0 0; padding: 6px 9px; border-radius: 4px; background: var(--todo-soft); border-left: 3px solid var(--todo); font-size: .85rem; }
 body.moving-label, body.moving-label * { cursor: move !important; user-select: none !important; }
+.core { fill: none; stroke-width: 1.2; }
+.core.todo { stroke: var(--todo); } .core.ordered { stroke: var(--ordered); stroke-dasharray: 5 3; } .core.done { stroke: var(--have); }
+.core-no { fill: var(--muted); font: 600 8px var(--f-mono); }
+.hl-active .core.hl-off, .hl-active .core-no.hl-off { opacity: .15; }
+.flag-focus .core, .flag-focus .core-no { opacity: .25; }
+.ctable { width: 100%; border-collapse: collapse; font-size: .82rem; }
+.ctable th { text-align: left; font: 600 .7rem var(--f-label); text-transform: uppercase; letter-spacing: .08em; color: var(--muted); padding: 4px 6px; border-bottom: 1px solid var(--line); }
+.ctable td { padding: 3px 6px; border-bottom: 1px solid var(--line); vertical-align: top; }
+.ctable td.cno { font: 600 .8rem var(--f-mono); }
+.ctable input { width: 3.6em; max-width: 100%; padding: 2px 4px; font: 500 .8rem var(--f-mono); }
+.ctable .tprefix { font: 500 .72rem var(--f-mono); color: var(--muted); margin-right: 2px; }
+/* narrow panel: the item tag goes above the terminal field */
+.inspector .ctable td:not(.cno) { min-width: 0; }
+.ctable .tprefix { display: inline-block; }
+.ctable td.clash { background: var(--todo-soft); }
+.clash-mark { color: var(--todo); margin-left: 4px; }
 .keep-opt { flex-basis: 100%; display: flex; gap: 6px; align-items: flex-start; font-size: .85rem; line-height: 1.3; }
 .keep-opt input { margin-top: 2px; }
 .multi-list { display: flex; flex-wrap: wrap; gap: 4px; margin-top: 10px; font-family: var(--f-mono); }
@@ -345,7 +363,7 @@ body.moving-label, body.moving-label * { cursor: move !important; user-select: n
 .inspector select, .inspector input[type="text"], .inspector input[type="search"], .inspector textarea { max-width: 100%; min-width: 0; }
 .inspector .form > *, .inspector .row > *, .ci > * { min-width: 0; }
 .pal-item span { min-width: 0; overflow-wrap: anywhere; }
-.inspector { background: var(--surface); border-left: 1px solid var(--line); overflow-y: auto; padding: 14px 16px 30px; min-width: 0; }
+.inspector { container-type: inline-size; background: var(--surface); border-left: 1px solid var(--line); overflow-y: auto; padding: 14px 16px 30px; min-width: 0; }
 .inspector h2 { margin: 0; font: 700 1.3rem/1.1 var(--f-label); text-transform: uppercase; letter-spacing: .03em; text-wrap: balance; }
 .inspector h3 { margin: 18px 0 8px; font: 600 .8rem/1 var(--f-label); text-transform: uppercase; letter-spacing: .12em; color: var(--muted); display: flex; justify-content: space-between; align-items: center; gap: 8px; }
 .insp-head { display: flex; align-items: center; gap: 10px; margin-bottom: 4px; }
@@ -440,6 +458,10 @@ body.moving-label, body.moving-label * { cursor: move !important; user-select: n
 .toast button { background: none; border: 0; color: var(--surface); font-weight: 700; text-decoration: underline; cursor: pointer; }
 
 /* ---------- Responsive ---------- */
+@container (max-width: 340px) {
+  .ctable .tprefix { display: block; }
+  .ctable td, .ctable th { padding: 3px 4px; }
+}
 @media (max-width: 1100px) {
   .diagram { --pal-def: 180px; --insp-def: 310px; }
 }

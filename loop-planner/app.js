@@ -29,7 +29,7 @@
 
   // Item spec: [key, name, category, qty(ctx) -> number, unit, hint(ctx) -> string]
   const TB_ITEMS = [
-    ['tb', 'Terminal blocks', 'terminal', c => c.terminals || '', 'pcs', c => c.cores ? `≈ ${c.terminals} for ${c.cores} cores landing. Add spares.` : 'Count follows the cables you connect'],
+    ['tb', 'Terminal blocks', 'terminal', c => c.terminals || '', 'pcs', c => c.cores ? `${c.terminals} terminals used by ${c.cores} cores landing. Add spares.` : 'Count follows the cables you connect'],
     ['endplate', 'End plates', 'terminal', () => 1, 'pcs'],
     ['endstop', 'End stops / end clamps', 'terminal', () => 2, 'pcs'],
     ['jumper', 'Bridging jumpers (commons, 0 V, screens)', 'terminal', null, 'pcs'],
@@ -430,6 +430,92 @@
     if (na && isPanel(na.type)) return 'a';
     return 'b';
   }
+  // ---------------------------------------------------------------- terminals (X10:1 …)
+  // Items with a terminal strip: panel equipment, enclosures, terminal strips and anything
+  // mounted inside a panel / junction box. Cores of a cable land on numbered terminals; each
+  // side of a strip (left / right on the drawing) is numbered on its own, so terminal 3 can
+  // take a field core on one side and the panel wire that continues it on the other.
+  const TROW = 14, TSW = 36; // terminal row height and strip width on the sheet
+  let showTerminals = true;
+  try { showTerminals = localStorage.getItem('loop-planner-terminals') !== '0'; } catch (e) { /* default on */ }
+  let tplan = {};            // terminal plan of the current loop, from the last full render
+  const isTermItem = n => !!n && (isPanel(n.type) || isEnclosure(n.type) || !!n.inside || !!T(n.type).terminals);
+  function coreKeys(l) {
+    const ks = [];
+    for (let i = 1; i <= cores(l); i++) ks.push(String(i));
+    if (isShielded(l)) ks.push('S');
+    return ks;
+  }
+  // which side of item `me` a cable lands on, from where its other end is
+  function endSide(loop, l, end) {
+    const me = nodeById(loop, l[end]);
+    const oe = end === 'a' ? 'b' : 'a';
+    const other = nodeById(loop, l[oe]);
+    const cm = center(me);
+    const co = other ? center(other) : Object.assign({ w: 0, h: 0 }, l['f' + oe] || { x: cm.x + 1, y: cm.y });
+    if (Math.abs(co.x - cm.x) < (cm.w + co.w) / 2 + 30) return 'r'; // stacked: both ends on the right
+    return co.x > cm.x ? 'r' : 'l';
+  }
+  function terminalPlan(loop) {
+    const plan = {};
+    loop.nodes.forEach(n => { if (isTermItem(n)) plan[n.id] = { used: { l: {}, r: {} }, ends: {}, rows: [] }; });
+    const ends = [];
+    loop.links.forEach(l => ['a', 'b'].forEach(end => { if (plan[l[end]]) ends.push({ l, end, P: plan[l[end]], side: endSide(loop, l, end) }); }));
+    // numbers typed by the user first, then automatic numbers fill the free terminals
+    ends.forEach(e => Object.entries(e.l.ends[e.end].tmap || {}).forEach(([core, num]) => {
+      if (coreKeys(e.l).includes(core) && String(num).trim()) (e.P.used[e.side][String(num).trim()] = e.P.used[e.side][String(num).trim()] || []).push({ l: e.l, core });
+    }));
+    // natural numbers: every core of every cable, in order, per item side (1, 2, 3 …).
+    // A core keeps its natural number unless the user typed one, so changing one core never
+    // renumbers the others; a moved core leaves its terminal free (a spare).
+    const natural = {};
+    const bumped = [];
+    ends.forEach(e => {
+      const tm = e.l.ends[e.end].tmap || {};
+      const nk = e.l[e.end] + e.side;
+      const list = coreKeys(e.l).map(core => {
+        const nat = natural[nk] = (natural[nk] || 0) + 1;
+        const manual = tm[core] != null && String(tm[core]).trim();
+        if (manual) return { core, num: String(tm[core]).trim(), manual: true };
+        const c = { core, num: String(nat), manual: false };
+        if (e.P.used[e.side][c.num]) bumped.push({ e, c }); // its terminal was taken by a typed number
+        else e.P.used[e.side][c.num] = [{ l: e.l, core }];
+        return c;
+      });
+      e.P.ends[e.l.id + ':' + e.end] = { side: e.side, list };
+    });
+    // cores pushed off their terminal go to the next free numbers after the last one used
+    bumped.forEach(({ e, c }) => {
+      const nums = Object.keys(e.P.used[e.side]).filter(x => /^\d+$/.test(x)).map(Number);
+      let n = Math.max(natural[e.l[e.end] + e.side] || 0, nums.length ? Math.max(...nums) : 0) + 1;
+      while (e.P.used[e.side][String(n)]) n++;
+      c.num = String(n);
+      e.P.used[e.side][c.num] = [{ l: e.l, core: c.core }];
+    });
+    Object.values(plan).forEach(P => {
+      const labels = new Set([...Object.keys(P.used.l), ...Object.keys(P.used.r)]);
+      const nums = [...labels].filter(x => /^\d+$/.test(x)).map(Number);
+      const max = nums.length ? Math.max(...nums) : 0;
+      P.rows = Array.from({ length: max }, (_, i) => String(i + 1)).concat([...labels].filter(x => !/^\d+$/.test(x)).sort());
+    });
+    return plan;
+  }
+  function stripSVG(rows) {
+    return `<svg class="isym strip" viewBox="0 0 ${TSW} ${rows.length * TROW + 2}" width="${TSW}" height="${rows.length * TROW + 2}" aria-hidden="true">${rows.map((r, i) =>
+      `<rect x="1" y="${1 + i * TROW}" width="${TSW - 2}" height="${TROW}" class="s-f"/><text x="${TSW / 2}" y="${1 + i * TROW + 10.5}" class="s-n">${esc(r)}</text>`).join('')}</svg>`;
+  }
+  // where the strip of an item sits on the sheet (matches the DOM layout of .nsym)
+  function stripGeom(n) {
+    const P = tplan[n.id];
+    if (!showTerminals || !P || !P.rows.length) return null;
+    const sz = sizes[n.id] || { w: NODE_W };
+    const cx = n.x + sz.w / 2;
+    const top = n.y + (n.type === 'tb' ? 0 : symParts(n.type, n.tag).sym.h + 4 + 6);
+    const idx = {}; P.rows.forEach((r, i) => { idx[r] = i; });
+    return { cx, left: cx - TSW / 2 + 1, right: cx + TSW / 2 - 1, rowY: r => top + 1 + ((idx[r] != null ? idx[r] : 0) + 0.5) * TROW, P };
+  }
+  const termName = (n, num) => `${n.tag}:${num}`;
+
   function nodeCtx(loop, node) {
     const ls = loop.links.filter(l => l.a === node.id || l.b === node.id);
     const cs = ls.map(cores);
@@ -438,7 +524,7 @@
     return {
       cores: sum, cables: ls.length,
       shielded: ls.filter(isShielded).length,
-      terminals: sum ? Math.max(max, Math.ceil(sum / 2)) : 0
+      terminals: isTermItem(node) ? (terminalPlan(loop)[node.id] || { rows: [] }).rows.length : (sum ? Math.max(max, Math.ceil(sum / 2)) : 0)
     };
   }
   function specToGen(spec, ctx) {
@@ -755,6 +841,7 @@
 
   function renderDiagram() {
     const loop = cur();
+    tplan = terminalPlan(loop);
     const nodesEl = $('nodes');
     let html = '';
     loop.nodes.forEach(n => {
@@ -767,7 +854,11 @@
       const hits = items.filter(hlMatch).length;
       const hlc = hlActive() ? (hits ? ' hl-on' : ' hl-off') : '';
       html += `<div class="node${isSel ? ' sel' : ''}${hlc}${flagCls(n)}" data-id="${n.id}" style="${flagStyle(n)}left:${n.x}px;top:${n.y}px">${n.flag ? `<span class="flag-pin" title="Flagged${n.flag.note ? ': ' + esc(n.flag.note) : ''}">⚑</span>` : ''}${hits ? `<span class="hl-badge" title="${hits} matching line${hits > 1 ? 's' : ''}">${hits}</span>` : ''}
-        <div class="nsym">${symSVG(n.type, n.tag)}</div>${badge}
+        <div class="nsym">${(() => {
+          const P = tplan[n.id];
+          if (!showTerminals || !P || !P.rows.length) return symSVG(n.type, n.tag);
+          return (n.type === 'tb' ? '' : symSVG(n.type, n.tag)) + stripSVG(P.rows); // the terminal strip under the symbol
+        })()}</div>${badge}
         <div class="nlabel"><div class="node-title"><b>${esc(n.tag)}</b><small>${esc(n.desc || T(n.type).name)}</small>${n.inside && nodeById(loop, n.inside) ? `<small class="inside-tag">in ${esc(nodeById(loop, n.inside).tag)}</small>` : ''}</div>
           <div class="chips">${chipsHTML(items)}</div>${n.flag && n.flag.note ? `<div class="flag-note inline">${esc(n.flag.note)}</div>` : ''}</div>
         <div class="port left" title="Drag to another item to add a cable"></div><div class="port" title="Drag to another item to add a cable"></div></div>`;
@@ -881,7 +972,13 @@
       let sa, sb;
       if (gapX >= 30) { sa = cb.x > ca.x ? 'r' : 'l'; sb = sa === 'r' ? 'l' : 'r'; }
       else { sa = cb.y > ca.y ? 'b' : 't'; sb = sa === 'b' ? 't' : 'b'; }
-      R[l.id] = { l, na, nb, ca, cb, sa, sb, offa: 0, offb: 0, lane: 0 };
+      const ga = !na.free && stripGeom(na), gb = !nb.free && stripGeom(nb);
+      const ea = ga && ga.P.ends[l.id + ':a'], eb = gb && gb.P.ends[l.id + ':b'];
+      if (ea || eb) { // terminal detail: cables reach strips from the left or right only
+        sa = ea ? ea.side : (gapX >= 30 ? (cb.x > ca.x ? 'r' : 'l') : 'r');
+        sb = eb ? eb.side : (gapX >= 30 ? (ca.x > cb.x ? 'r' : 'l') : 'r');
+      }
+      R[l.id] = { l, na, nb, ca, cb, sa, sb, offa: 0, offb: 0, lane: 0, ga: ea ? ga : null, gb: eb ? gb : null, ea, eb };
     });
     const sides = {};
     Object.values(R).forEach(r => {
@@ -900,14 +997,26 @@
     });
     const portPt = (nd, c, side, off) => side === 'r' ? { x: nd.x + c.w, y: c.y + off } : side === 'l' ? { x: nd.x, y: c.y + off }
       : side === 'b' ? { x: c.x + off, y: nd.y + c.h + (c.lh || 0) } : { x: c.x + off, y: nd.y };
+    const brk = {}; // breakout slots per item side, so several cables don't share one trunk
     Object.values(R).forEach(r => {
       const l = r.l;
       const k = [l.a, l.b].sort().join('|');
       const g = groups[k];
       r.lane += (g.indexOf(l) - (g.length - 1) / 2) * 16;
-      const pa = portPt(r.na, r.ca, r.sa, r.offa), pb = portPt(r.nb, r.cb, r.sb, r.offb);
+      // a cable that lands on a terminal strip ends at a breakout point beside it
+      const breakout = (nd, g, e, side) => {
+        const k = nd.id + side;
+        const i = brk[k] = (brk[k] == null ? 0 : brk[k] + 1);
+        const ys = e.list.map(c => g.rowY(c.num));
+        return { x: side === 'r' ? g.right + 22 + i * 9 : g.left - 22 - i * 9, y: ys.reduce((a, b) => a + b, 0) / ys.length };
+      };
+      const pa = r.ea ? breakout(r.na, r.ga, r.ea, r.sa) : portPt(r.na, r.ca, r.sa, r.offa);
+      const pb = r.eb ? breakout(r.nb, r.gb, r.eb, r.sb) : portPt(r.nb, r.cb, r.sb, r.offb);
       let pts;
-      if (r.sa === 'l' || r.sa === 'r') {
+      if (r.sa === r.sb && (r.sa === 'l' || r.sa === 'r')) { // both ends on the same side: a C-shaped route
+        const X = r.sa === 'r' ? Math.max(pa.x, pb.x) + 18 + Math.abs(r.lane) : Math.min(pa.x, pb.x) - 18 - Math.abs(r.lane);
+        pts = [pa, { x: X, y: pa.y }, { x: X, y: pb.y }, pb];
+      } else if (r.sa === 'l' || r.sa === 'r') {
         const lo = Math.min(pa.x, pb.x) + 12, hi = Math.max(pa.x, pb.x) - 12;
         const mx = Math.max(lo, Math.min(hi, (pa.x + pb.x) / 2 + r.lane));
         pts = [pa, { x: mx, y: pa.y }, { x: mx, y: pb.y }, pb];
@@ -929,6 +1038,16 @@
       svg += `<circle class="wire-end${whl}" cx="${pa.x.toFixed(1)}" cy="${pa.y.toFixed(1)}" r="4" style="fill:var(--${cls === 'done' ? 'have' : cls})"/>`;
       svg += `<circle class="wire-end${whl}" cx="${pb.x.toFixed(1)}" cy="${pb.y.toFixed(1)}" r="4" style="fill:var(--${cls === 'done' ? 'have' : cls})"/>`;
       svg += `<path class="wire-hit" data-link="${l.id}" d="${d}"/>`;
+      // cores: from the breakout point along a short trunk to each terminal of the strip
+      [[r.ea, r.ga, r.sa, pa], [r.eb, r.gb, r.sb, pb]].forEach(([e, g, side, p]) => {
+        if (!e) return;
+        const edge = side === 'r' ? g.right : g.left, dir = side === 'r' ? 1 : -1;
+        e.list.forEach(c => {
+          const y = g.rowY(c.num);
+          svg += `<path class="core ${cls}${whl}" d="M${p.x.toFixed(1)},${p.y.toFixed(1)} V${y.toFixed(1)} H${edge.toFixed(1)}"/>`;
+          svg += `<text class="core-no${whl}" x="${(edge + dir * 8).toFixed(1)}" y="${(y - 2.5).toFixed(1)}" text-anchor="middle">${esc(c.core)}</text>`;
+        });
+      });
       // the label sits on the route unless the user dragged it; then a leader line ties it back
       const off = l.lblOff;
       const pos = off ? { x: best.x + off.dx, y: best.y + off.dy } : best;
@@ -1085,6 +1204,7 @@
       </div>
       ${t.custom ? `<p class="tip">This is one of your components. <button class="linkbtn" data-edit-type="${esc(n.type)}">Edit its reminders</button> (changes apply to every ${esc(t.name)}).</p>` : ''}
       ${checklistBlock('To order for this item')}
+      ${terminalSchedule(loop, n)}
       <h3><span>Cables (${conns.length})</span></h3>
       ${conns.length ? `<ul class="conn-list">${conns.map(l => {
         const other = nodeById(loop, l.a === n.id ? l.b : l.a);
@@ -1189,6 +1309,37 @@
     }
   }
 
+  // which core goes to which terminal at each end; typing a number overrides the automatic one
+  function coresTable(loop, l, na, nb) {
+    const plan = terminalPlan(loop);
+    const at = (n, end) => n && plan[n.id] && plan[n.id].ends[l.id + ':' + end];
+    const ea = at(na, 'a'), eb = at(nb, 'b');
+    if (!ea && !eb) return '';
+    const cell = (n, end, e, core) => {
+      if (!e) return `<td class="muted">${n ? 'device' : 'open end'}</td>`;
+      const c = e.list.find(x => x.core === core);
+      const users = (plan[n.id].used[e.side][c.num] || []).filter(u => !(u.l.id === l.id && u.core === core));
+      const clash = users.length ? ` title="Also used by ${users.map(u => `${u.l.tag} core ${u.core}`).join(', ')}"` : '';
+      return `<td class="${users.length ? 'clash' : ''}"${clash}><span class="tprefix">${esc(n.tag)}:</span><input type="text" data-tmap="${end}|${esc(core)}" value="${c.manual ? esc(c.num) : ''}" placeholder="${esc(c.num)}" aria-label="Terminal for core ${esc(core)} at ${esc(n.tag)}">${users.length ? '<b class="clash-mark">!</b>' : ''}</td>`;
+    };
+    const anyManual = ['a', 'b'].some(end => Object.keys(l.ends[end].tmap || {}).length);
+    return `<h3><span>Cores &amp; terminals</span>${anyManual ? '<button class="btn ghost small" data-tmreset="1" title="Number all cores automatically again">Automatic numbers</button>' : ''}</h3>
+      <div class="otable-wrap"><table class="ctable"><thead><tr><th>Core</th><th>A end</th><th>B end</th></tr></thead><tbody>
+      ${coreKeys(l).map(core => `<tr><td class="cno">${core === 'S' ? 'Screen' : esc(core)}</td>${cell(na, 'a', ea, core)}${cell(nb, 'b', eb, core)}</tr>`).join('')}
+      </tbody></table></div>
+      <p class="tip">Grey numbers are automatic. Type a terminal number to fix it; a red mark means two cores share a terminal on the same side.</p>`;
+  }
+  // what lands on each terminal of an item, left and right side
+  function terminalSchedule(loop, n) {
+    const P = terminalPlan(loop)[n.id];
+    if (!P || !P.rows.length) return '';
+    const who = (side, r) => (P.used[side][r] || []).map(u => `${esc(u.l.tag)} <span class="muted">core ${esc(u.core)}</span>`).join('<br>') || '<span class="muted">–</span>';
+    return `<h3><span>Terminals (${P.rows.length})</span></h3>
+      <div class="otable-wrap"><table class="ctable"><thead><tr><th>Terminal</th><th>Left side</th><th>Right side</th></tr></thead><tbody>
+      ${P.rows.map(r => `<tr><td class="cno">${esc(termName(n, r))}</td><td${(P.used.l[r] || []).length > 1 ? ' class="clash"' : ''}>${who('l', r)}</td><td${(P.used.r[r] || []).length > 1 ? ' class="clash"' : ''}>${who('r', r)}</td></tr>`).join('')}
+      </tbody></table></div>`;
+  }
+
   function linkInspector(loop, l) {
     const c = CABLES[l.cable];
     const na = nodeById(loop, l.a), nb = nodeById(loop, l.b);
@@ -1232,6 +1383,7 @@
       </div>
       <h3><span>Ends</span></h3>
       <div class="ends">${endHTML('a', na)}${endHTML('b', nb)}</div>
+      ${coresTable(loop, l, na, nb)}
       <div class="form"><label for="f-notes">Notes</label><textarea id="f-notes" data-bind="notes" placeholder="Supplier, drum number, PO…">${esc(l.notes)}</textarea></div>
       ${checklistBlock('To order for this cable')}
       <div class="del-row">
@@ -1615,6 +1767,7 @@
   function cableSettings(src, target, keep) {
     const c = JSON.parse(JSON.stringify(src));
     delete c.id; delete c.a; delete c.b; delete c.tag; delete c.lblOff;
+    if (c.ends) { delete c.ends.a.tmap; delete c.ends.b.tmap; } // terminal numbers belong to the original items
     if (!keep) {
       if (target) c.st = JSON.parse(JSON.stringify(target.st || {})); // matching settings keeps the target's own statuses
       else resetStatuses(c);
@@ -1987,7 +2140,7 @@
       document.querySelectorAll('.node.target').forEach(x => x.classList.remove('target'));
       const l = linkById(loop, d.lid);
       if (d.target && l) {
-        l[d.end] = d.target; delete l['f' + d.end];
+        l[d.end] = d.target; delete l['f' + d.end]; delete l.ends[d.end].tmap;
         sel = { kind: 'link', id: l.id };
         renderAll(); save();
         toast(`${l.tag} connected to ${nodeById(loop, d.target).tag}.`);
@@ -2042,6 +2195,18 @@
   function onInspectorInput(e) {
     const t = e.target;
     if (t.dataset.tf && typeDraft) { onTypeInput(e); return; }
+    if (t.dataset.tmap) {
+      if (e.type !== 'change') return;
+      const l = sel && sel.kind === 'link' && linkById(cur(), sel.id);
+      if (!l) return;
+      const [end, core] = t.dataset.tmap.split('|');
+      const tm = l.ends[end].tmap = l.ends[end].tmap || {};
+      const v = t.value.trim();
+      if (v) tm[core] = v; else delete tm[core];
+      if (!Object.keys(tm).length) delete l.ends[end].tmap;
+      renderDiagram(); renderInspector(); renderChecklist(); save();
+      return;
+    }
     if (t.dataset.imgf) {
       const im = sel && sel.kind === 'image' && imageById(cur(), sel.id);
       if (!im) return;
@@ -2060,7 +2225,7 @@
     if (t.dataset.connect) {
       if (e.type === 'change' && t.value) {
         const l = linkById(cur(), sel.id);
-        l[t.dataset.connect] = t.value; delete l['f' + t.dataset.connect];
+        l[t.dataset.connect] = t.value; delete l['f' + t.dataset.connect]; delete l.ends[t.dataset.connect].tmap;
         renderAll(); save();
         toast(`${l.tag} connected to ${nodeById(cur(), t.value).tag}.`);
       }
@@ -2116,6 +2281,11 @@
       const [kind, id] = fg.dataset.flagGo.split(':');
       const ent = kind === 'node' ? nodeById(loop, id) : linkById(loop, id);
       if (ent) { select(kind === 'node' ? { kind: 'node', id } : { kind: 'link', id }); focusOn(kind, ent); }
+      return;
+    }
+    if (t.closest('[data-tmreset]')) {
+      const l = sel && sel.kind === 'link' && linkById(loop, sel.id);
+      if (l) { delete l.ends.a.tmap; delete l.ends.b.tmap; renderDiagram(); renderInspector(); save(); }
       return;
     }
     if (t.closest('[data-lblreset]')) {
@@ -2198,6 +2368,7 @@
         const i = slots[k] = (slots[k] || 0) + 1;
         l['f' + end] = { x: Math.round(right ? n.x + c.w : n.x), y: Math.round(c.y + (i - 1) * 22) };
         l[end] = null;
+        delete l.ends[end].tmap;
         kept++;
       });
     });
@@ -2330,6 +2501,14 @@
     $('zoomOut').onclick = () => applyZoom(zoom / 1.15);
     $('zoomFit').onclick = fit;
     $('btnMirror').onclick = mirror;
+    const syncTermBtn = () => { $('btnTerminals').classList.toggle('on-order', showTerminals); $('btnTerminals').setAttribute('aria-pressed', showTerminals); };
+    syncTermBtn();
+    $('btnTerminals').onclick = () => {
+      showTerminals = !showTerminals;
+      try { localStorage.setItem('loop-planner-terminals', showTerminals ? '1' : '0'); } catch (e) { /* not saved */ }
+      syncTermBtn(); renderDiagram();
+      toast(showTerminals ? 'Terminal detail on: cores are drawn to their terminals.' : 'Terminal detail off: one line per cable.');
+    };
     $('btnFlags').onclick = () => {
       if (view !== 'diagram') setView('diagram');
       select(null);
@@ -2555,15 +2734,15 @@
     const loop = newLoop('Example: pump skid PT-101 / XV-102');
     const N = (type, tag, desc, x, y) => { const n = { id: uid(), type, tag, desc, notes: '', x, y, st: {}, custom: [] }; loop.nodes.push(n); return n; };
     const ai = N('plc', 'AI-04', 'AI card, rack 1 slot 4', 80, 120);
-    const dq = N('plc', 'DO-06', 'DO card, rack 1 slot 6', 80, 440);
-    const x10 = N('tb', 'X10', 'Marshalling, CP-01', 440, 280);
-    const psu = N('psu', 'PSU-01', '24 VDC loop supply', 440, 560);
-    const jb = N('jb', 'JB-01', 'Pump skid JB', 820, 280);
-    const ca = N('u_camp', 'CA-103', 'Charge amplifier', 820, 480);
+    const dq = N('plc', 'DO-06', 'DO card, rack 1 slot 6', 80, 470);
+    const x10 = N('tb', 'X10', 'Marshalling, CP-01', 440, 230);
+    const psu = N('psu', 'PSU-01', '24 VDC loop supply', 440, 640);
+    const jb = N('jb', 'JB-01', 'Pump skid JB', 820, 170);
+    const ca = N('u_camp', 'CA-103', 'Charge amplifier', 820, 600);
     ca.inside = jb.id;
     const pt = N('tx', 'PT-101', 'Pump discharge pressure', 1220, 120);
-    const xv = N('valve', 'XV-102', 'Recirculation valve', 1220, 330);
-    const hs = N('u_hall', 'HS-103', 'Pump speed pickup', 1220, 540);
+    const xv = N('valve', 'XV-102', 'Recirculation valve', 1220, 360);
+    const hs = N('u_hall', 'HS-103', 'Pump speed pickup', 1220, 640);
     const L = (a, b, tag, cable, opts) => {
       const l = makeLink(loop, a.id, b.id);
       Object.assign(l, { tag, cable, n: CABLES[cable].defN || null }, opts || {});
