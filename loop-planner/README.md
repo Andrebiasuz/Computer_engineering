@@ -19,6 +19,26 @@ AC/DC power supply, fuse and amplifier. The tag, service, order status and
 material chips are written under each symbol, and cables attach to the
 symbol's edges. Your own components can use any of these symbols.
 
+## Terminals
+
+With **Terminals** on (toolbar), terminal strips, junction boxes, cabinets,
+panel equipment and anything mounted inside a panel or junction box show
+their terminal strip under the symbol. Cables run as one line between items
+and break out into their cores just before the strip, each core drawn to its
+terminal. Terminals are named after the item, e.g. **X10:1**.
+
+- Numbering is automatic, per side of the strip as drawn (left / right), so
+  a field core and the panel wire that continues it share terminal X10:3.
+  A shielded cable's screen (S) gets its own terminal.
+- A cable's panel has a **Cores & terminals** table: type a number to fix a
+  core to a terminal. Other cores keep their numbers; a core whose terminal
+  you took moves to the next free one. A red mark shows two cores sharing a
+  terminal on the same side. *Automatic numbers* resets the cable.
+- An item's panel shows its **terminal schedule**: every terminal with what
+  lands on the left and right side.
+- Terminal-block quantities in the order list follow the terminals used.
+- Turn **Terminals** off for a compact view with one line per cable.
+
 ## How to use it
 
 1. **Add items**: drag a component from the left (transmitter, valve, motor,
