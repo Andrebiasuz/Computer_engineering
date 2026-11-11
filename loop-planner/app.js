@@ -660,6 +660,7 @@
   let flagFocus = false;     // fade everything that is not flagged
   let labelPts = {};         // cable label positions, to jump to a flagged cable
   let labelAnchors = {};     // where each cable label belongs on its route
+  let routeInfo = {};        // per cable: end points and middle run, for the reroute grips
   const flagged = loop => loop.nodes.filter(n => n.flag).map(n => ({ kind: 'node', ent: n })).concat(loop.links.filter(l => l.flag).map(l => ({ kind: 'link', ent: l })));
   function flagPin(ent) {
     if (!ent.flag) return '';
@@ -1027,6 +1028,7 @@
     const portPt = (nd, c, side, off) => side === 'r' ? { x: nd.x + c.w, y: c.y + off } : side === 'l' ? { x: nd.x, y: c.y + off }
       : side === 'b' ? { x: c.x + off, y: nd.y + c.h + (c.lh || 0) } : { x: c.x + off, y: nd.y };
     const brk = {}; // breakout slots per item side, so several cables don't share one trunk
+    routeInfo = {};
     Object.values(R).forEach(r => {
       const l = r.l;
       const k = [l.a, l.b].sort().join('|');
@@ -1042,20 +1044,54 @@
       const pa = r.ea ? breakout(r.na, r.ga, r.ea, r.sa) : portPt(r.na, r.ca, r.sa, r.offa);
       const pb = r.eb ? breakout(r.nb, r.gb, r.eb, r.sb) : portPt(r.nb, r.cb, r.sb, r.offb);
       let pts;
+      // the user can move the middle run (l.bend); otherwise it is placed automatically
+      const bend = l.bend || {};
+      let orient;
       if (r.sa === r.sb && (r.sa === 'l' || r.sa === 'r')) { // both ends on the same side: a C-shaped route
-        const X = r.sa === 'r' ? Math.max(pa.x, pb.x) + 18 + Math.abs(r.lane) : Math.min(pa.x, pb.x) - 18 - Math.abs(r.lane);
-        pts = [pa, { x: X, y: pa.y }, { x: X, y: pb.y }, pb];
+        const X = bend.x != null ? bend.x : (r.sa === 'r' ? Math.max(pa.x, pb.x) + 18 + Math.abs(r.lane) : Math.min(pa.x, pb.x) - 18 - Math.abs(r.lane));
+        pts = [pa, { x: X, y: pa.y }, { x: X, y: pb.y }, pb]; orient = 'x';
+      } else if ((r.sa === 'l' || r.sa === 'r') && bend.y != null) { // detour: out, up/down to a level, across, back
+        const dA = r.sa === 'r' ? 1 : -1, dB = r.sb === 'r' ? 1 : -1;
+        pts = [pa, { x: pa.x + dA * 20, y: pa.y }, { x: pa.x + dA * 20, y: bend.y }, { x: pb.x + dB * 20, y: bend.y }, { x: pb.x + dB * 20, y: pb.y }, pb]; orient = 'jog';
       } else if (r.sa === 'l' || r.sa === 'r') {
         const lo = Math.min(pa.x, pb.x) + 12, hi = Math.max(pa.x, pb.x) - 12;
-        const mx = Math.max(lo, Math.min(hi, (pa.x + pb.x) / 2 + r.lane));
+        const mx = bend.x != null ? bend.x : Math.max(lo, Math.min(hi, (pa.x + pb.x) / 2 + r.lane));
         pts = [pa, { x: mx, y: pa.y }, { x: mx, y: pb.y }, pb];
+        orient = Math.abs(pb.y - pa.y) < 4 && bend.x == null ? 'jog' : 'x'; // a straight cable gets a detour grip
       } else {
         const lo = Math.min(pa.y, pb.y) + 12, hi = Math.max(pa.y, pb.y) - 12;
-        const my = lo < hi ? Math.max(lo, Math.min(hi, (pa.y + pb.y) / 2 + r.lane)) : (pa.y + pb.y) / 2;
-        pts = [pa, { x: pa.x, y: my }, { x: pb.x, y: my }, pb];
+        const my = bend.y != null ? bend.y : (lo < hi ? Math.max(lo, Math.min(hi, (pa.y + pb.y) / 2 + r.lane)) : (pa.y + pb.y) / 2);
+        pts = [pa, { x: pa.x, y: my }, { x: pb.x, y: my }, pb]; orient = 'y';
       }
+      // the move-the-run grip must not cover the cable's own label (which sits at the run's centre
+      // unless the user moved it): put it just past the label's edge along the run, or at the
+      // run's first corner when the run is too short
+      const si = pts.length === 6 ? 2 : 1; // the middle run: pts[si] → pts[si + 1]
+      // the run the label sits on: for a straight cable that is the cable itself
+      const s0 = orient === 'jog' && pts.length === 4 ? pa : pts[si], s1 = orient === 'jog' && pts.length === 4 ? pb : pts[si + 1];
+      const mc = { x: (s0.x + s1.x) / 2, y: (s0.y + s1.y) / 2 };
+      // where the run currently is (the drag moves it by the pointer's movement, not to the pointer)
+      const run = orient === 'x' ? s0.x : s0.y;
+      // the move-the-run grip must never cover the cable's own label: try spots along the run,
+      // then its corners, then along the legs, and take the first one clear of the label
+      let gmid = mc;
+      const lel = !l.lblOff && document.querySelector(`#nodes .wlabel[data-link="${l.id}"]`);
+      if (lel) {
+        const hw = lel.offsetWidth / 2 + 8, hh = lel.offsetHeight / 2 + 8;
+        const clear = q => Math.abs(q.x - mc.x) > hw || Math.abs(q.y - mc.y) > hh;
+        const along = (a, b2, dist) => { const L2 = Math.hypot(b2.x - a.x, b2.y - a.y); return L2 > dist ? { x: a.x + (b2.x - a.x) * dist / L2, y: a.y + (b2.y - a.y) * dist / L2 } : null; };
+        const runLen = Math.hypot(s1.x - s0.x, s1.y - s0.y);
+        const cand = [];
+        if (runLen) { const ext = (Math.abs(s1.x - s0.x) > Math.abs(s1.y - s0.y) ? hw : hh) + 6; cand.push(along(mc, s0, ext), along(mc, s1, ext)); }
+        cand.push(s0, s1);
+        const i0 = pts.indexOf(s0), i1 = pts.indexOf(s1);
+        if (i0 > 0) cand.push(along(s0, pts[i0 - 1], hw + 6), along(s0, pts[i0 - 1], hh + 6));
+        if (i1 >= 0 && i1 < pts.length - 1) cand.push(along(s1, pts[i1 + 1], hw + 6), along(s1, pts[i1 + 1], hh + 6));
+        gmid = cand.find(q => q && clear(q)) || mc;
+      }
+      routeInfo[l.id] = { pa, pb, mid: gmid, orient, run, freeA: !!r.na.free, freeB: !!r.nb.free };
       // label on the middle run of the route, i.e. halfway between the two items
-      const best = { x: (pts[1].x + pts[2].x) / 2, y: (pts[1].y + pts[2].y) / 2 };
+      const best = { x: (pts[si].x + pts[si + 1].x) / 2, y: (pts[si].y + pts[si + 1].y) / 2 };
       const items = linkItems(loop, l);
       const w = worst(items);
       const cls = w === 'todo' ? 'todo' : w === 'ordered' ? 'ordered' : 'done';
@@ -1101,9 +1137,17 @@
     const W = $('wires');
     Object.assign(W.style, { left: (bx0 - m) + 'px', top: (by0 - m) + 'px', width: (bx1 - bx0 + 2 * m) + 'px', height: (by1 - by0 + 2 * m) + 'px' });
     W.innerHTML = `<g transform="translate(${m - bx0},${m - by0})">${svg}</g>`;
-    $('nodes').querySelectorAll('.encl-tab, .open-end').forEach(el => el.remove());
+    $('nodes').querySelectorAll('.encl-tab, .open-end, .cgrip').forEach(el => el.remove());
+    let cgrips = '';
+    const sl = sel && sel.kind === 'link' && !cablePick && linkById(loop, sel.id);
+    const ri = sl && routeInfo[sl.id];
+    if (ri && !(sl.hidden && !showHiddenAll)) { // AutoCAD-style grips: drag an end onto another item, or move the middle run
+      if (!ri.freeA) cgrips += `<div class="cgrip end" data-endgrip="${sl.id}:a" style="left:${ri.pa.x}px;top:${ri.pa.y}px" title="Drag onto another item to move this end"></div>`;
+      if (!ri.freeB) cgrips += `<div class="cgrip end" data-endgrip="${sl.id}:b" style="left:${ri.pb.x}px;top:${ri.pb.y}px" title="Drag onto another item to move this end"></div>`;
+      cgrips += `<div class="cgrip mid ${ri.orient}" data-bendgrip="${sl.id}" style="left:${ri.mid.x}px;top:${ri.mid.y}px" title="Drag to move this run of the cable"></div>`;
+    }
     $('nodes').insertAdjacentHTML('beforeend', tabs.join('') + openEnds.map(o =>
-      `<div class="open-end" data-open="${o.l.id}:${o.end}" style="left:${o.x}px;top:${o.y}px" title="Open end of ${esc(o.l.tag)}: drag it onto an item to connect"></div>`).join(''));
+      `<div class="open-end" data-open="${o.l.id}:${o.end}" style="left:${o.x}px;top:${o.y}px" title="Open end of ${esc(o.l.tag)}: drag it onto an item to connect"></div>`).join('') + cgrips);
     document.querySelectorAll('.wlabel').forEach(el => {
       const p = labels[el.dataset.link];
       if (p) { el.style.left = p.x + 'px'; el.style.top = p.y + 'px'; el.hidden = false; } else el.hidden = true;
@@ -1171,7 +1215,7 @@
     return `<h2>${esc(loop.name || 'Untitled loop')}</h2>
       <div id="summaryGrid" class="summary-grid">${summaryHTML(loop)}</div>
       ${flagListHTML(loop)}
-      <p class="tip">Select an item or a cable on the sheet to see its checklist. Drag from a round handle on the side of an item to another item to draw a cable. Drag a box on an empty part of the sheet to select several items: left to right selects items fully inside, right to left selects anything the box touches. Then drag one of them to move them together (drag an enclosure's dashed outline or label to move it with everything inside); Ctrl+C / Ctrl+V copies and pastes them at the mouse pointer (Ctrl+Shift+V keeps their order statuses). Ctrl+V with a picture on the clipboard (e.g. a screenshot) inserts it as an image; you can also drop image files on the sheet. Drag a selected item's corner grip to resize it. The eye on a cable's tag hides the cable (H). The status bar under the sheet has SNAP (F9), ORTHO (F8) and OSNAP (F3). The sheet is endless: the mouse wheel zooms at the cursor, drag with the middle button (or hold Space and drag) to pan, double-click the middle button to zoom extents. Click a status to step it: To order → Ordered → In stock → Not needed.</p>
+      <p class="tip">Select an item or a cable on the sheet to see its checklist. Drag from a round handle on the side of an item to another item to draw a cable. Drag a box on an empty part of the sheet to select several items: left to right selects items fully inside, right to left selects anything the box touches. Then drag one of them to move them together (drag an enclosure's dashed outline or label to move it with everything inside); Ctrl+C / Ctrl+V copies and pastes them at the mouse pointer (Ctrl+Shift+V keeps their order statuses). Ctrl+V with a picture on the clipboard (e.g. a screenshot) inserts it as an image; you can also drop image files on the sheet. Drag a selected item's corner grip to resize it. A selected cable has grips: drag an end onto another item to reroute it, or drag the middle grip to move its path. The eye on a cable's tag hides the cable (H). The status bar under the sheet has SNAP (F9), ORTHO (F8) and OSNAP (F3). The sheet is endless: the mouse wheel zooms at the cursor, drag with the middle button (or hold Space and drag) to pan, double-click the middle button to zoom extents. Click a status to step it: To order → Ordered → In stock → Not needed.</p>
       ${(() => { const c = readClip(); return c && (c.nodes.length || c.cable) ? `<div class="del-row" style="margin-top:12px"><button class="btn ghost" data-clip="paste" title="Ctrl+V">${c.cable ? `Paste cable ${esc(c.cable.tag)}` : `Paste ${c.nodes.length} copied item${c.nodes.length > 1 ? 's' : ''}`}</button>${keepBox()}</div>` : ''; })()}
       ${checklistBlock('Whole-loop consumables')}`;
   }
@@ -1383,9 +1427,9 @@
       const autoTerm = (() => { const keep = l.ends[end].term; l.ends[end].term = 'auto'; const t = termAt(loop, l, end); l.ends[end].term = keep; return t; })();
       return `<div class="end">
         <div class="end-h"><span>${end.toUpperCase()} end</span><b>${node ? esc(node.tag) : '<span class="open-tag">open end</span>'}</b></div>
-        ${node ? '' : `<div class="row"><label class="sr" for="conn-${end}">Connect the ${end.toUpperCase()} end to</label><select id="conn-${end}" data-connect="${end}">
-            <option value="">Connect to…</option>
-            ${loop.nodes.filter(o => o.id !== l[end === 'a' ? 'b' : 'a']).map(o => `<option value="${o.id}">${esc(o.tag)} (${esc(o.desc || T(o.type).name)})</option>`).join('')}
+        ${`<div class="row"><label class="sr" for="conn-${end}">${node ? 'Move' : 'Connect'} the ${end.toUpperCase()} end to</label><select id="conn-${end}" data-connect="${end}">
+            <option value="">${node ? 'Move this end to…' : 'Connect to…'}</option>
+            ${loop.nodes.filter(o => o.id !== l[end === 'a' ? 'b' : 'a'] && o.id !== l[end]).map(o => `<option value="${o.id}">${esc(o.tag)} (${esc(o.desc || T(o.type).name)})</option>`).join('')}
           </select></div>`}
         <div class="row"><label class="sr" for="term-${end}">Termination at ${end.toUpperCase()} end</label>
           <select id="term-${end}" data-bind="ends.${end}.term" data-rerender="1">
@@ -1422,6 +1466,7 @@
       <div class="form"><label for="f-notes">Notes</label><textarea id="f-notes" data-bind="notes" placeholder="Supplier, drum number, PO…">${esc(l.notes)}</textarea></div>
       ${checklistBlock('To order for this cable')}
       <div class="del-row">
+        ${l.bend ? '<button class="btn ghost small" data-bendreset="1" title="Go back to the automatic route">Reset route</button>' : ''}
         ${l.lblOff ? '<button class="btn ghost small" data-lblreset="1" title="Put the label back on the cable">Reset label position</button>' : ''}
         ${na ? `<button class="btn ghost small" data-goto-node="${l.a}">Go to ${esc(na.tag)}</button>` : ''}
         ${nb ? `<button class="btn ghost small" data-goto-node="${l.b}">Go to ${esc(nb.tag)}</button>` : ''}
@@ -1619,7 +1664,7 @@
     loop.nodes.forEach(n => { const w = (sizes[n.id] || { w: NODE_W }).w; x0 = Math.min(x0, n.x); x1 = Math.max(x1, n.x + w); });
     loop.nodes.forEach(n => { const w = (sizes[n.id] || { w: NODE_W }).w; n.x = clampX(snap(x0 + x1 - n.x - w)); });
     loop.links.forEach(l => ['fa', 'fb'].forEach(k => { if (l[k]) l[k].x = x0 + x1 - l[k].x; }));
-    loop.links.forEach(l => { if (l.lblOff) l.lblOff.dx = -l.lblOff.dx; });
+    loop.links.forEach(l => { if (l.lblOff) l.lblOff.dx = -l.lblOff.dx; if (l.bend && l.bend.x != null) l.bend.x = Math.round(x0 + x1 - l.bend.x); });
     (loop.images || []).forEach(im => { im.x = Math.round(x0 + x1 - im.x - im.w); });
     renderDiagram(); save();
     toast('Loop mirrored left ↔ right.', true);
@@ -1813,7 +1858,7 @@
   let cablePick = null; // { first: node id | null, keep } while picking items for copied cables
   function cableSettings(src, target, keep) {
     const c = JSON.parse(JSON.stringify(src));
-    delete c.id; delete c.a; delete c.b; delete c.tag; delete c.lblOff;
+    delete c.id; delete c.a; delete c.b; delete c.tag; delete c.lblOff; delete c.bend;
     if (c.ends) { delete c.ends.a.tmap; delete c.ends.b.tmap; } // terminal numbers belong to the original items
     if (!keep) {
       if (target) c.st = JSON.parse(JSON.stringify(target.st || {})); // matching settings keeps the target's own statuses
@@ -1941,6 +1986,23 @@
     const loop = cur();
     const eye = e.target.closest('[data-eye]');
     if (eye && e.button === 0) { e.preventDefault(); e.stopPropagation(); toggleCableHidden(linkById(loop, eye.dataset.eye)); return; }
+    const eg = e.target.closest('[data-endgrip]');
+    if (eg && e.button === 0) { // move a connected cable end to another item
+      e.preventDefault();
+      const [lid, end] = eg.dataset.endgrip.split(':');
+      const l = linkById(loop, lid);
+      drag = { mode: 'endmove', lid, end, orig: l[end], other: l[end === 'a' ? 'b' : 'a'], sx: e.clientX, sy: e.clientY, moved: false, target: null };
+      return;
+    }
+    const bg = e.target.closest('[data-bendgrip]');
+    if (bg && e.button === 0) { // move the middle run of the route
+      e.preventDefault();
+      const l = linkById(loop, bg.dataset.bendgrip);
+      snapshot();
+      const ri0 = routeInfo[l.id] || {};
+      drag = { mode: 'bend', lid: l.id, orient: ri0.orient || 'x', run0: ri0.run, w0: toWorld(e.clientX, e.clientY), sx: e.clientX, sy: e.clientY, moved: false };
+      return;
+    }
     if (cablePick && e.button === 0) { // picking items / cables for a copied cable
       const pn = e.target.closest('.node'), pc = e.target.closest('.wlabel') || e.target.closest('.wire-hit');
       if (pc) { e.preventDefault(); applyCableTo(linkById(loop, pc.dataset.link), cablePick.keep); select(null); updateModeBar(); return; }
@@ -2121,6 +2183,30 @@
       im.x = Math.round(drag.g.includes('w') ? drag.ax - im.w : drag.ax);
       im.y = Math.round(drag.g.includes('n') ? drag.ay - im.h : drag.ay);
       Object.assign(drag.el.style, { left: im.x + 'px', top: im.y + 'px', width: im.w + 'px', height: im.h + 'px' });
+    } else if (drag.mode === 'endmove') {
+      if (!drag.moved && Math.hypot(e.clientX - drag.sx, e.clientY - drag.sy) < 3) return;
+      const l = linkById(loop, drag.lid);
+      const w = toWorld(e.clientX, e.clientY);
+      if (!drag.moved) { drag.moved = true; snapshot(); }
+      // while dragging, the end follows the pointer (shown as a free end)
+      l[drag.end] = null; l['f' + drag.end] = { x: Math.round(w.x), y: Math.round(w.y) };
+      document.querySelectorAll('.cgrip, .open-end').forEach(x => { x.style.pointerEvents = 'none'; });
+      const tn = osnapTarget(loop, e, w, drag.other);
+      const tid = tn ? tn.id : null;
+      document.querySelectorAll('.node.target').forEach(x => x.classList.remove('target'));
+      const te = tid && document.querySelector(`#nodes .node[data-id="${tid}"]`);
+      if (te) te.classList.add('target');
+      drag.target = tid;
+      drawWires();
+      document.querySelectorAll('.cgrip, .open-end').forEach(x => { x.style.pointerEvents = 'none'; });
+      if (tn) { const c2 = center(tn); showGuides([{ kind: 'm', x: c2.x, y: c2.y, text: tid === drag.orig ? `Back to ${tn.tag}` : `Move end to ${tn.tag}` }]); } else showGuides([]);
+    } else if (drag.mode === 'bend') {
+      if (!drag.moved && Math.hypot(e.clientX - drag.sx, e.clientY - drag.sy) < 3) return;
+      drag.moved = true;
+      const l = linkById(loop, drag.lid), w = toWorld(e.clientX, e.clientY);
+      // move the run by the pointer's movement ('y' and 'jog' both set a level)
+      l.bend = drag.orient === 'x' ? { x: snap(drag.run0 + (w.x - drag.w0.x)) } : { y: snap(drag.run0 + (w.y - drag.w0.y)) };
+      drawWires();
     } else if (drag.mode === 'openend') {
       if (!drag.moved && Math.hypot(e.clientX - drag.sx, e.clientY - drag.sy) < 3) return;
       drag.moved = true;
@@ -2229,6 +2315,25 @@
       } else select({ kind: 'link', id: d.id });
     } else if (d.mode === 'imgmove' || d.mode === 'imgscale') {
       if (d.moved) { save(); renderInspector(); }
+    } else if (d.mode === 'endmove') {
+      clearGuides();
+      document.querySelectorAll('.node.target').forEach(x => x.classList.remove('target'));
+      const l = linkById(loop, d.lid);
+      if (!d.moved || !l) { if (l) select({ kind: 'link', id: l.id }); }
+      else if (d.target && d.target !== d.orig) { // re-connect to the new item
+        l[d.end] = d.target; delete l['f' + d.end];
+        delete l.ends[d.end].tmap; // terminal numbers belonged to the old item
+        delete l.bend;             // the old route no longer fits
+        sel = { kind: 'link', id: l.id };
+        renderAll(); save();
+        toast(`${l.tag} now goes from ${nodeById(loop, l.a).tag} to ${nodeById(loop, l.b).tag}.`, true);
+      } else { // dropped on nothing (or back on the same item): keep the original connection
+        l[d.end] = d.orig; delete l['f' + d.end];
+        renderDiagram();
+        if (!d.target) toast('Drop the end on an item to move it. The cable was left as it was.');
+      }
+    } else if (d.mode === 'bend') {
+      if (d.moved) { save(); renderInspector(); }
     } else if (d.mode === 'openend') {
       clearGuides();
       document.querySelectorAll('.node.target').forEach(x => x.classList.remove('target'));
@@ -2270,6 +2375,10 @@
   }
   function onPointerCancel(e) {
     clearGuides();
+    if (drag && drag.mode === 'endmove' && drag.moved) { // restore the end that was being moved
+      const l = linkById(cur(), drag.lid);
+      if (l) { l[drag.end] = drag.orig; delete l['f' + drag.end]; renderDiagram(); }
+    }
     document.body.classList.remove('moving-label');
     if (e) touches.delete(e.pointerId);
     if (drag && drag.ghost) drag.ghost.remove();
@@ -2327,9 +2436,10 @@
     if (t.dataset.connect) {
       if (e.type === 'change' && t.value) {
         const l = linkById(cur(), sel.id);
-        l[t.dataset.connect] = t.value; delete l['f' + t.dataset.connect]; delete l.ends[t.dataset.connect].tmap;
+        snapshot();
+        l[t.dataset.connect] = t.value; delete l['f' + t.dataset.connect]; delete l.ends[t.dataset.connect].tmap; delete l.bend;
         renderAll(); save();
-        toast(`${l.tag} connected to ${nodeById(cur(), t.value).tag}.`);
+        toast(`${l.tag} now goes from ${nodeById(cur(), l.a) ? nodeById(cur(), l.a).tag : 'open end'} to ${nodeById(cur(), l.b) ? nodeById(cur(), l.b).tag : 'open end'}.`, true);
       }
       return;
     }
@@ -2393,6 +2503,11 @@
     if (t.closest('[data-scalereset]')) {
       const n = sel && sel.kind === 'node' && nodeById(loop, sel.id);
       if (n) setItemScale(n, 1);
+      return;
+    }
+    if (t.closest('[data-bendreset]')) {
+      const l = sel && sel.kind === 'link' && linkById(loop, sel.id);
+      if (l) { snapshot(); delete l.bend; renderDiagram(); renderInspector(); save(); }
       return;
     }
     if (t.closest('[data-lblreset]')) {

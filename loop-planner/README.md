@@ -170,6 +170,14 @@ number in the quantity box to override.
 - **Resize items:** select an item and drag a corner grip (proportions are
   kept, the opposite corner stays put), or type a **Size %** (50–300 %) in
   its panel. The symbol and its terminal strip scale; the tag text does not.
+- **Reroute a cable** without deleting it: select the cable and drag one of
+  its square end grips onto another item (OSNAP helps you land on it); the
+  cable keeps its tag, settings, statuses and label. Dropping on empty sheet
+  leaves it as it was. Or use **Move this end to…** under *Ends* in the cable
+  panel. Drag the diamond grip to change the cable's path: on a cable with a
+  vertical middle run it moves that run sideways; on a straight cable it
+  pulls the cable up or down into a detour (around a label or an item).
+  **Reset route** goes back to the automatic path. Undo works for all of it.
 - **Hide a cable:** click the eye on a cable's tag (or press **H** with the
   cable selected). Only a small dashed tag stays; click the eye again to
   show the cable. **N HIDDEN** in the status bar shows all hidden cables
