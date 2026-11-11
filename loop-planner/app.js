@@ -558,7 +558,7 @@
   function stripSVG(rows, k, exi) {
     k = k || 1;
     return `<svg class="isym strip" viewBox="0 0 ${TSW} ${rows.length * TROW + 2}" width="${(TSW * k).toFixed(1)}" height="${((rows.length * TROW + 2) * k).toFixed(1)}" aria-hidden="true">${rows.map((r, i) =>
-      `<rect x="1" y="${1 + i * TROW}" width="${TSW - 2}" height="${TROW}" class="s-f${exi && exi.has(r) ? ' exi' : ''}"/><text x="${TSW / 2}" y="${1 + i * TROW + 10.5}" class="s-n">${esc(r)}</text>`).join('')}</svg>`;
+      `<rect x="1" y="${1 + i * TROW}" width="${TSW - 2}" height="${TROW}" class="s-f${exi && exi.has(r) ? ' exi' : ''}"><title>Terminal ${esc(r)}: double-click to renumber or delete</title></rect><text x="${TSW / 2}" y="${1 + i * TROW + 10.5}" class="s-n">${esc(r)}</text>`).join('')}</svg>`;
   }
   // where the strip of an item sits on the sheet (matches the DOM layout of .nsym)
   function stripGeom(n) {
@@ -569,7 +569,150 @@
     const cx = n.x + sz.w / 2;
     const top = n.y + (n.type === 'tb' ? 0 : (symParts(n.type, n.tag).sym.h + 4) * k + 6);
     const idx = {}; P.rows.forEach((r, i) => { idx[r] = i; });
-    return { cx, left: cx - (TSW / 2 - 1) * k, right: cx + (TSW / 2 - 1) * k, rowY: r => top + (1 + ((idx[r] != null ? idx[r] : 0) + 0.5) * TROW) * k, P };
+    return { cx, left: cx - (TSW / 2 - 1) * k, right: cx + (TSW / 2 - 1) * k, rowY: r => top + (1 + ((idx[r] != null ? idx[r] : 0) + 0.5) * TROW) * k, P,
+      top: top + k, bottom: top + (1 + P.rows.length * TROW) * k, rowH: TROW * k,
+      rowAt: y => { const i = Math.floor((y - top - k) / (TROW * k)); return i >= 0 && i < P.rows.length ? P.rows[i] : null; } };
+  }
+  // ---------------------------------------------------------------- terminals on the canvas
+  // every core landing on one item: [{ l, end, core, num, side }]
+  function coresOn(loop, nodeId, plan) {
+    const P = (plan || tplan)[nodeId];
+    const out = [];
+    if (!P) return out;
+    Object.entries(P.ends).forEach(([key, ent]) => {
+      const [lid, end] = key.split(':');
+      const l = linkById(loop, lid);
+      if (l) ent.list.forEach(c => out.push({ l, end, core: c.core, num: c.num, side: ent.side }));
+    });
+    return out;
+  }
+  const setTmap = (l, end, core, num) => {
+    const tm = l.ends[end].tmap = l.ends[end].tmap || {};
+    if (num == null) { delete tm[core]; if (!Object.keys(tm).length) delete l.ends[end].tmap; } else tm[core] = String(num);
+  };
+  // give a terminal another number: every core on it (both sides) follows
+  function renameTerminal(nodeId, row, to) {
+    const loop = cur(), n = nodeById(loop, nodeId);
+    to = String(to || '').trim().slice(0, 10);
+    if (!n || !to || to === row) return;
+    const plan = terminalPlan(loop);
+    const on = coresOn(loop, nodeId, plan).filter(c => c.num === row);
+    if (!on.length) { toast(`${termName(n, row)} is a spare terminal: nothing lands on it to renumber.`); return; }
+    const taken = coresOn(loop, nodeId, plan).filter(c => c.num === to);
+    const rows0 = plan[nodeId].rows.length;
+    on.forEach(c => setTmap(c.l, c.end, c.core, to));
+    renderDiagram(); renderInspector(); save();
+    const added = tplan[nodeId] ? tplan[nodeId].rows.length - rows0 : 0;
+    toast(`${termName(n, row)} is now ${termName(n, to)}.` +
+      (taken.length ? ' That number was already used: shared terminals are marked red in the schedule.' : '') +
+      (added > 0 ? ` The strip now runs to ${to}, so ${added} spare terminal${added > 1 ? 's were' : ' was'} added (double-click a terminal → Remove spares to close the gaps).` : ''));
+  }
+  // delete a spare terminal: the numbers after it close up (1 2 4 5 → 1 2 3 4)
+  function deleteSpareTerminal(loop, nodeId, row) {
+    const plan = terminalPlan(loop);
+    const all = coresOn(loop, nodeId, plan);
+    if (all.some(c => c.num === row) || !/^\d+$/.test(row)) return false;
+    const k = Number(row);
+    all.forEach(c => { if (/^\d+$/.test(c.num) && Number(c.num) > k) setTmap(c.l, c.end, c.core, Number(c.num) - 1); });
+    return true;
+  }
+  function spareTerminals(loop, nodeId) {
+    const P = tplan[nodeId];
+    if (!P) return [];
+    const used = new Set(coresOn(loop, nodeId).map(c => c.num));
+    return P.rows.filter(r => /^\d+$/.test(r) && !used.has(r));
+  }
+  function deleteTerminal(nodeId, row) {
+    const loop = cur(), n = nodeById(loop, nodeId);
+    if (!n) return;
+    const users = coresOn(loop, nodeId).filter(c => c.num === row);
+    if (users.length) { toast(`${termName(n, row)} carries ${users.map(c => `${c.l.tag} core ${c.core}`).join(', ')}. Drag those cores to another terminal first.`); return; }
+    if (!deleteSpareTerminal(loop, nodeId, row)) return;
+    renderDiagram(); renderInspector(); save();
+    toast(`${termName(n, row)} deleted; the terminals after it moved up one number.`);
+  }
+  function removeSpareTerminals(nodeId) {
+    const loop = cur(), n = nodeById(loop, nodeId);
+    let count = 0;
+    for (let guard = 0; guard < 500; guard++) { // highest first, so the numbers below stay put
+      tplan = terminalPlan(loop);
+      const sp = spareTerminals(loop, nodeId).map(Number).sort((a, b) => b - a);
+      if (!sp.length || !deleteSpareTerminal(loop, nodeId, String(sp[0]))) break;
+      count++;
+    }
+    renderDiagram(); renderInspector(); save();
+    toast(count ? `Removed ${count} spare terminal${count > 1 ? 's' : ''} from ${n.tag}.` : `${n.tag} has no spare terminals.`);
+  }
+  // small editor next to a terminal (double-click it on the canvas)
+  function closeTermPop() { const el = $('termPop'); if (el) el.remove(); }
+  function openTermPop(nodeId, row, clientX, clientY) {
+    closeTermPop();
+    const loop = cur(), n = nodeById(loop, nodeId);
+    const users = coresOn(loop, nodeId).filter(c => c.num === row);
+    const who = side => users.filter(c => c.side === side).map(c => `${esc(c.l.tag)} core ${esc(c.core)}`).join(', ') || '–';
+    const spares = spareTerminals(loop, nodeId).length;
+    const el = document.createElement('div');
+    el.id = 'termPop'; el.className = 'term-pop';
+    el.setAttribute('role', 'dialog'); el.setAttribute('aria-label', `Terminal ${termName(n, row)}`);
+    el.innerHTML = `<div class="tp-head"><b>${esc(termName(n, row))}</b>${users.length ? '' : '<span class="muted">spare</span>'}<button class="tp-x" data-tp="close" aria-label="Close">×</button></div>
+      ${users.length ? `<div class="tp-who"><span>Left</span>${who('l')}<span>Right</span>${who('r')}</div>
+      <label class="tp-row">Number <input id="tpNum" type="text" value="${esc(row)}" maxlength="10" autocomplete="off"><button class="btn small" data-tp="rename">Rename</button></label>` : ''}
+      <div class="tp-row">
+        <button class="btn ghost small danger" data-tp="delete" ${users.length ? 'disabled title="Drag its cores to another terminal first"' : ''}>Delete terminal</button>
+        ${spares ? `<button class="btn ghost small" data-tp="spares">Remove ${spares} spare${spares > 1 ? 's' : ''}</button>` : ''}
+      </div>
+      <p class="tip">${users.length ? 'Enter renames. Drag a core’s grip (select the cable or strip) to land it elsewhere.' : 'Deleting closes the gap: the terminals after it move up one number.'}</p>`;
+    document.body.appendChild(el);
+    const vw = window.innerWidth, vh = window.innerHeight, bw = el.offsetWidth, bh = el.offsetHeight;
+    el.style.left = Math.max(8, Math.min(vw - bw - 8, clientX + 14)) + 'px';
+    el.style.top = Math.max(8, Math.min(vh - bh - 8, clientY - 20)) + 'px';
+    const inp = $('tpNum');
+    if (inp) { inp.focus(); inp.select(); }
+    el.addEventListener('keydown', e => {
+      if (e.key === 'Escape') { e.preventDefault(); e.stopPropagation(); closeTermPop(); }
+      else if (e.key === 'Enter' && e.target === inp) { e.preventDefault(); const v = inp.value; closeTermPop(); renameTerminal(nodeId, row, v); }
+      e.stopPropagation(); // typing here must not trigger canvas shortcuts
+    });
+    el.addEventListener('click', e => {
+      const b = e.target.closest('[data-tp]');
+      if (!b || b.disabled) return;
+      const a = b.dataset.tp;
+      if (a === 'rename') { const v = inp.value; closeTermPop(); renameTerminal(nodeId, row, v); }
+      else if (a === 'delete') { closeTermPop(); deleteTerminal(nodeId, row); }
+      else if (a === 'spares') { closeTermPop(); removeSpareTerminals(nodeId); }
+      else closeTermPop();
+    });
+  }
+  // the terminal strip (and row) under a point of the drawing, for dropping a core on it
+  function terminalAt(loop, w, exceptNode) {
+    for (const n of loop.nodes) {
+      const g = tplan[n.id] && stripGeom(n);
+      if (!g) continue;
+      if (w.x >= g.left - 16 && w.x <= g.right + 16 && w.y >= g.top && w.y <= g.bottom) return { n, row: g.rowAt(w.y), g };
+    }
+    for (const n of loop.nodes) { // anywhere else on an item with terminals: next free number there
+      if (!tplan[n.id] || n.id === exceptNode) continue;
+      const f = fullBox(n);
+      if (w.x >= f.x0 && w.x <= f.x1 && w.y >= f.y0 && w.y <= f.y1) return { n, row: null, g: stripGeom(n) };
+    }
+    return null;
+  }
+  // land one core of a cable end on another terminal (of this or another strip)
+  function landCore(l, end, core, n, row) {
+    const loop = cur();
+    const other = end === 'a' ? 'b' : 'a';
+    if (n.id === l[other] && n.id !== l[end]) { toast(`${n.tag} is the other end of ${l.tag}.`); return false; }
+    const cm = l.ends[end].cmap = l.ends[end].cmap || {};
+    if (n.id === l[end]) delete cm[core]; else cm[core] = n.id;
+    if (!Object.keys(cm).length) delete l.ends[end].cmap;
+    setTmap(l, end, core, row);
+    const plan = terminalPlan(loop);
+    const me = coresOn(loop, n.id, plan).find(c => c.l === l && c.end === end && c.core === core);
+    const share = me ? (plan[n.id].used[me.side][me.num] || []).filter(u => !(u.l === l && u.core === core)) : [];
+    renderDiagram(); if (sel) renderInspector(); save();
+    const name = core === 'S' ? 'screen' : 'core ' + core;
+    toast(me ? `${l.tag} ${name} → ${termName(n, me.num)}${share.length ? ` (shared with ${share.map(u => `${u.l.tag} core ${u.core}`).join(', ')}: marked red)` : ''}.` : `${l.tag} ${name} moved to ${n.tag}.`);
+    return true;
   }
   const termName = (n, num) => `${n.tag}:${num}`;
 
@@ -707,6 +850,7 @@
   let flagFocus = false;     // fade everything that is not flagged
   let labelPts = {};         // cable label positions, to jump to a flagged cable
   let labelAnchors = {};     // where each cable label belongs on its route
+  let lastStripDown = null;  // for double-clicks on a terminal
   let labelOrient = {};      // 'h' or 'v': the direction of the run a cable label is written along
   let routeInfo = {};        // per cable: end points and middle run, for the reroute grips
   const flagged = loop => loop.nodes.filter(n => n.flag).map(n => ({ kind: 'node', ent: n })).concat(loop.links.filter(l => l.flag).map(l => ({ kind: 'link', ent: l })));
@@ -1257,6 +1401,18 @@
       if (!ri.freeB) cgrips += `<div class="cgrip end" data-endgrip="${sl.id}:b" style="left:${ri.pb.x}px;top:${ri.pb.y}px" title="Drag onto another item to move this end"></div>`;
       cgrips += `<div class="cgrip mid ${ri.orient}" data-bendgrip="${sl.id}" style="left:${ri.mid.x}px;top:${ri.mid.y}px" title="Drag to move this run of the cable"></div>`;
     }
+    if (!cablePick) {
+      const coreGrips = [];
+      const selNode = sel && sel.kind === 'node' && nodeById(loop, sel.id);
+      Object.keys(tplan).forEach(itemId => coresOn(loop, itemId).forEach(c => {
+        if (!((sl && c.l.id === sl.id) || (selNode && selNode.id === itemId))) return;
+        const g = stripGeom(nodeById(loop, itemId));
+        if (!g) return;
+        const x = (c.side === 'r' ? g.right + 8 : g.left - 8) * 1, y = g.rowY(c.num) - 3;
+        coreGrips.push(`<div class="cgrip core" data-coregrip="${c.l.id}|${c.end}|${esc(c.core)}" style="left:${x}px;top:${y}px" title="${esc(c.l.tag)} ${c.core === 'S' ? 'screen' : 'core ' + esc(c.core)} on ${esc(termName(nodeById(loop, itemId), c.num))}: drag onto another terminal"></div>`);
+      }));
+      cgrips += coreGrips.join('');
+    }
     $('nodes').insertAdjacentHTML('beforeend', tabs.join('') + openEnds.map(o =>
       `<div class="open-end" data-open="${o.l.id}:${o.end}" style="left:${o.x}px;top:${o.y}px" title="Open end of ${esc(o.l.tag)}: drag it onto an item to connect"></div>`).join('') + cgrips);
     document.querySelectorAll('.wlabel').forEach(el => {
@@ -1538,7 +1694,7 @@
     return `<h3><span>Terminals (${P.rows.length})</span></h3>
       <div class="otable-wrap"><table class="ctable"><thead><tr><th>Terminal</th><th>Left side</th><th>Right side</th></tr></thead><tbody>
       ${P.rows.map(r => `<tr${P.mixed.has(r) ? ' class="mixed" title="Ex i and other circuits on the same terminal: keep intrinsically safe circuits separate"' : ''}><td class="cno${P.exi.has(r) ? ' exi' : ''}">${esc(termName(n, r))}${P.mixed.has(r) ? ' <b class="clash-mark">!</b>' : ''}</td><td${(P.used.l[r] || []).length > 1 ? ' class="clash"' : ''}>${who('l', r)}</td><td${(P.used.r[r] || []).length > 1 ? ' class="clash"' : ''}>${who('r', r)}</td></tr>`).join('')}
-      </tbody></table></div>${P.mixed.size ? `<p class="tip warn-text">${P.mixed.size} terminal${P.mixed.size > 1 ? 's carry' : ' carries'} both Ex i and other circuits. Keep intrinsically safe circuits on their own (blue) terminals.</p>` : ''}`;
+      </tbody></table></div>${spareTerminals(loop, n.id).length ? `<button class="btn ghost small" data-sparerm="${n.id}" title="Delete terminals nothing lands on; the numbers close up">Remove ${spareTerminals(loop, n.id).length} spare terminal${spareTerminals(loop, n.id).length > 1 ? 's' : ''}</button>` : ''}${P.mixed.size ? `<p class="tip warn-text">${P.mixed.size} terminal${P.mixed.size > 1 ? 's carry' : ' carries'} both Ex i and other circuits. Keep intrinsically safe circuits on their own (blue) terminals.</p>` : ''}`;
   }
 
   function linkInspector(loop, l) {
@@ -2144,6 +2300,25 @@
       document.body.classList.add('linking');
       return;
     }
+    // double-click a terminal of a strip: renumber or delete it (detected here, because the first
+    // click redraws the item and the browser then never sends a dblclick)
+    if (nodeEl && e.button === 0 && e.target.closest('svg.strip') && !(e.shiftKey || e.ctrlKey || e.metaKey)) {
+      const now = performance.now(), last = lastStripDown;
+      lastStripDown = { t: now, x: e.clientX, y: e.clientY, id: nodeEl.dataset.id };
+      if (last && last.id === nodeEl.dataset.id && now - last.t < 450 && Math.hypot(e.clientX - last.x, e.clientY - last.y) < 6) {
+        lastStripDown = null;
+        const n = nodeById(loop, nodeEl.dataset.id), g = n && stripGeom(n);
+        const row = g && g.rowAt(toWorld(e.clientX, e.clientY).y);
+        if (row) { e.preventDefault(); openTermPop(n.id, row, e.clientX, e.clientY); return; }
+      }
+    } else lastStripDown = null;
+    const cg = e.target.closest('[data-coregrip]');
+    if (cg) { // land one core on another terminal: drag its grip onto a terminal of any strip
+      e.preventDefault();
+      const [lid, end, core] = cg.dataset.coregrip.split('|');
+      drag = { mode: 'core', lid, end, core, sx: e.clientX, sy: e.clientY, x0: parseFloat(cg.style.left), y0: parseFloat(cg.style.top), moved: false, hot: null };
+      return;
+    }
     const ngrip = e.target.closest('[data-ngrip]');
     if (ngrip && nodeEl) { // resize an item from a corner, opposite corner fixed (like images)
       e.preventDefault();
@@ -2386,6 +2561,23 @@
       }).map(n => n.id);
       const on = new Set(drag.add ? drag.base.concat(drag.hits) : drag.hits);
       document.querySelectorAll('.node').forEach(el => el.classList.toggle('sel', on.has(el.dataset.id)));
+    } else if (drag.mode === 'core') {
+      if (!drag.moved && Math.hypot(e.clientX - drag.sx, e.clientY - drag.sy) < 4) return;
+      drag.moved = true;
+      const w = toWorld(e.clientX, e.clientY);
+      const tw = $('tempWire');
+      tw.style.display = '';
+      tw.setAttribute('d', `M${drag.x0},${drag.y0} H${((drag.x0 + w.x) / 2).toFixed(1)} V${w.y.toFixed(1)} H${w.x.toFixed(1)}`);
+      const hit = terminalAt(loop, w);
+      drag.hot = hit;
+      let hot = $('termHot');
+      if (hit && hit.g && hit.row) {
+        if (!hot) { hot = document.createElement('div'); hot.id = 'termHot'; hot.className = 'term-hot'; $('nodes').appendChild(hot); }
+        const y = hit.g.rowY(hit.row) - hit.g.rowH / 2;
+        Object.assign(hot.style, { left: hit.g.left + 'px', top: y + 'px', width: (hit.g.right - hit.g.left) + 'px', height: hit.g.rowH + 'px' });
+        hot.dataset.label = termName(hit.n, hit.row);
+      } else if (hot) hot.remove();
+      if (hit && !hit.row) showGuides([{ kind: 'm', x: center(hit.n).x, y: center(hit.n).y, text: `Next free terminal of ${hit.n.tag}` }]); else clearGuides();
     } else if (drag.mode === 'link') {
       const from = nodeById(loop, drag.from);
       const c = center(from);
@@ -2447,6 +2639,13 @@
       else setSelection([d.id]);
     } else if (d.mode === 'nscale') {
       if (d.moved) { save(); renderInspector(); }
+    } else if (d.mode === 'core') {
+      const tw = $('tempWire'); if (tw) tw.style.display = 'none';
+      const hot = $('termHot'); if (hot) hot.remove();
+      clearGuides();
+      const l = linkById(loop, d.lid);
+      if (d.moved && l && d.hot) landCore(l, d.end, d.core, d.hot.n, d.hot.row);
+      else if (d.moved) toast('Drop the core on a terminal of a strip.');
     } else if (d.mode === 'nlabel') {
       document.body.classList.remove('moving-label');
       const n = nodeById(loop, d.id);
@@ -2525,6 +2724,7 @@
   }
   function onPointerCancel(e) {
     clearGuides();
+    if (drag && drag.mode === 'core') { const tw = $('tempWire'); if (tw) tw.style.display = 'none'; const hot = $('termHot'); if (hot) hot.remove(); }
     if (drag && drag.mode === 'endmove' && drag.moved) { // restore the end that was being moved
       const l = linkById(cur(), drag.lid);
       if (l) { l[drag.end] = drag.orig; delete l['f' + drag.end]; renderDiagram(); }
@@ -2673,6 +2873,7 @@
       if (l) { snapshot(); delete l.bend; renderDiagram(); renderInspector(); save(); }
       return;
     }
+    if (t.closest('[data-sparerm]')) { removeSpareTerminals(t.closest('[data-sparerm]').dataset.sparerm); return; }
     if (t.closest('[data-nlblreset]')) {
       const n = sel && sel.kind === 'node' && nodeById(loop, sel.id);
       if (n) { delete n.lblOff; renderDiagram(); renderInspector(); save(); }
@@ -3001,6 +3202,8 @@
       applyZoom(zoom * Math.exp(-Math.max(-300, Math.min(300, dy)) * 0.0015), { x: e.clientX, y: e.clientY });
     }, { passive: false });
     $('viewport').addEventListener('mousedown', e => { if (e.button === 1) e.preventDefault(); }); // no browser autoscroll
+    document.addEventListener('pointerdown', e => { if ($('termPop') && !e.target.closest('#termPop')) closeTermPop(); }, true);
+    $('viewport').addEventListener('wheel', () => closeTermPop(), { passive: true });
     // Keep the drawing in view when the sheet changes size (panel resized, window resized,
     // toolbar wrapping): rescale around the centre so what was visible stays visible.
     // Symmetric, so widening a panel and narrowing it back returns to the same view.
