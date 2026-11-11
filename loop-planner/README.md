@@ -174,6 +174,13 @@ with the order list. The loop is scaled to fit a frame with a title block
 *Rev.* fields). In the print dialog, choose **Save as PDF**. The PDF is
 vector: text stays sharp and searchable at any zoom.
 
+## Roadmap
+
+[ROADMAP.md](ROADMAP.md) holds the plan for the next iterations: an
+evaluation of the `pid-to-kg` skill, how to combine it with Loop Planner into
+a plant knowledge graph and system descriptions, prioritised feature ideas,
+and engineering practices.
+
 ## Data
 
 Everything is stored in your browser (`localStorage`). Use **Export** to save
