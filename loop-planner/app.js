@@ -73,6 +73,20 @@
       ['entry', 'Thread adaptor / reducer for the terminal box entry', 'gland'],
       ['tagplate', 'Tag plate', 'mark', () => 1, 'pcs']
     ] },
+    kp: { group: 'Field devices', name: 'Keyphasor / prox probe', shape: 'probe', tag: 'KP-', desc: 'Keyphasor, gas generator', term: 'connector', items: [
+      ['dev', 'Proximity probe (check model, tip size and total system length)', 'device', () => 1, 'pcs'],
+      ['holder', 'Probe holder / sleeve, lock nut and anti-rotation', 'mount', () => 1, 'pcs'],
+      ['protect', 'Connector protector / insulating sleeve for the probe–extension joint', 'term', () => 1, 'pcs'],
+      ['target', 'Keyphasor target on the shaft: notch or projection (confirm with the machine vendor)', 'process'],
+      ['tagplate', 'Tag plate + fixing wire', 'mark', () => 1, 'pcs']
+    ] },
+    prox: { group: 'Field devices', name: 'Proximitor (probe driver)', shape: 'proximitor', tag: 'GA-', desc: 'Proximitor for the Keyphasor probe', items: [
+      ['dev', 'Proximitor / probe driver (same system length as probe + extension cable)', 'device', () => 1, 'pcs'],
+      ['base', 'Isolated mounting base / DIN-rail adaptor (keep the case off ground)', 'mount', () => 1, 'pcs'],
+      ['inprot', 'Connector protector for the IN connection', 'term', () => 1, 'pcs'],
+      ['supply', '−24 VDC supply for VT (from the monitor rack or a separate supply)', 'device'],
+      ['mark', 'Device label', 'mark', () => 1, 'pcs']
+    ] },
     jb: { group: 'Enclosures', name: 'Junction box', shape: 'jb', sym: 'JB', tag: 'JB-', desc: 'Field junction box', items: [
       ['encl', 'Enclosure (IP rating, size, material)', 'device', () => 1, 'pcs'],
       ...TB_ITEMS,
@@ -178,6 +192,7 @@
     control:   { name: 'Control cable, multicore', short: 'c', defN: 3, field: true, shielded: false },
     power:     { name: 'Power cable', short: 'c', defN: 4, field: true, shielded: false },
     tc:        { name: 'Thermocouple extension cable', short: 'TC', fixed: 2, field: true, shielded: true },
+    coax:      { name: 'Probe extension cable (coax; probe + extension = system length)', short: 'coax', fixed: 1, field: true, shielded: true, term: 'connector' },
     bus:       { name: 'Fieldbus / Ethernet cable', short: 'bus', fixed: 4, field: true, shielded: true, term: 'connector' },
     wire:      { name: 'Panel wire (single cores)', short: 'w', defN: 2, field: false, shielded: false }
   };
@@ -450,6 +465,7 @@
     const ta = nodeById(loop, a).type, tb = nodeById(loop, b).type;
     let cable = 'pair';
     if ((isPanel(ta) && isPanel(tb)) || sameContainer(loop, { a, b })) cable = 'wire';
+    else if (ta === 'kp' || tb === 'kp') cable = 'coax'; // probe → Proximitor: extension cable
     else if (ta === 'motor' || tb === 'motor') cable = 'power';
     else if (ta === 'valve' || tb === 'valve') cable = 'control';
     else if ((ta === 'jb' || tb === 'jb') && (isPanel(ta) || isPanel(tb) || ta === 'jb' && tb === 'jb')) cable = 'multipair';
@@ -1046,6 +1062,8 @@
     psu:       { name: 'Power supply (AC/DC)', w: 56, h: 56, draw: () => `<rect x="2" y="2" width="52" height="52" class="s-f"/><path d="M2 54 L54 2" class="s-thin"/><text x="16" y="24" class="s-t s-mid">~</text><text x="40" y="46" class="s-t s-mid">=</text>` },
     fuse:      { name: 'Fuse / breaker', w: 56, h: 24, draw: () => `<path d="M0 12 H12 M44 12 H56" class="s-thin"/><rect x="12" y="4" width="32" height="16" class="s-f"/><path d="M12 12 H44" class="s-thin"/>` },
     amplifier: { name: 'Amplifier', w: 60, h: 44, draw: () => `<rect x="2" y="2" width="56" height="40" class="s-f"/><path d="M18 9 V35 L44 22 Z" class="s-f"/>` },
+    probe:     { name: 'Proximity probe', w: 64, h: 28, draw: () => `<path d="M0 14 H14" class="s-thin"/><rect x="14" y="6" width="30" height="16" class="s-f"/><path d="M44 9 H52 V19 H44" class="s-f"/><path d="M58 2 V26" class="s-dash"/>` },
+    proximitor: { name: 'Proximitor (VT / COM / OUT, IN)', w: 72, h: 56, draw: () => `<rect x="8" y="2" width="62" height="52" class="s-f"/>${[['VT', 15], ['COM', 29], ['OUT', 43]].map(([t, y]) => `<path d="M0 ${y} H8" class="s-thin"/><text x="22" y="${y + 3.5}" class="s-n">${t}</text>`).join('')}<path d="M72 29 H58" class="s-thin"/><circle cx="54" cy="29" r="4" class="s-f"/><path d="M50 25 A4 4 0 0 0 50 33"/><text x="54" y="47" class="s-n">IN</text>` },
     box:       { name: 'Box with letters', w: 60, h: 44, draw: L => `<rect x="2" y="2" width="56" height="40" rx="2" class="s-f"/><text x="30" y="27" class="s-t">${L}</text>` }
   };
   function symParts(type, tag) {
