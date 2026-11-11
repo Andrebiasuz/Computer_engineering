@@ -165,6 +165,15 @@ Quantities are suggestions (cores + drain wire for ferrules, route length
 +10% for cable, terminals from the cores landing on a strip). Type your own
 number in the quantity box to override.
 
+## PDF
+
+**PDF…** (top bar) exports the loop as a drawing sheet: choose the paper
+(A4 / A3 / A2), orientation, colour or black & white, and optionally a page
+with the order list. The loop is scaled to fit a frame with a title block
+(loop name, date, items/cables, order status, sheet, and blank *Drawn* and
+*Rev.* fields). In the print dialog, choose **Save as PDF**. The PDF is
+vector: text stays sharp and searchable at any zoom.
+
 ## Data
 
 Everything is stored in your browser (`localStorage`). Use **Export** to save

@@ -853,7 +853,8 @@
       const isSel = selectedIds().includes(n.id) || !!(cablePick && cablePick.first === n.id);
       const hits = items.filter(hlMatch).length;
       const hlc = hlActive() ? (hits ? ' hl-on' : ' hl-off') : '';
-      html += `<div class="node${isSel ? ' sel' : ''}${hlc}${flagCls(n)}" data-id="${n.id}" style="${flagStyle(n)}left:${n.x}px;top:${n.y}px">${n.flag ? `<span class="flag-pin" title="Flagged${n.flag.note ? ': ' + esc(n.flag.note) : ''}">⚑</span>` : ''}${hits ? `<span class="hl-badge" title="${hits} matching line${hits > 1 ? 's' : ''}">${hits}</span>` : ''}
+      const hasStrip = showTerminals && tplan[n.id] && tplan[n.id].rows.length;
+      html += `<div class="node${isSel ? ' sel' : ''}${hlc}${flagCls(n)}${hasStrip ? ' has-strip' : ''}" data-id="${n.id}" style="${flagStyle(n)}left:${n.x}px;top:${n.y}px">${n.flag ? `<span class="flag-pin" title="Flagged${n.flag.note ? ': ' + esc(n.flag.note) : ''}">⚑</span>` : ''}${hits ? `<span class="hl-badge" title="${hits} matching line${hits > 1 ? 's' : ''}">${hits}</span>` : ''}
         <div class="nsym">${(() => {
           const P = tplan[n.id];
           if (!showTerminals || !P || !P.rows.length) return symSVG(n.type, n.tag);
@@ -2408,6 +2409,103 @@
     renderAll(); save();
   }
 
+  // ---------------------------------------------------------------- PDF export
+  // The drawing is HTML + SVG, so the browser's print engine produces a vector PDF ("Save as
+  // PDF"): sharp at any zoom, searchable text, no external library. We build a print-only sheet
+  // with a frame and a title block, scale the loop to fit, and open the print dialog.
+  const PAPER = { A4: [297, 210], A3: [420, 297], A2: [594, 420] }; // landscape, mm
+  const MM = 96 / 25.4; // CSS px per mm
+  function drawingExtents(loop) {
+    let x0 = Infinity, y0 = Infinity, x1 = -Infinity, y1 = -Infinity;
+    const add = (a, b, c, d) => { x0 = Math.min(x0, a); y0 = Math.min(y0, b); x1 = Math.max(x1, c); y1 = Math.max(y1, d); };
+    loop.nodes.forEach(n => { const f = fullBox(n); add(f.x0, f.y0, f.x1, f.y1); });
+    (loop.images || []).forEach(im => add(im.x, im.y, im.x + im.w, im.y + im.h));
+    document.querySelectorAll('#nodes .wlabel, #nodes .encl-tab').forEach(el => { // labels: measure in world units
+      const x = parseFloat(el.style.left), y = parseFloat(el.style.top), w = el.offsetWidth, h = el.offsetHeight;
+      if (isNaN(x)) return;
+      if (el.classList.contains('wlabel')) add(x - w / 2, y - h / 2, x + w / 2, y + h / 2 + (el.querySelector('.flag-note') ? 40 : 0));
+      else add(x, y, x + w, y + h);
+    });
+    loop.links.forEach(l => ['fa', 'fb'].forEach(k => { if (l[k]) add(l[k].x, l[k].y, l[k].x, l[k].y); }));
+    if (!isFinite(x0)) return null;
+    const pad = 24;
+    return { x0: x0 - pad, y0: y0 - pad, x1: x1 + pad, y1: y1 + pad };
+  }
+  function buildPrintSheet(opts) {
+    const loop = cur();
+    const [pw, ph] = opts.orient === 'portrait' ? [PAPER[opts.paper][1], PAPER[opts.paper][0]] : PAPER[opts.paper];
+    const margin = 10, tbH = 24; // mm: page margin and title block height
+    const areaW = (pw - 2 * margin) * MM, areaH = (ph - 2 * margin - tbH) * MM;
+    // render the drawing as on screen (no selection, no highlight), then copy it
+    const prevSel = sel, prevSelNodes = selNodes;
+    sel = null; selNodes = new Set();
+    renderDiagram();
+    const ext = drawingExtents(loop);
+    const world = $('world').cloneNode(true);
+    sel = prevSel; selNodes = prevSelNodes;
+    renderDiagram();
+    world.removeAttribute('id');
+    const wl = world.querySelector('#wires'), nl = world.querySelector('#nodes');
+    if (wl) wl.classList.add('ps-wires');
+    if (nl) nl.classList.add('ps-nodes');
+    world.querySelectorAll('[id]').forEach(e => e.removeAttribute('id')); // no duplicate ids in the page
+    world.querySelectorAll('.port, .grip, .selbox').forEach(e => e.remove());
+    world.querySelectorAll('.sel').forEach(e => e.classList.remove('sel'));
+    let scale = 1, tx = 0, ty = 0;
+    if (ext) {
+      scale = Math.min(areaW / (ext.x1 - ext.x0), areaH / (ext.y1 - ext.y0), 1.6);
+      tx = (areaW - (ext.x1 - ext.x0) * scale) / 2 - ext.x0 * scale;
+      ty = (areaH - (ext.y1 - ext.y0) * scale) / 2 - ext.y0 * scale;
+    }
+    world.style.transform = `translate(${tx}px, ${ty}px) scale(${scale})`;
+    world.style.setProperty('--z', scale);
+    const c = counts(allItems(loop));
+    const today = new Date().toISOString().slice(0, 10);
+    const pages = opts.orders !== 'none' ? 2 : 1;
+    const titleBlock = page => `<table class="ps-tb">
+        <tr><td class="ps-tb-title" rowspan="2">${esc(loop.name || 'Untitled loop')}<small>Loop diagram${showTerminals ? ' with terminals' : ''}${page === 2 ? ' · order list' : ''}</small></td>
+          <td><span>Date</span>${today}</td><td><span>Drawn</span>&nbsp;</td><td><span>Rev.</span>&nbsp;</td></tr>
+        <tr><td><span>Items / cables</span>${loop.nodes.length} / ${loop.links.length}</td><td><span>Order status</span>${c.todo} to order · ${c.ordered} ordered · ${c.have} in stock</td><td><span>Sheet</span>${page}${page === 2 ? ' (order list)' : ''}</td></tr>
+      </table>`;
+    let html = `<section class="ps-page" style="width:${pw - 2 * margin}mm;height:${ph - 2 * margin}mm">
+        <div class="ps-frame"><div class="ps-area" style="height:${(ph - 2 * margin - tbH)}mm"></div>${titleBlock(1)}</div></section>`;
+    if (opts.orders !== 'none') {
+      const keepF = orderFilter, keepS = orderScope, keepG = orderGroup;
+      orderFilter = opts.orders === 'todo' ? 'todo' : 'all'; orderScope = 'loop'; orderGroup = 'totals';
+      const rows = displayRows();
+      orderFilter = keepF; orderScope = keepS; orderGroup = keepG;
+      const by = {};
+      rows.forEach(r => { (by[r.cat] = by[r.cat] || []).push(r); });
+      html += `<section class="ps-page ps-break" style="width:${pw - 2 * margin}mm;min-height:${ph - 2 * margin}mm">
+        <div class="ps-frame ps-orders"><h2>Order list${opts.orders === 'todo' ? ': still to order' : ''}</h2>
+        ${rows.length ? CAT_KEYS.filter(k => by[k]).map(k => `<h3>${esc(CAT[k].n)}</h3><table class="ps-ot"><colgroup><col style="width:13%"><col style="width:47%"><col style="width:28%"><col style="width:12%"></colgroup><thead><tr><th>Status</th><th>Item</th><th>For</th><th class="q">Qty</th></tr></thead><tbody>
+          ${by[k].map(r => `<tr><td>${STATUS_LABEL[r.status]}</td><td>${esc(r.name)}</td><td>${esc(r.forLabel)}</td><td class="q">${r.qty === '' || r.qty == null ? '?' : esc(r.qty)} ${esc(r.unit)}</td></tr>`).join('')}</tbody></table>`).join('') : '<p>Nothing to order.</p>'}
+        ${titleBlock(2)}</div></section>`;
+    }
+    const sheet = $('printSheet');
+    sheet.innerHTML = html;
+    sheet.classList.toggle('bw', opts.colour === 'bw');
+    sheet.querySelector('.ps-area').appendChild(world);
+    // explicit width and height (already in the chosen orientation); a keyword after them is invalid CSS
+    $('pageStyle').textContent = `@page { size: ${pw}mm ${ph}mm; margin: ${margin}mm; }`;
+    return { scale, pages };
+  }
+  function exportPdf(opts) {
+    const theme = document.documentElement.dataset.theme;
+    document.documentElement.dataset.theme = 'light'; // paper is white
+    const info = buildPrintSheet(opts);
+    document.title = (cur().name || 'Loop diagram').replace(/[\\/:*?"<>|]+/g, '-'); // default PDF file name
+    const done = () => {
+      window.removeEventListener('afterprint', done);
+      if (theme) document.documentElement.dataset.theme = theme; else delete document.documentElement.dataset.theme;
+      document.title = 'Loop Planner';
+      if (!window.LOOP_PLANNER_KEEP_PRINT) $('printSheet').innerHTML = '';
+    };
+    window.addEventListener('afterprint', done);
+    try { window.print(); } catch (e) { done(); toast('Printing is blocked here. Open Loop Planner in its own browser tab to export a PDF.'); }
+    return info;
+  }
+
   // ---------------------------------------------------------------- wiring up
   function setView(v) {
     view = v;
@@ -2501,6 +2599,23 @@
     $('zoomOut').onclick = () => applyZoom(zoom / 1.15);
     $('zoomFit').onclick = fit;
     $('btnMirror').onclick = mirror;
+    // PDF dialog
+    let pdfOpts = { paper: 'A3', orient: 'landscape', colour: 'colour', orders: 'none' };
+    try { pdfOpts = Object.assign(pdfOpts, JSON.parse(localStorage.getItem('loop-planner-pdf')) || {}); } catch (e) { /* defaults */ }
+    const pdfDlg = $('pdfDialog');
+    $('btnPdf').onclick = () => {
+      ['paper', 'orient', 'colour', 'orders'].forEach(k => { $('pdf-' + k).value = pdfOpts[k]; });
+      pdfDlg.hidden = false; $('pdf-paper').focus();
+    };
+    $('pdfCancel').onclick = () => { pdfDlg.hidden = true; };
+    pdfDlg.addEventListener('keydown', e => { if (e.key === 'Escape') { e.stopPropagation(); pdfDlg.hidden = true; } });
+    $('pdfGo').onclick = () => {
+      ['paper', 'orient', 'colour', 'orders'].forEach(k => { pdfOpts[k] = $('pdf-' + k).value; });
+      try { localStorage.setItem('loop-planner-pdf', JSON.stringify(pdfOpts)); } catch (e) { /* not saved */ }
+      pdfDlg.hidden = true;
+      if (view !== 'diagram') setView('diagram');
+      setTimeout(() => exportPdf(pdfOpts), 50);
+    };
     const syncTermBtn = () => { $('btnTerminals').classList.toggle('on-order', showTerminals); $('btnTerminals').setAttribute('aria-pressed', showTerminals); };
     syncTermBtn();
     $('btnTerminals').onclick = () => {
