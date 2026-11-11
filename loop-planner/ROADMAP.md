@@ -30,7 +30,7 @@ P&ID tools rather than a competitor.
 
 | Weakness | Consequence |
 |---|---|
-| One 2,800-line `app.js` with shared mutable state | A change in one feature (e.g. symbol size) silently breaks another (e.g. click targets, box selection) |
+| One `app.js` of almost 2,900 lines with shared mutable state | A change in one feature (e.g. symbol size) silently breaks another (e.g. click targets, box selection) |
 | Browser tests exist only in throw-away scripts, not in the repo | Regressions are found by you, not by a pipeline |
 | The data model is implicit (no schema, ad-hoc migrations) | Every new field needs care in copy/paste, import, migration and export |
 | Geometry depends on rendered DOM sizes | Layout logic (routing, strips, zones) is hard to test without a browser |
