@@ -229,6 +229,7 @@ body.resizing, body.resizing * { cursor: col-resize !important; user-select: non
 .node-title small { display: block; color: var(--muted); font-size: .72rem; line-height: 1.15; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .badge { position: absolute; top: -10px; right: -12px; z-index: 1; min-width: 22px; height: 22px; padding: 0 6px; border-radius: 11px; display: grid; place-items: center; font: 600 .75rem/1 var(--f-mono); color: #fff; background: var(--todo); border: 2px solid var(--surface); }
 .badge.ordered { background: var(--ordered); }
+.node.has-strip .badge { right: -38px; } /* keep the core numbers beside the strip readable */
 .badge.done { background: var(--have); }
 .port {
   position: absolute; right: -9px; top: 50%; width: 18px; height: 18px; margin-top: -9px; border-radius: 50%;
@@ -481,8 +482,39 @@ body.moving-label, body.moving-label * { cursor: move !important; user-select: n
   .legend-sep { display: none; }
   .resizer { display: none; }
 }
+/* ---------- PDF export ---------- */
+.dialog { position: fixed; inset: 0; z-index: 40; display: grid; place-items: center; background: rgba(10, 18, 24, .45); padding: 16px; }
+.dialog-box { background: var(--surface); color: var(--ink); border-radius: 8px; box-shadow: var(--shadow); padding: 18px 20px; width: min(440px, 100%); }
+.dialog-box h2 { margin: 0 0 4px; font: 700 1.3rem/1.1 var(--f-label); text-transform: uppercase; letter-spacing: .03em; }
+.print-sheet { display: none; }
 @media print {
-  .topbar, .orders-controls, .toast, .confirm { display: none !important; }
-  .orders { overflow: visible; }
+  html, body { height: auto !important; background: #fff !important; }
+  body > *:not(.print-sheet) { display: none !important; }
+  .print-sheet { display: block !important; color: #000; --sheet: #fff; } /* symbols filled white on paper */
+  .ps-page { box-sizing: border-box; position: relative; overflow: hidden; }
+  .ps-break { break-before: page; overflow: visible; }
+  .ps-frame { position: relative; height: 100%; border: .5mm solid #000; box-sizing: border-box; display: flex; flex-direction: column; }
+  .ps-area { position: relative; overflow: hidden; flex: none; background: #fff; }
+  .ps-area > div { position: absolute; left: 0; top: 0; width: 0; height: 0; transform-origin: 0 0; overflow: visible; }
+  .ps-wires { position: absolute; overflow: visible; }
+  .ps-nodes { position: absolute; left: 0; top: 0; width: 0; height: 0; overflow: visible; }
+  .ps-tb { margin-top: auto; width: 100%; border-collapse: collapse; font: 9pt var(--f-body); }
+  .ps-tb td { border: .3mm solid #000; padding: 1mm 2mm; vertical-align: top; }
+  .ps-tb td span { display: block; font-size: 6.5pt; text-transform: uppercase; letter-spacing: .06em; color: #444; }
+  .ps-tb .ps-tb-title { width: 45%; font: 700 14pt var(--f-label); text-transform: uppercase; }
+  .ps-tb .ps-tb-title small { display: block; font: 400 8pt var(--f-body); text-transform: none; color: #333; }
+  .ps-orders { padding: 6mm; height: auto; min-height: 100%; }
+  .ps-orders h2 { font: 700 14pt var(--f-label); text-transform: uppercase; margin: 0 0 3mm; }
+  .ps-orders h3 { font: 600 10pt var(--f-label); text-transform: uppercase; margin: 4mm 0 1mm; }
+  .ps-ot { width: 100%; table-layout: fixed; border-collapse: collapse; font-size: 8.5pt; margin-bottom: 2mm; }
+  .ps-ot thead { display: table-header-group; } /* header repeats on each page */
+  .ps-ot tr { break-inside: avoid; }
+  .ps-ot th { text-align: left; border-bottom: .3mm solid #000; font-size: 7pt; text-transform: uppercase; }
+  .ps-ot td { border-bottom: .1mm solid #999; padding: .6mm 1mm; }
+  .ps-ot .q { text-align: right; white-space: nowrap; }
+  .ps-orders .ps-tb { margin-top: 6mm; }
+  .print-sheet .wlabel, .print-sheet .node, .print-sheet .badge { box-shadow: none !important; }
+  .print-sheet.bw .ps-area { filter: grayscale(1) contrast(1.15); }
+  * { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
 }
 @media (prefers-reduced-motion: reduce) { * { transition: none !important; } }

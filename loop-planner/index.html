@@ -38,6 +38,7 @@
   </nav>
   <div class="filemenu">
     <button id="btnTheme" class="btn ghost theme-btn" title="Colour theme: click to switch Auto / Light / Dark"></button>
+    <button id="btnPdf" class="btn ghost" title="Export the loop diagram as a PDF drawing sheet">PDF…</button>
     <button id="btnExport" class="btn ghost" title="Save all loops to a .json file">Export</button>
     <label class="btn ghost" title="Load loops from a .json file">Import<input id="fileImport" type="file" accept=".json,application/json" hidden></label>
   </div>
@@ -139,6 +140,21 @@
 </main>
 
 <div id="toast" class="toast" hidden></div>
+<div id="pdfDialog" class="dialog" role="dialog" aria-modal="true" aria-labelledby="pdfTitle" hidden>
+  <div class="dialog-box">
+    <h2 id="pdfTitle">Export PDF</h2>
+    <p class="tip">The loop is scaled to fit a drawing sheet with a title block. In the print dialog that opens, choose <b>Save as PDF</b> as the destination.</p>
+    <div class="form">
+      <label for="pdf-paper">Paper</label><select id="pdf-paper"><option value="A4">A4</option><option value="A3">A3</option><option value="A2">A2</option></select>
+      <label for="pdf-orient">Orientation</label><select id="pdf-orient"><option value="landscape">Landscape</option><option value="portrait">Portrait</option></select>
+      <label for="pdf-colour">Colours</label><select id="pdf-colour"><option value="colour">Colour (order status)</option><option value="bw">Black &amp; white</option></select>
+      <label for="pdf-orders">Order list</label><select id="pdf-orders"><option value="none">Drawing only</option><option value="todo">Add a page: still to order</option><option value="all">Add a page: all items</option></select>
+    </div>
+    <div class="del-row"><button id="pdfGo" class="btn">Create PDF</button><button id="pdfCancel" class="btn ghost">Cancel</button></div>
+  </div>
+</div>
+<div id="printSheet" class="print-sheet" aria-hidden="true"></div>
+<style id="pageStyle"></style>
 <!-- ARTIFACT-BODY-END -->
 <script src="app.js?v=dev"></script>
 </body>
