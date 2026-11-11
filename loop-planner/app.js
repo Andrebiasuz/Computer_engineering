@@ -541,6 +541,7 @@
   const FLAGS = { yellow: 'Yellow', pink: 'Pink', cyan: 'Cyan', violet: 'Violet' };
   let flagFocus = false;     // fade everything that is not flagged
   let labelPts = {};         // cable label positions, to jump to a flagged cable
+  let labelAnchors = {};     // where each cable label belongs on its route
   const flagged = loop => loop.nodes.filter(n => n.flag).map(n => ({ kind: 'node', ent: n })).concat(loop.links.filter(l => l.flag).map(l => ({ kind: 'link', ent: l })));
   function flagPin(ent) {
     if (!ent.flag) return '';
@@ -871,13 +872,22 @@
       svg += `<circle class="wire-end${whl}" cx="${pa.x.toFixed(1)}" cy="${pa.y.toFixed(1)}" r="4" style="fill:var(--${cls === 'done' ? 'have' : cls})"/>`;
       svg += `<circle class="wire-end${whl}" cx="${pb.x.toFixed(1)}" cy="${pb.y.toFixed(1)}" r="4" style="fill:var(--${cls === 'done' ? 'have' : cls})"/>`;
       svg += `<path class="wire-hit" data-link="${l.id}" d="${d}"/>`;
-      labels[l.id] = best;
-      labelPts[l.id] = best;
+      // the label sits on the route unless the user dragged it; then a leader line ties it back
+      const off = l.lblOff;
+      const pos = off ? { x: best.x + off.dx, y: best.y + off.dy } : best;
+      if (off && Math.hypot(off.dx, off.dy) > 18) {
+        svg += `<path class="leader${whl}" d="M${best.x.toFixed(1)},${best.y.toFixed(1)} L${pos.x.toFixed(1)},${pos.y.toFixed(1)}"/>`;
+        svg += `<circle class="leader-dot${whl}" cx="${best.x.toFixed(1)}" cy="${best.y.toFixed(1)}" r="3.5"/>`;
+      }
+      labels[l.id] = pos;
+      labelPts[l.id] = pos;
+      labelAnchors[l.id] = best;
     });
     svg += '<path id="tempWire" class="wire-temp" d="" style="display:none"/>';
     // size the SVG to what it draws, since items can be anywhere (also at negative coordinates)
     let bx0 = 0, by0 = 0, bx1 = 0, by1 = 0;
-    const boxes = loop.nodes.map(n => { const c = center(n); return [n.x, n.y, n.x + c.w, n.y + c.h]; }).concat(openEnds.map(o => [o.x, o.y, o.x, o.y]));
+    const boxes = loop.nodes.map(n => { const c = center(n); return [n.x, n.y, n.x + c.w, n.y + c.h]; }).concat(openEnds.map(o => [o.x, o.y, o.x, o.y]))
+      .concat(Object.values(labels).map(q => [q.x, q.y, q.x, q.y]));
     boxes.forEach((q, i) => { if (!i) { [bx0, by0, bx1, by1] = q; } bx0 = Math.min(bx0, q[0]); by0 = Math.min(by0, q[1]); bx1 = Math.max(bx1, q[2]); by1 = Math.max(by1, q[3]); });
     const m = 300;
     const W = $('wires');
@@ -1169,6 +1179,7 @@
       <div class="form"><label for="f-notes">Notes</label><textarea id="f-notes" data-bind="notes" placeholder="Supplier, drum number, PO…">${esc(l.notes)}</textarea></div>
       ${checklistBlock('To order for this cable')}
       <div class="del-row">
+        ${l.lblOff ? '<button class="btn ghost small" data-lblreset="1" title="Put the label back on the cable">Reset label position</button>' : ''}
         ${na ? `<button class="btn ghost small" data-goto-node="${l.a}">Go to ${esc(na.tag)}</button>` : ''}
         ${nb ? `<button class="btn ghost small" data-goto-node="${l.b}">Go to ${esc(nb.tag)}</button>` : ''}
         <button class="btn ghost small" data-clip="copy" title="Ctrl+C: copy this cable's settings">Copy cable</button>
@@ -1365,6 +1376,7 @@
     loop.nodes.forEach(n => { const w = (sizes[n.id] || { w: NODE_W }).w; x0 = Math.min(x0, n.x); x1 = Math.max(x1, n.x + w); });
     loop.nodes.forEach(n => { const w = (sizes[n.id] || { w: NODE_W }).w; n.x = clampX(snap(x0 + x1 - n.x - w)); });
     loop.links.forEach(l => ['fa', 'fb'].forEach(k => { if (l[k]) l[k].x = x0 + x1 - l[k].x; }));
+    loop.links.forEach(l => { if (l.lblOff) l.lblOff.dx = -l.lblOff.dx; });
     (loop.images || []).forEach(im => { im.x = Math.round(x0 + x1 - im.x - im.w); });
     renderDiagram(); save();
     toast('Loop mirrored left ↔ right.', true);
@@ -1531,7 +1543,7 @@
   let cablePick = null; // { first: node id | null, keep } while picking items for copied cables
   function cableSettings(src, target, keep) {
     const c = JSON.parse(JSON.stringify(src));
-    delete c.id; delete c.a; delete c.b; delete c.tag;
+    delete c.id; delete c.a; delete c.b; delete c.tag; delete c.lblOff;
     if (!keep) {
       if (target) c.st = JSON.parse(JSON.stringify(target.st || {})); // matching settings keeps the target's own statuses
       else resetStatuses(c);
@@ -1718,6 +1730,12 @@
       drag = { mode: 'node', id: n.id, dx: w.x - n.x, dy: w.y - n.y, x0: n.x, y0: n.y, movers, sx: e.clientX, sy: e.clientY, moved: false };
       return;
     }
+    if (label && !(e.shiftKey || e.ctrlKey || e.metaKey)) {
+      e.preventDefault();
+      const l = linkById(loop, label.dataset.link);
+      drag = { mode: 'label', id: l.id, sx: e.clientX, sy: e.clientY, off0: Object.assign({ dx: 0, dy: 0 }, l.lblOff), moved: false };
+      return;
+    }
     if (label || hit) {
       const id = (label || hit).dataset.link;
       select({ kind: 'link', id });
@@ -1769,6 +1787,12 @@
         c.k.x = clampX(c.x + ddx); c.k.y = clampY(c.y + ddy);
         if (c.el) { c.el.style.left = c.k.x + 'px'; c.el.style.top = c.k.y + 'px'; c.el.classList.add('dragging'); }
       });
+      drawWires();
+    } else if (drag.mode === 'label') {
+      if (!drag.moved && Math.hypot(e.clientX - drag.sx, e.clientY - drag.sy) < 4) return;
+      if (!drag.moved) { drag.moved = true; document.body.classList.add('moving-label'); }
+      const l = linkById(loop, drag.id);
+      l.lblOff = { dx: Math.round(drag.off0.dx + (e.clientX - drag.sx) / zoom), dy: Math.round(drag.off0.dy + (e.clientY - drag.sy) / zoom) };
       drawWires();
     } else if (drag.mode === 'imgmove') {
       if (!drag.moved && Math.hypot(e.clientX - drag.sx, e.clientY - drag.sy) < 3) return;
@@ -1877,6 +1901,14 @@
     } else if (d.mode === 'node') {
       if (d.moved) { save(); renderDiagram(); }
       else setSelection([d.id]);
+    } else if (d.mode === 'label') {
+      document.body.classList.remove('moving-label');
+      const l = linkById(loop, d.id);
+      if (d.moved && l) {
+        if (Math.hypot(l.lblOff.dx, l.lblOff.dy) < 6) delete l.lblOff; // dropped back on the cable: snap home
+        save();
+        if (!(sel && sel.kind === 'link' && sel.id === l.id)) select({ kind: 'link', id: l.id }); else drawWires();
+      } else select({ kind: 'link', id: d.id });
     } else if (d.mode === 'imgmove' || d.mode === 'imgscale') {
       if (d.moved) { save(); renderInspector(); }
     } else if (d.mode === 'openend') {
@@ -1917,6 +1949,7 @@
     }
   }
   function onPointerCancel(e) {
+    document.body.classList.remove('moving-label');
     if (e) touches.delete(e.pointerId);
     if (drag && drag.ghost) drag.ghost.remove();
     const box = $('selBox'); if (box) box.remove();
@@ -2011,6 +2044,11 @@
       const [kind, id] = fg.dataset.flagGo.split(':');
       const ent = kind === 'node' ? nodeById(loop, id) : linkById(loop, id);
       if (ent) { select(kind === 'node' ? { kind: 'node', id } : { kind: 'link', id }); focusOn(kind, ent); }
+      return;
+    }
+    if (t.closest('[data-lblreset]')) {
+      const l = sel && sel.kind === 'link' && linkById(loop, sel.id);
+      if (l) { delete l.lblOff; renderDiagram(); renderInspector(); save(); }
       return;
     }
     const ia = t.closest('[data-imgact]');
