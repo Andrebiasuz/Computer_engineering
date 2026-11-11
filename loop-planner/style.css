@@ -220,7 +220,7 @@ body.resizing, body.resizing * { cursor: col-resize !important; user-select: non
 .nsym { position: relative; display: flex; flex-direction: column; align-items: center; line-height: 0; border-radius: 4px; }
 .nsym .strip { margin-top: 6px; }
 .nsym .strip:first-child { margin-top: 0; }
-.nlabel { position: absolute; top: calc(100% + 4px); left: 50%; transform: translateX(-50%); width: max-content; max-width: 170px; text-align: center; display: grid; justify-items: center; gap: 2px; }
+.nlabel { cursor: move; position: absolute; top: calc(100% + 4px); left: 50%; transform: translateX(-50%); width: max-content; max-width: 170px; text-align: center; display: grid; justify-items: center; gap: 2px; }
 .nlabel .chips { margin-top: 2px; justify-content: center; }
 .symbox { display: inline-grid; place-items: center; width: 36px; height: 36px; flex: none; }
 .symbox.big { width: 48px; height: 48px; }
@@ -283,7 +283,7 @@ body.resizing, body.resizing * { cursor: col-resize !important; user-select: non
 .otable tr.row-hl td:first-child { box-shadow: inset 3px 0 0 var(--hl); }
 .flags-btn.on { border-color: var(--flag-yellow); }
 /* flagged components: thick border in the flag colour, a pin, and the note under the card */
-.wlabel.flagged { border: 2.5px solid var(--flag); box-shadow: 0 0 0 4px color-mix(in srgb, var(--flag) 22%, transparent), var(--shadow); }
+.wlabel.flagged { border: 1.5px solid var(--flag); box-shadow: 0 0 0 4px color-mix(in srgb, var(--flag) 22%, transparent), var(--shadow); }
 .node.flagged .nsym { outline: 2.5px solid var(--flag); outline-offset: 4px; box-shadow: 0 0 0 8px color-mix(in srgb, var(--flag) 22%, transparent); }
 .flag-note.inline { position: static; margin-top: 3px; max-width: 170px; text-align: left; }
 .flag-pin { position: absolute; top: -18px; left: -6px; width: 22px; height: 22px; display: grid; place-items: center; border-radius: 4px 4px 4px 0; background: var(--flag); color: #111; font-size: .8rem; line-height: 1; z-index: 2; box-shadow: var(--shadow); }
@@ -343,15 +343,15 @@ body.moving-label, body.moving-label * { cursor: move !important; user-select: n
 .og-line.h { border-top: calc(1px / var(--z, 1)) dashed var(--hl); }
 .og-mark { position: absolute; width: calc(12px / var(--z, 1)); height: calc(12px / var(--z, 1)); transform: translate(-50%, -50%); border: calc(2px / var(--z, 1)) solid var(--hl); background: transparent; }
 .og-tip { position: absolute; transform: translate(calc(10px / var(--z, 1)), calc(-26px / var(--z, 1))) scale(calc(1 / var(--z, 1))); transform-origin: 0 100%; background: var(--hl); color: var(--hl-ink); font: 600 11px var(--f-mono); padding: 2px 5px; border-radius: 3px; white-space: nowrap; }
-.wlabel .eye { position: absolute; top: -9px; right: -9px; width: 18px; height: 18px; padding: 2px; border-radius: 50%; border: 1px solid var(--line); background: var(--surface); color: var(--muted); cursor: pointer; display: grid; place-items: center; opacity: 0; transition: opacity .12s; z-index: 2; }
+.wlabel .eye { position: absolute; top: -8px; right: -8px; width: 15px; height: 15px; padding: 2px; border-radius: 50%; border: 1px solid var(--line); background: var(--surface); color: var(--muted); cursor: pointer; display: grid; place-items: center; opacity: 0; transition: opacity .12s; z-index: 2; }
 .wlabel:hover .eye, .wlabel.sel .eye, .wlabel.info-hidden .eye, .wlabel .eye:focus-visible { opacity: 1; }
 @media (hover: none) { .wlabel .eye { opacity: 1; } }
-.wlabel .eye svg { width: 12px; height: 12px; fill: none; stroke: currentColor; stroke-width: 1.6; }
+.wlabel .eye svg { width: 10px; height: 10px; fill: none; stroke: currentColor; stroke-width: 1.6; }
 .wlabel .eye:hover { color: var(--accent); border-color: var(--accent); }
 /* information hidden: only a small eye stays where the box was */
 .wlabel.info-hidden { padding: 0; border: 0; background: transparent; box-shadow: none; min-width: 0; }
 .wlabel.info-hidden > :not(.eye) { display: none !important; }
-.wlabel.info-hidden .eye { position: static; opacity: .8; width: 20px; height: 20px; }
+.wlabel.info-hidden .eye { position: static; opacity: .8; width: 16px; height: 16px; }
 .wlabel.was-hidden { border-style: dashed; }
 .cgrip { position: absolute; pointer-events: auto; transform: translate(-50%, -50%); z-index: 4; background: var(--accent); border: calc(1.5px / var(--z, 1)) solid var(--surface); box-shadow: 0 0 0 calc(1px / var(--z, 1)) var(--accent); }
 .cgrip.end { width: calc(12px / var(--z, 1)); height: calc(12px / var(--z, 1)); cursor: move; }
@@ -360,8 +360,7 @@ body.moving-label, body.moving-label * { cursor: move !important; user-select: n
 .cgrip:hover { background: var(--hl); box-shadow: 0 0 0 calc(1px / var(--z, 1)) var(--hl); }
 .wire.exi, .core.exi { stroke: var(--exi) !important; }
 .isym .s-f.exi { fill: var(--exi-soft); }
-.wlabel.exi { border-color: var(--exi); }
-.exi-tag { margin-left: 6px; padding: 0 4px; border-radius: 3px; background: var(--exi); color: #fff; font: 600 .66rem/1.5 var(--f-mono); }
+.exi-tag { margin-left: 2px; padding: 0 3px; border-radius: 2px; background: var(--exi); color: #fff; font: 600 .54rem/1.45 var(--f-mono); }
 .ctable td.cno.exi { background: var(--exi-soft); }
 .ctable tr.mixed td { background: var(--todo-soft); }
 .warn-text { color: var(--todo); }
@@ -383,18 +382,21 @@ body.moving-label, body.moving-label * { cursor: move !important; user-select: n
 .chip.have { background: var(--have-soft); color: var(--have); }
 .chip.na { background: var(--na-soft); color: var(--na); text-decoration: line-through; }
 
+/* cable information, like a cable tag on a circuit diagram: centred on the cable and written along it,
+   tag and type on one side of the line, material chips on the other */
 .wlabel {
-  position: absolute; pointer-events: auto; transform: translate(-50%, -50%); cursor: move;
-  background: var(--surface); border: 1.5px solid var(--line); border-radius: 4px; padding: 3px 6px 4px; box-shadow: var(--shadow);
-  white-space: nowrap; max-width: 220px;
+  position: absolute; pointer-events: auto; cursor: move; transform: translate(-50%, -50%);
+  display: grid; justify-items: center; row-gap: 5px; white-space: nowrap;
+  border: 1px solid transparent; border-radius: 3px; padding: 0 2px;
 }
-.wlabel.todo { border-color: var(--todo); }
-.wlabel.ordered { border-color: var(--ordered); }
-.wlabel.done { border-color: var(--have); }
-.wlabel.sel { box-shadow: 0 0 0 3px var(--accent-soft), var(--shadow); border-color: var(--accent); }
-.wlabel .wt { display: flex; gap: 6px; align-items: baseline; font: 600 .78rem/1.2 var(--f-mono); }
-.wlabel .wt small { font: 500 .72rem var(--f-body); color: var(--muted); }
-.wlabel .chips { margin-top: 3px; flex-wrap: nowrap; }
+.wlabel.along-v { transform: translate(-50%, -50%) rotate(-90deg); }
+.wlabel.loose { row-gap: 1px; padding: 1px 3px; background: var(--surface); border-color: var(--line); }
+.wlabel.sel { box-shadow: 0 0 0 2px var(--accent-soft); border-color: var(--accent); }
+.wlabel .wt, .wlabel .chips { background: color-mix(in srgb, var(--surface) 88%, transparent); border-radius: 2px; padding: 0 2px; height: 12px; }
+.wlabel .wt { display: flex; gap: 4px; align-items: center; font: 600 .64rem/12px var(--f-mono); }
+.wlabel .wt small { font: 500 .58rem/12px var(--f-body); color: var(--muted); }
+.wlabel .chips { margin: 0; gap: 2px; flex-wrap: nowrap; align-items: center; }
+.wlabel .chip { font-size: .46rem; padding: 2px 2px 1px; border-radius: 2px; }
 
 .legend { display: flex; flex-wrap: wrap; gap: 4px 14px; padding: 6px 12px; font-size: .8rem; color: var(--muted); border-top: 1px solid var(--line); background: var(--surface); }
 .legend span { display: inline-flex; align-items: center; gap: 5px; }

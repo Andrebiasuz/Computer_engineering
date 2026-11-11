@@ -127,11 +127,20 @@ outlined in violet with a count, everything else fades, and the matching
 lines are marked in the checklist and the order list. Tick *Only still to
 order* to see just what is left to buy. **Clear** turns it off.
 
-**Cable labels** can be dragged anywhere to tidy the drawing. A label stays
-tied to its cable (it follows when items move) and a dashed leader line
-points back to the cable when it is moved away. *Reset label position* in
-the cable's panel puts it back; a plain click on a label still selects the
-cable.
+**Cable labels** are written along the cable, like cable tags on a circuit
+diagram: the tag, type and length on one side of the line and the material
+chips on the other, on the cable's longest run (turned to read upwards on
+vertical runs). They can be dragged anywhere to tidy the drawing. A label
+stays tied to its cable (it follows when items move) and a dashed leader
+line points back to the cable when it is moved away. *Reset label position*
+in the cable's panel puts it back; a plain click on a label still selects
+the cable.
+
+**Item text** (tag, service and chips under a symbol) can be dragged
+anywhere too: only the text moves, with a dashed leader line back to its
+symbol, and it travels with the symbol when the item is moved. Dropping it
+back under the symbol, or *Reset text position* in the item's panel, puts
+it home.
 
 **Deleting an item keeps its cables**: each one is left with an open end
 (a dashed ◯) where the item was. Drag the open end onto another item to

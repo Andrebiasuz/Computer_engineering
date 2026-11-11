@@ -707,6 +707,7 @@
   let flagFocus = false;     // fade everything that is not flagged
   let labelPts = {};         // cable label positions, to jump to a flagged cable
   let labelAnchors = {};     // where each cable label belongs on its route
+  let labelOrient = {};      // 'h' or 'v': the direction of the run a cable label is written along
   let routeInfo = {};        // per cable: end points and middle run, for the reroute grips
   const flagged = loop => loop.nodes.filter(n => n.flag).map(n => ({ kind: 'node', ent: n })).concat(loop.links.filter(l => l.flag).map(l => ({ kind: 'link', ent: l })));
   function flagPin(ent) {
@@ -934,7 +935,7 @@
           if (!showTerminals || !P || !P.rows.length) return symSVG(n.type, n.tag, null, k) + grips;
           return (n.type === 'tb' ? '' : symSVG(n.type, n.tag, null, k)) + stripSVG(P.rows, k, P.exi) + grips; // the terminal strip under the symbol
         })()}</div>${badge}
-        <div class="nlabel"><div class="node-title"><b>${esc(n.tag)}</b><small>${esc(n.desc || T(n.type).name)}</small>${n.inside && nodeById(loop, n.inside) ? `<small class="inside-tag">in ${esc(nodeById(loop, n.inside).tag)}</small>` : ''}</div>
+        <div class="nlabel" title="Drag to move this text" style="${nlabelStyle(n)}"><div class="node-title"><b>${esc(n.tag)}</b><small>${esc(n.desc || T(n.type).name)}</small>${n.inside && nodeById(loop, n.inside) ? `<small class="inside-tag">in ${esc(nodeById(loop, n.inside).tag)}</small>` : ''}</div>
           <div class="chips">${chipsHTML(items)}</div>${n.flag && n.flag.note ? `<div class="flag-note inline">${esc(n.flag.note)}</div>` : ''}</div>
         <div class="port left" title="Drag to another item to add a cable"></div><div class="port" title="Drag to another item to add a cable"></div></div>`;
     });
@@ -950,8 +951,7 @@
       const hid = l.infoHidden && !showHiddenAll;
       html += `<div class="wlabel ${cls}${isSel ? ' sel' : ''}${lhl}${flagCls(l)}${hid ? ' info-hidden' : ''}${l.infoHidden && showHiddenAll ? ' was-hidden' : ''}${l.exi ? ' exi' : ''}" data-link="${l.id}" style="${flagStyle(l)}">${flagPin(l)}${lhits ? `<span class="hl-badge" title="${lhits} matching line${lhits > 1 ? 's' : ''}">${lhits}</span>` : ''}
         <button class="eye" data-eye="${l.id}" title="${l.infoHidden ? `Show the information of ${esc(l.tag)} (H)` : 'Hide this information (H)'}" aria-label="${l.infoHidden ? 'Show' : 'Hide'} the information of cable ${esc(l.tag)}">${l.infoHidden ? EYE_OFF : EYE}</button>
-        <div class="wt">${esc(l.tag)} <small>${esc(spec)}${l.length ? ' · ' + esc(l.length) + ' m' : ''}</small>${l.exi ? '<b class="exi-tag" title="Intrinsically safe circuit">Ex i</b>' : ''}</div>
-        <div class="chips">${chipsHTML(items)}</div></div>`;
+        <div class="wt">${esc(l.tag)} <small>${esc(spec)}${l.length ? ' · ' + esc(l.length) + ' m' : ''}</small>${l.exi ? '<b class="exi-tag" title="Intrinsically safe circuit">Ex i</b>' : ''}</div><div class="chips">${chipsHTML(items)}</div></div>`;
     });
     nodesEl.innerHTML = html;
     sizes = {};
@@ -982,15 +982,30 @@
     $('imgFront').innerHTML = html.front;
   }
 
-  // the symbol plus its tag block underneath, for selection boxes, zones and zoom extents
+  // an item's text block (tag, service, chips) sits under the symbol unless the user moved it
+  function nlabelStyle(n) {
+    const o = n.lblOff;
+    return o ? `transform:translate(calc(-50% + ${o.dx}px), ${o.dy}px)` : '';
+  }
+  function nlabelBox(n) {
+    const s = sizes[n.id] || { w: NODE_W, h: 56, lw: 140, lh: 44 };
+    const o = n.lblOff || { dx: 0, dy: 0 }, cx = n.x + s.w / 2 + o.dx, lw = s.lw || 0;
+    return { x0: cx - lw / 2, y0: n.y + s.h + o.dy, x1: cx + lw / 2, y1: n.y + s.h + o.dy + (s.lh || 0) };
+  }
+  // the symbol plus its text block, for selection boxes, zones and zoom extents
   function fullBox(n) {
     const s = sizes[n.id] || { w: NODE_W, h: 56, lw: 140, lh: 44 };
-    const half = Math.max(s.w, s.lw || 0) / 2, cx = n.x + s.w / 2;
-    return { x0: cx - half, y0: n.y, x1: cx + half, y1: n.y + s.h + (s.lh || 0) };
+    const t = nlabelBox(n);
+    return { x0: Math.min(n.x, t.x0), y0: Math.min(n.y, t.y0), x1: Math.max(n.x + s.w, t.x1), y1: Math.max(n.y + s.h, t.y1) };
   }
   function center(n) {
     const s = sizes[n.id] || { w: NODE_W, h: 56 };
-    return { x: n.x + s.w / 2, y: n.y + s.h / 2, w: s.w, h: s.h, lh: s.lh || 0 };
+    return { x: n.x + s.w / 2, y: n.y + s.h / 2, w: s.w, h: s.h, lh: n.lblOff ? 0 : (s.lh || 0) };
+  }
+  // a cable's information is centred on its run and written along it: tag and type on one side of
+  // the cable, the material chips on the other ('v' runs are turned to read upwards)
+  function cableLabelRect(x, y, w, h, orient) {
+    return orient === 'v' ? { x0: x - h / 2, y0: y - w / 2, x1: x + h / 2, y1: y + w / 2 } : { x0: x - w / 2, y0: y - h / 2, x1: x + w / 2, y1: y + h / 2 };
   }
   function clip(c, toward) {
     const dx = toward.x - c.x, dy = toward.y - c.y;
@@ -1122,11 +1137,25 @@
       const run = orient === 'x' ? s0.x : s0.y;
       // the move-the-run grip must never cover the cable's own label: try spots along the run,
       // then its corners, then along the legs, and take the first one clear of the label
+      // the cable's information goes on its longest run, written along it (like a cable tag on a
+      // circuit diagram); horizontal runs win a close call, so most tags read normally
+      let lseg = 0, lscore = -1;
+      for (let i = 0; i < pts.length - 1; i++) {
+        const dx = Math.abs(pts[i + 1].x - pts[i].x), dy = Math.abs(pts[i + 1].y - pts[i].y);
+        const sc = Math.max(dx, dy) * (dx >= dy ? 1.25 : 1);
+        if (sc > lscore + 0.5) { lscore = sc; lseg = i; }
+      }
+      const L0 = pts[lseg], L1 = pts[lseg + 1];
+      const best = { x: (L0.x + L1.x) / 2, y: (L0.y + L1.y) / 2 };
+      const lorient = Math.abs(L1.y - L0.y) > Math.abs(L1.x - L0.x) ? 'v' : 'h';
+      labelOrient[l.id] = lorient;
+      const lpos = l.lblOff ? { x: best.x + l.lblOff.dx, y: best.y + l.lblOff.dy } : best;
       let gmid = mc;
-      const lel = !l.lblOff && document.querySelector(`#nodes .wlabel[data-link="${l.id}"]`);
+      const lel = document.querySelector(`#nodes .wlabel[data-link="${l.id}"]`);
       if (lel) {
+        const lr = cableLabelRect(lpos.x, lpos.y, lel.offsetWidth, lel.offsetHeight, lorient);
+        const clear = q => q.x < lr.x0 - 8 || q.x > lr.x1 + 8 || q.y < lr.y0 - 8 || q.y > lr.y1 + 8;
         const hw = lel.offsetWidth / 2 + 8, hh = lel.offsetHeight / 2 + 8;
-        const clear = q => Math.abs(q.x - mc.x) > hw || Math.abs(q.y - mc.y) > hh;
         const along = (a, b2, dist) => { const L2 = Math.hypot(b2.x - a.x, b2.y - a.y); return L2 > dist ? { x: a.x + (b2.x - a.x) * dist / L2, y: a.y + (b2.y - a.y) * dist / L2 } : null; };
         const runLen = Math.hypot(s1.x - s0.x, s1.y - s0.y);
         const cand = [];
@@ -1138,8 +1167,6 @@
         gmid = cand.find(q => q && clear(q)) || mc;
       }
       routeInfo[l.id] = { pa, pb, mid: gmid, orient, run, freeA: !!r.na.free, freeB: !!r.nb.free };
-      // label on the middle run of the route, i.e. halfway between the two items
-      const best = { x: (pts[si].x + pts[si + 1].x) / 2, y: (pts[si].y + pts[si + 1].y) / 2 };
       const items = linkItems(loop, l);
       const w = worst(items);
       const cls = w === 'todo' ? 'todo' : w === 'ordered' ? 'ordered' : 'done';
@@ -1191,7 +1218,7 @@
       });
       // the label sits on the route unless the user dragged it; then a leader line ties it back
       const off = l.lblOff;
-      const pos = off ? { x: best.x + off.dx, y: best.y + off.dy } : best;
+      const pos = lpos;
       if (off && Math.hypot(off.dx, off.dy) > 18 && !(l.infoHidden && !showHiddenAll)) {
         svg += `<path class="leader${whl}" d="M${best.x.toFixed(1)},${best.y.toFixed(1)} L${pos.x.toFixed(1)},${pos.y.toFixed(1)}"/>`;
         svg += `<circle class="leader-dot${whl}" cx="${best.x.toFixed(1)}" cy="${best.y.toFixed(1)}" r="3.5"/>`;
@@ -1199,6 +1226,17 @@
       labels[l.id] = pos;
       labelPts[l.id] = pos;
       labelAnchors[l.id] = best;
+    });
+    loop.nodes.forEach(n => {
+      if (!n.lblOff || Math.hypot(n.lblOff.dx, n.lblOff.dy) < 18) return;
+      const c = center(n), t = nlabelBox(n);
+      const tc = { x: (t.x0 + t.x1) / 2, y: (t.y0 + t.y1) / 2 };
+      const a = clip(c, tc); // symbol edge towards the text
+      const b = { x: Math.max(t.x0, Math.min(t.x1, a.x)), y: Math.max(t.y0, Math.min(t.y1, a.y)) }; // nearest point of the text block
+      if (Math.hypot(b.x - a.x, b.y - a.y) < 6) return;
+      const nh = hlActive() ? (nodeItems(loop, n).some(hlMatch) ? ' hl-on' : ' hl-off') : '';
+      svg += `<path class="leader${nh}" d="M${a.x.toFixed(1)},${a.y.toFixed(1)} L${b.x.toFixed(1)},${b.y.toFixed(1)}"/>`;
+      svg += `<circle class="leader-dot${nh}" cx="${a.x.toFixed(1)}" cy="${a.y.toFixed(1)}" r="2.5"/>`;
     });
     svg += '<path id="tempWire" class="wire-temp" d="" style="display:none"/>';
     // size the SVG to what it draws, since items can be anywhere (also at negative coordinates)
@@ -1223,7 +1261,12 @@
       `<div class="open-end" data-open="${o.l.id}:${o.end}" style="left:${o.x}px;top:${o.y}px" title="Open end of ${esc(o.l.tag)}: drag it onto an item to connect"></div>`).join('') + cgrips);
     document.querySelectorAll('.wlabel').forEach(el => {
       const p = labels[el.dataset.link];
-      if (p) { el.style.left = p.x + 'px'; el.style.top = p.y + 'px'; el.hidden = false; } else el.hidden = true;
+      if (p) {
+        el.style.left = p.x + 'px'; el.style.top = p.y + 'px'; el.hidden = false;
+        const lk = linkById(loop, el.dataset.link);
+        el.classList.toggle('along-v', labelOrient[el.dataset.link] === 'v');
+        el.classList.toggle('loose', !!(lk && lk.lblOff));
+      } else el.hidden = true;
     });
   }
 
@@ -1347,6 +1390,7 @@
         <label for="f-desc">Service</label><input id="f-desc" type="text" data-bind="desc" value="${esc(n.desc)}">
         <label for="f-scale">Size</label><div class="row"><input id="f-scale" type="number" min="50" max="300" step="5" data-scale="1" value="${Math.round((n.scale || 1) * 100)}" style="width:5.5em"> %
           ${(n.scale || 1) !== 1 ? '<button class="btn ghost small" data-scalereset="1">Reset</button>' : ''}<span class="muted" style="font-size:.8rem">or drag a corner grip</span></div>
+        ${n.lblOff ? '<span></span><div class="row"><button class="btn ghost small" data-nlblreset="1" title="Put the text back under the symbol">Reset text position</button></div>' : ''}
         <label for="f-inside">Mounted inside</label><select id="f-inside" data-bind="inside" data-rerender="1">
           <option value="">Not inside another item</option>
           ${loop.nodes.filter(o => o.id !== n.id && isEnclosure(o.type) && o.inside !== n.id).map(o => `<option value="${o.id}" ${n.inside === o.id ? 'selected' : ''}>${esc(o.tag)} (${esc(T(o.type).name)})</option>`).join('')}
@@ -1744,6 +1788,7 @@
     loop.nodes.forEach(n => { const w = (sizes[n.id] || { w: NODE_W }).w; x0 = Math.min(x0, n.x); x1 = Math.max(x1, n.x + w); });
     loop.nodes.forEach(n => { const w = (sizes[n.id] || { w: NODE_W }).w; n.x = clampX(snap(x0 + x1 - n.x - w)); });
     loop.links.forEach(l => ['fa', 'fb'].forEach(k => { if (l[k]) l[k].x = x0 + x1 - l[k].x; }));
+    loop.nodes.forEach(n => { if (n.lblOff) n.lblOff.dx = -n.lblOff.dx; });
     loop.links.forEach(l => { if (l.lblOff) l.lblOff.dx = -l.lblOff.dx; if (l.bend && l.bend.x != null) l.bend.x = Math.round(x0 + x1 - l.bend.x); });
     (loop.images || []).forEach(im => { im.x = Math.round(x0 + x1 - im.x - im.w); });
     renderDiagram(); save();
@@ -2144,6 +2189,13 @@
       drag = { mode: 'node', id: enc.id, dx: w.x - enc.x, dy: w.y - enc.y, x0: enc.x, y0: enc.y, movers, sx: e.clientX, sy: e.clientY, moved: false };
       return;
     }
+    const nlab = e.target.closest('.nlabel');
+    if (nlab && nodeEl && !(e.shiftKey || e.ctrlKey || e.metaKey)) { // the text block moves on its own
+      e.preventDefault();
+      const n = nodeById(loop, nodeEl.dataset.id);
+      drag = { mode: 'nlabel', id: n.id, el: nlab, sx: e.clientX, sy: e.clientY, off0: Object.assign({ dx: 0, dy: 0 }, n.lblOff), moved: false };
+      return;
+    }
     if (nodeEl) {
       e.preventDefault();
       const n = nodeById(loop, nodeEl.dataset.id);
@@ -2244,6 +2296,15 @@
       let mdx = (e.clientX - drag.sx) / zoom, mdy = (e.clientY - drag.sy) / zoom;
       if (draft.ortho) { if (Math.abs(mdx) >= Math.abs(mdy)) mdy = 0; else mdx = 0; }
       l.lblOff = { dx: snap(drag.off0.dx + mdx), dy: snap(drag.off0.dy + mdy) };
+      drawWires();
+    } else if (drag.mode === 'nlabel') {
+      if (!drag.moved && Math.hypot(e.clientX - drag.sx, e.clientY - drag.sy) < 4) return;
+      if (!drag.moved) { drag.moved = true; document.body.classList.add('moving-label'); }
+      const n = nodeById(loop, drag.id);
+      let mdx = (e.clientX - drag.sx) / zoom, mdy = (e.clientY - drag.sy) / zoom;
+      if (draft.ortho) { if (Math.abs(mdx) >= Math.abs(mdy)) mdy = 0; else mdx = 0; }
+      n.lblOff = { dx: snap(drag.off0.dx + mdx), dy: snap(drag.off0.dy + mdy) };
+      drag.el.style.transform = nlabelStyle(n).replace('transform:', '');
       drawWires();
     } else if (drag.mode === 'imgmove') {
       if (!drag.moved && Math.hypot(e.clientX - drag.sx, e.clientY - drag.sy) < 3) return;
@@ -2386,6 +2447,14 @@
       else setSelection([d.id]);
     } else if (d.mode === 'nscale') {
       if (d.moved) { save(); renderInspector(); }
+    } else if (d.mode === 'nlabel') {
+      document.body.classList.remove('moving-label');
+      const n = nodeById(loop, d.id);
+      if (d.moved && n) {
+        if (n.lblOff && Math.hypot(n.lblOff.dx, n.lblOff.dy) < 6) delete n.lblOff; // dropped back under the symbol
+        save();
+        if (sel && sel.kind === 'node' && sel.id === n.id) { renderDiagram(); renderInspector(); } else setSelection([n.id]);
+      } else setSelection([d.id]);
     } else if (d.mode === 'label') {
       document.body.classList.remove('moving-label');
       const l = linkById(loop, d.id);
@@ -2604,6 +2673,11 @@
       if (l) { snapshot(); delete l.bend; renderDiagram(); renderInspector(); save(); }
       return;
     }
+    if (t.closest('[data-nlblreset]')) {
+      const n = sel && sel.kind === 'node' && nodeById(loop, sel.id);
+      if (n) { delete n.lblOff; renderDiagram(); renderInspector(); save(); }
+      return;
+    }
     if (t.closest('[data-lblreset]')) {
       const l = sel && sel.kind === 'link' && linkById(loop, sel.id);
       if (l) { delete l.lblOff; renderDiagram(); renderInspector(); save(); }
@@ -2798,7 +2872,10 @@
     document.querySelectorAll('#nodes .wlabel, #nodes .encl-tab').forEach(el => { // labels: measure in world units
       const x = parseFloat(el.style.left), y = parseFloat(el.style.top), w = el.offsetWidth, h = el.offsetHeight;
       if (isNaN(x)) return;
-      if (el.classList.contains('wlabel')) add(x - w / 2, y - h / 2, x + w / 2, y + h / 2 + (el.querySelector('.flag-note') ? 40 : 0));
+      if (el.classList.contains('wlabel')) {
+        const r = cableLabelRect(x, y, w, h, el.classList.contains('along-v') ? 'v' : 'h');
+        add(r.x0, r.y0, r.x1, r.y1 + (el.querySelector('.flag-note') ? 40 : 0));
+      }
       else add(x, y, x + w, y + h);
     });
     loop.links.forEach(l => ['fa', 'fb'].forEach(k => { if (l[k]) add(l[k].x, l[k].y, l[k].x, l[k].y); }));
@@ -2907,6 +2984,9 @@
     renderAll();
     updateView();
     requestAnimationFrame(fit);
+    // Chromium can keep the size it first gave the symbols' SVG text (before the zoom and the web
+    // fonts were in place), drawing numbers too big and off their terminals: draw once more then
+    if (document.fonts && document.fonts.ready) document.fonts.ready.then(() => requestAnimationFrame(() => { if (!drag) renderDiagram(); }));
 
     $('paletteList').addEventListener('pointerdown', onPalettePointerDown);
     $('viewport').addEventListener('pointerdown', onSheetPointerDown);
