@@ -178,11 +178,22 @@ number in the quantity box to override.
   vertical middle run it moves that run sideways; on a straight cable it
   pulls the cable up or down into a detour (around a label or an item).
   **Reset route** goes back to the automatic path. Undo works for all of it.
-- **Hide a cable:** click the eye on a cable's tag (or press **H** with the
-  cable selected). Only a small dashed tag stays; click the eye again to
-  show the cable. **N HIDDEN** in the status bar shows all hidden cables
-  temporarily. Hidden cables are still ordered and keep their terminals, but
-  are left out of the PDF.
+- **Hide a cable's information:** click the eye on a cable's tag (or press
+  **H** with the cable selected). The cable stays drawn; only its information
+  box is replaced by a small eye, which shows it again. **N INFO HIDDEN** in
+  the status bar shows all of it temporarily. Hidden information is left
+  out of the PDF.
+- **Connect each core separately:** in the cable's *Cores & terminals*
+  table, every core has its own item list and terminal number, so a cable
+  can be split over several strips (cores 1–4 to X10, 5–8 to X11). Moved
+  cores are drawn dashed from the cable end to their own terminals, are
+  numbered after the last terminal used there, and appear in that strip's
+  terminal schedule. **Reset cores** puts all cores back.
+- **Ex i:** tick *Ex i (intrinsically safe)* in a cable's properties. The
+  cable and its cores turn blue, the terminals its cores land on turn light
+  blue, and the order list asks for a light-blue cable and separate Ex i
+  terminal blocks. The terminal schedule warns when an Ex i core and another
+  circuit share a terminal.
 - **Status bar** (under the sheet), like AutoCAD:
   - **SNAP (F9):** moves snap to the grid step (10 / 20 / 50); off moves freely.
   - **ORTHO (F8):** drags are locked horizontal or vertical.
