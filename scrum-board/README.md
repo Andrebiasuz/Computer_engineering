@@ -23,6 +23,9 @@ page makes no network requests except to load its two Google Fonts.
   progress, has a "+ note" button, and can be collapsed to a row of counts.
   Notes without a project get a "No project" lane. The on/off choice and
   collapsed lanes are remembered per browser.
+- **Note size**: the − / + buttons in the toolbar make every note smaller or bigger
+  (XS, S, M, L, XL; XS shows titles only). To resize one note, drag the small grip in
+  its bottom-right corner up or down; double-click the grip to return it to automatic.
 - Drag notes between and within columns. On phones and tablets, long-press a note to pick it up.
 - Drag a note onto the trash bin to remove it. Every delete can be undone.
 - Board title, a "This week" focus line, and a progress bar showing how many

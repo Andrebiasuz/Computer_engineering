@@ -29,6 +29,11 @@
 
     <div class="toolbar">
       <button id="lanes-toggle" class="btn" aria-pressed="false" title="One row per project">☰ Swimlanes</button>
+      <div class="note-size" role="group" aria-label="Note size">
+        <button type="button" class="btn" id="note-smaller" title="Smaller notes" aria-label="Smaller notes">−</button>
+        <span id="note-size-label" class="note-size-label" title="Size of all notes">Notes M</span>
+        <button type="button" class="btn" id="note-bigger" title="Bigger notes" aria-label="Bigger notes">+</button>
+      </div>
       <select id="project-filter" aria-label="Show project"></select>
       <input id="search" type="search" placeholder="Filter notes…" autocomplete="off" aria-label="Filter notes">
       <button id="add-column" class="btn">+ Column</button>

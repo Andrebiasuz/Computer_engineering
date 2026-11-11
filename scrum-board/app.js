@@ -107,6 +107,7 @@ function normalize(s) {
     if (!COLORS.includes(note.color)) note.color = "yellow";
     if (typeof note.tilt !== "number") note.tilt = randTilt();
     if (!note.pin) note.pin = PIN_COLORS[0];
+    if (!(typeof note.h === "number" && note.h >= 50)) delete note.h;
     note.project = String(note.project ?? "").trim();
   }
   return s;
@@ -218,6 +219,10 @@ function renderNote(note) {
   el.style.setProperty("--tilt", note.tilt + "deg");
   el.style.setProperty("--pin", note.pin);
   el.setAttribute("aria-label", note.title);
+  if (note.h) {
+    el.classList.add("sized");
+    el.style.height = note.h + "px";
+  }
 
   if (note.project) {
     const tag = document.createElement("button");
@@ -262,6 +267,11 @@ function renderNote(note) {
     }
     el.append(foot);
   }
+
+  const grip = document.createElement("span");
+  grip.className = "note-grip";
+  grip.title = "Drag to resize · double-click to reset";
+  el.append(grip);
 
   if (note.id === freshId) el.classList.add("fresh");
   if (!isVisible(note)) el.classList.add("is-hidden");
@@ -1002,6 +1012,81 @@ board.addEventListener("keydown", (e) => {
   }
 });
 
+/* ---------------- note size ---------------- */
+
+// global size for every note (toolbar − / +), remembered per browser
+const NOTE_SIZES = [
+  { label: "XS", h: 64, fs: 0.8, lines: 2 },
+  { label: "S", h: 86, fs: 0.9, lines: 3 },
+  { label: "M", h: 110, fs: 1, lines: 4 },
+  { label: "L", h: 150, fs: 1.06, lines: 6 },
+  { label: "XL", h: 200, fs: 1.12, lines: 10 },
+];
+const NOTE_SIZE_KEY = "scrum-board-note-size";
+let noteSize = 2;
+try {
+  const v = parseInt(localStorage.getItem(NOTE_SIZE_KEY), 10);
+  if (v >= 0 && v < NOTE_SIZES.length) noteSize = v;
+} catch (_) { /* ignore */ }
+
+function applyNoteSize() {
+  const s = NOTE_SIZES[noteSize];
+  board.style.setProperty("--note-h", s.h + "px");
+  board.style.setProperty("--note-fs", s.fs);
+  board.style.setProperty("--note-lines", s.lines);
+  board.dataset.noteSize = noteSize;
+  $("#note-size-label").textContent = `Notes ${s.label}`;
+  $("#note-smaller").disabled = noteSize === 0;
+  $("#note-bigger").disabled = noteSize === NOTE_SIZES.length - 1;
+}
+function stepNoteSize(d) {
+  noteSize = Math.max(0, Math.min(NOTE_SIZES.length - 1, noteSize + d));
+  try { localStorage.setItem(NOTE_SIZE_KEY, String(noteSize)); } catch (_) { /* ignore */ }
+  applyNoteSize();
+}
+$("#note-smaller").addEventListener("click", () => stepNoteSize(-1));
+$("#note-bigger").addEventListener("click", () => stepNoteSize(1));
+applyNoteSize();
+
+// one note: drag its corner grip up/down; double-click the grip to go back to automatic
+const MIN_NOTE_H = 84;
+board.addEventListener("pointerdown", (e) => {
+  const grip = e.target.closest(".note-grip");
+  if (!grip || e.button > 0) return;
+  e.preventDefault();
+  e.stopPropagation();
+  const el = grip.closest(".note");
+  const id = el.dataset.id;
+  const startY = e.clientY;
+  const startH = el.offsetHeight;
+  el.classList.add("resizing", "sized");
+  grip.setPointerCapture(e.pointerId);
+  const move = (ev) => { el.style.height = Math.max(MIN_NOTE_H, Math.round(startH + ev.clientY - startY)) + "px"; };
+  const end = () => {
+    grip.removeEventListener("pointermove", move);
+    grip.removeEventListener("pointerup", end);
+    grip.removeEventListener("pointercancel", end);
+    el.classList.remove("resizing");
+    if (state.notes[id] && el.style.height) {
+      state.notes[id].h = parseInt(el.style.height, 10);
+      save();
+    }
+  };
+  grip.addEventListener("pointermove", move);
+  grip.addEventListener("pointerup", end);
+  grip.addEventListener("pointercancel", end);
+});
+board.addEventListener("dblclick", (e) => {
+  const grip = e.target.closest(".note-grip");
+  if (!grip) return;
+  const id = grip.closest(".note").dataset.id;
+  if (state.notes[id]?.h) {
+    delete state.notes[id].h;
+    save();
+    render();
+  }
+});
+
 /* ---------------- drag and drop (mouse, pen and touch) ---------------- */
 
 const trash = $("#trash");
@@ -1010,7 +1095,7 @@ let drag = null;
 
 board.addEventListener("pointerdown", (e) => {
   const el = e.target.closest(".note");
-  if (!el || e.button > 0 || e.target.closest(".note-project")) return;
+  if (!el || e.button > 0 || e.target.closest(".note-project, .note-grip")) return;
   drag = {
     id: el.dataset.id,
     el,
