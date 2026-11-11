@@ -1315,7 +1315,14 @@
     const r = $('viewport').getBoundingClientRect();
     return { x: (clientX - r.left - panX) / zoom, y: (clientY - r.top - panY) / zoom };
   }
-  function updateView() {
+  // The region the user last chose (by zooming, panning, Fit…): resizing the sheet always
+  // rescales from this reference, so returning to the same size gives the same view.
+  let refView = null;
+  function updateView(fromResize) {
+    const vpEl = $('viewport');
+    if (!fromResize && vpEl.clientWidth && vpEl.clientHeight) {
+      refView = { cx: (vpEl.clientWidth / 2 - panX) / zoom, cy: (vpEl.clientHeight / 2 - panY) / zoom, ww: vpEl.clientWidth / zoom, wh: vpEl.clientHeight / zoom };
+    }
     $('world').style.transform = `translate(${panX}px, ${panY}px) scale(${zoom})`;
     $('world').style.setProperty('--z', zoom);
     // grid lives on the viewport so it never ends; coarser steps when zoomed far out
@@ -2159,7 +2166,22 @@
       applyZoom(zoom * Math.exp(-Math.max(-300, Math.min(300, dy)) * 0.0015), { x: e.clientX, y: e.clientY });
     }, { passive: false });
     $('viewport').addEventListener('mousedown', e => { if (e.button === 1) e.preventDefault(); }); // no browser autoscroll
-    window.addEventListener('resize', updateView);
+    // Keep the drawing in view when the sheet changes size (panel resized, window resized,
+    // toolbar wrapping): rescale around the centre so what was visible stays visible.
+    // Symmetric, so widening a panel and narrowing it back returns to the same view.
+    let lastVp = null;
+    const keepViewOnResize = () => {
+      const vp = $('viewport'), w = vp.clientWidth, h = vp.clientHeight;
+      if (!w || !h) return; // sheet hidden (order list view)
+      if (lastVp && (lastVp.w !== w || lastVp.h !== h) && refView) {
+        zoom = Math.min(ZMAX, Math.max(ZMIN, Math.min(w / refView.ww, h / refView.wh)));
+        panX = w / 2 - refView.cx * zoom; panY = h / 2 - refView.cy * zoom;
+        updateView(true);
+      }
+      lastVp = { w, h };
+    };
+    if (window.ResizeObserver) new ResizeObserver(keepViewOnResize).observe($('viewport'));
+    else window.addEventListener('resize', keepViewOnResize);
     // Resizable side panels: drag the borders, double-click to reset; widths are remembered.
     const PANEL_KEY = 'loop-planner-panels';
     const diag = $('viewDiagram');
@@ -2167,7 +2189,7 @@
     try { panels = JSON.parse(localStorage.getItem(PANEL_KEY)) || {}; } catch (e) { panels = {}; }
     const applyPanels = () => {
       ['pal', 'insp'].forEach(k => { if (panels[k]) diag.style.setProperty(`--${k}-w`, panels[k] + 'px'); else diag.style.removeProperty(`--${k}-w`); });
-      updateView();
+      // the sheet's new size is picked up by the resize observer above
     };
     const savePanels = () => { try { localStorage.setItem(PANEL_KEY, JSON.stringify(panels)); } catch (e) { /* not saved */ } };
     ['pal', 'insp'].forEach(k => {
@@ -2181,7 +2203,7 @@
           const other = k === 'pal' ? $('inspector').offsetWidth : document.querySelector('.palette').offsetWidth;
           const max = Math.max(160, r.width - other - 320); // always leave room for the sheet
           const w = k === 'pal' ? ev.clientX - r.left : r.right - ev.clientX;
-          panels[k] = Math.round(Math.min(max, Math.max(k === 'pal' ? 120 : 240, w)));
+          panels[k] = Math.round(Math.min(max, Math.max(k === 'pal' ? 150 : 260, w)));
           applyPanels();
         };
         const up = () => {
