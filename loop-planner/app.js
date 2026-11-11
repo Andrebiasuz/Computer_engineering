@@ -352,7 +352,79 @@
   }
   const imageById = (loop, id) => (loop.images || []).find(i => i.id === id);
 
+  // ---------------------------------------------------------------- undo / redo (Ctrl+Z, Ctrl+Y)
+  // Every saved change is one step. The loop being shown is not part of a step, but each step
+  // remembers its loop, so undo shows the loop it changed. Typing in one field is one step.
+  const HIST_MAX = 200;
+  let histPast = [], histFuture = [], histLast = null, histRestoring = false;
+  let histGroup = null, histLastGroup = null, histT = 0;
+  function stateKey() {
+    const c = state.currentId;
+    delete state.currentId;
+    const k = JSON.stringify(state);
+    state.currentId = c;
+    return k;
+  }
+  function record() {
+    if (histRestoring || !state) return;
+    const k = stateKey();
+    if (histLast === null || k === histLast) { histLast = k; histGroup = null; return; }
+    const now = Date.now();
+    const merge = histGroup && histGroup === histLastGroup && now - histT < 2000 && histPast.length;
+    if (!merge) {
+      histPast.push({ data: histLast, loopId: state.currentId });
+      if (histPast.length > HIST_MAX) histPast.shift();
+    }
+    histFuture = [];
+    histLast = k; histLastGroup = histGroup; histGroup = null; histT = now;
+    updateUndoButtons();
+  }
+  function applyHistory(entry) {
+    const shown = state.currentId;
+    histRestoring = true;
+    state = JSON.parse(entry.data);
+    state.currentId = state.loops.some(l => l.id === entry.loopId) ? entry.loopId : state.loops.some(l => l.id === shown) ? shown : state.loops[0].id;
+    histLast = entry.data; histLastGroup = null;
+    // keep the selection where it still exists
+    const loop = cur();
+    if (drag) onPointerCancel();
+    if (cablePick) stopCablePick();
+    typeDraft = null;
+    if (sel && sel.kind === 'multi') {
+      selNodes = new Set([...selNodes].filter(id => nodeById(loop, id)));
+      sel = selNodes.size > 1 ? sel : selNodes.size ? { kind: 'node', id: [...selNodes][0] } : null;
+    } else if (sel && !((sel.kind === 'node' && nodeById(loop, sel.id)) || (sel.kind === 'link' && linkById(loop, sel.id)) || (sel.kind === 'image' && imageById(loop, sel.id)))) sel = null;
+    closeTermPop();
+    renderPalette(); renderAll(); save();
+    histLast = stateKey(); // what is on screen now is the base for the next step
+    histRestoring = false;
+    updateUndoButtons();
+    Promise.all([...allImageRefs()].map(imgGet)).then(renderDiagram);
+  }
+  function historyUndo() { undo(); }
+  function undo() {
+    if (!histPast.length) { toast('Nothing to undo.'); return; }
+    const e = histPast.pop();
+    histFuture.push({ data: histLast, loopId: e.loopId });
+    applyHistory(e);
+    toast(`Undone (${histPast.length} more step${histPast.length === 1 ? '' : 's'} back). Ctrl+Y redoes.`);
+  }
+  function redo() {
+    if (!histFuture.length) { toast('Nothing to redo.'); return; }
+    const e = histFuture.pop();
+    histPast.push({ data: histLast, loopId: e.loopId });
+    applyHistory(e);
+    toast('Redone.');
+  }
+  function updateUndoButtons() {
+    const u = $('btnUndo'), r = $('btnRedo');
+    if (u) u.disabled = !histPast.length;
+    if (r) r.disabled = !histFuture.length;
+  }
+  let recPending = false;
   function save() {
+    // all the saves of one action (one event) make one step
+    if (!recPending) { recPending = true; queueMicrotask(() => { recPending = false; record(); }); }
     clearTimeout(saveTimer);
     saveTimer = setTimeout(() => {
       try { localStorage.setItem(STORE_KEY, JSON.stringify(state)); } catch (e) { /* ignore */ }
@@ -1870,16 +1942,14 @@
   }
 
   // ---------------------------------------------------------------- toast / confirm
-  function toast(msg, undo) {
+  function toast(msg, withUndo) {
+    const undo = withUndo;
     const t = $('toast');
     t.innerHTML = `<span>${esc(msg)}</span>${undo ? '<button id="undoBtn">Undo</button>' : ''}`;
     t.hidden = false;
     clearTimeout(toastTimer);
     toastTimer = setTimeout(() => { t.hidden = true; }, undo ? 7000 : 3500);
-    if (undo) $('undoBtn').onclick = () => {
-      if (undoSnapshot) { state = JSON.parse(undoSnapshot); undoSnapshot = null; sel = null; typeDraft = null; renderPalette(); renderAll(); save(); Promise.all([...allImageRefs()].map(imgGet)).then(renderDiagram); }
-      t.hidden = true;
-    };
+    if (undo) $('undoBtn').onclick = () => { t.hidden = true; window.setTimeout(historyUndo, 0); };
   }
   function snapshot() { undoSnapshot = JSON.stringify(state); }
   function askConfirm(text, label, fn) {
@@ -2814,6 +2884,7 @@
     }
     if (t.id === 'flagFade') { if (e.type === 'change') { flagFocus = t.checked; updateFlagButton(); } return; }
     if (t.id === 'keepStatus') { if (e.type === 'change') { setKeepPref(t.checked); toast(t.checked ? 'Copies will keep their order statuses.' : 'Copies will start as To order.'); } return; }
+    if (e.type === 'input') histGroup = 'insp:' + (t.id || t.dataset.bind || t.name || '') + ':' + (sel ? sel.kind + (sel.id || '') : '');
     const bind = t.dataset.bind;
     const se = selectedEntity();
     if (bind && se && se.kind !== 'general') {
@@ -3185,6 +3256,7 @@
     renderAll();
     updateView();
     requestAnimationFrame(fit);
+    histLast = stateKey(); updateUndoButtons();
     // Chromium can keep the size it first gave the symbols' SVG text (before the zoom and the web
     // fonts were in place), drawing numbers too big and off their terminals: draw once more then
     if (document.fonts && document.fonts.ready) document.fonts.ready.then(() => requestAnimationFrame(() => { if (!drag) renderDiagram(); }));
@@ -3331,6 +3403,12 @@
         if (!(e.ctrlKey || e.metaKey)) return;
         e.target.blur();
       }
+      if ((e.ctrlKey || e.metaKey) && !e.altKey && (e.key.toLowerCase() === 'z' || (e.key.toLowerCase() === 'y' && !e.shiftKey))) {
+        e.preventDefault();
+        if (drag) return;
+        if (e.key.toLowerCase() === 'y' || e.shiftKey) redo(); else undo();
+        return;
+      }
       if (e.key === ' ' && view === 'diagram') { e.preventDefault(); if (!spaceDown) { spaceDown = true; $('viewport').classList.add('panning'); } return; }
       if ((e.key === 'Delete' || e.key === 'Backspace') && sel && view === 'diagram') { e.preventDefault(); deleteSelected(); }
       if (e.key === 'Escape' && cablePick) { stopCablePick(); toast('Done placing cables.'); return; }
@@ -3353,6 +3431,7 @@
       const arrows = { ArrowLeft: [-1, 0], ArrowRight: [1, 0], ArrowUp: [0, -1], ArrowDown: [0, 1] };
       if (arrows[e.key] && selectedIds().length && view === 'diagram') {
         e.preventDefault();
+        histGroup = 'nudge';
         const step = e.shiftKey ? GRID * 5 : GRID;
         nudge(arrows[e.key][0] * step, arrows[e.key][1] * step);
       }
@@ -3408,7 +3487,9 @@
     $('tabOrders').onclick = () => setView('orders');
 
     $('loopSelect').onchange = e => switchLoop(e.target.value);
-    $('loopName').oninput = e => { cur().name = e.target.value; renderLoopBar(); if (!sel) { const h = document.querySelector('.inspector h2'); if (h) h.textContent = e.target.value; } save(); };
+    $('btnUndo').onclick = () => undo();
+    $('btnRedo').onclick = () => redo();
+    $('loopName').oninput = e => { histGroup = 'loopname:' + state.currentId; cur().name = e.target.value; renderLoopBar(); if (!sel) { const h = document.querySelector('.inspector h2'); if (h) h.textContent = e.target.value; } save(); };
     $('btnNewLoop').onclick = () => {
       const l = newLoop(`Loop ${state.loops.length + 1}`);
       state.loops.push(l); switchLoop(l.id);

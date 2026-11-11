@@ -136,6 +136,14 @@ line points back to the cable when it is moved away. *Reset label position*
 in the cable's panel puts it back; a plain click on a label still selects
 the cable.
 
+**Undo / redo:** **Ctrl+Z** undoes the last change, **Ctrl+Y** (or
+Ctrl+Shift+Z) redoes it; the ↶ ↷ buttons above the sheet do the same. Up to
+200 steps are kept while the page is open. Every change counts: moving,
+adding or deleting items and cables, rewiring cores, terminals, statuses,
+settings. Typing in one field is a single step, and Ctrl+Z inside a text
+field undoes the typing itself. Undoing a change made in another loop shows
+that loop.
+
 **Terminals on the canvas:** double-click a terminal of a strip to open a
 small editor. It shows what lands on each side, lets you give the terminal
 another number (every core on it follows) and deletes a spare terminal; the
