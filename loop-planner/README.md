@@ -116,7 +116,10 @@ and are included in **Export** / **Import**.
 
 Drag the border of the component list (left) or the details panel (right)
 to make it wider or narrower; double-click a border to reset it. Widths are
-remembered.
+remembered. The drawing follows: whatever was visible on the sheet stays
+visible (it is rescaled around its centre while you drag), and narrowing
+the panel back returns to the same view. The same happens when the browser
+window is resized. Panel contents reflow to the panel width.
 
 The **◐ Auto / ☀ Light / ☾ Dark** button in the top bar switches the colour
 theme. Auto follows your operating system; the choice is remembered.
