@@ -578,3 +578,6 @@ body.moving-label, body.moving-label * { cursor: move !important; user-select: n
 }
 @media (prefers-reduced-motion: reduce) { * { transition: none !important; } }
 .term-pop .btn:disabled { opacity: .45; cursor: not-allowed; }
+
+.btn.icon:disabled { opacity: .35; cursor: default; }
+#btnUndo, #btnRedo { font-size: 1.2rem; line-height: 1; }
