@@ -9,7 +9,7 @@
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Caveat:wght@500;700&family=Permanent+Marker&display=swap" rel="stylesheet">
 <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Crect x='8' y='10' width='48' height='46' rx='3' fill='%23ffe066' transform='rotate(-6 32 32)'/%3E%3Ccircle cx='32' cy='12' r='7' fill='%23e03131'/%3E%3C/svg%3E">
-<link rel="stylesheet" href="style.css">
+<link rel="stylesheet" href="style.css?v=dev">
 </head>
 <body>
 
@@ -143,11 +143,14 @@
   </form>
 </dialog>
 
+<!-- build id, filled in by the deploy workflow; tells you which version you are looking at -->
+<div class="build-id" title="Version of the board you are running">build BUILD_ID</div>
+
 <div id="toast" class="toast" role="status" hidden>
   <span id="toast-text"></span>
   <button id="toast-undo" class="btn btn-small">Undo</button>
 </div>
 
-<script src="app.js"></script>
+<script src="app.js?v=dev"></script>
 </body>
 </html>
