@@ -88,6 +88,7 @@ function normalize(s) {
   delete s.sprint;
   delete s.goal;
   s.title = String(s.title);
+  if (!s.columns.some((c) => c && c.id === s.doneCol)) s.doneCol = s.columns.length ? s.columns[s.columns.length - 1].id : undefined;
   s.focus = String(s.focus);
   s.archive = Array.isArray(s.archive) ? s.archive.filter((a) => a && a.id && a.title != null) : [];
   s.columns = s.columns.filter((c) => c && c.id).map((c) => ({ id: String(c.id), title: String(c.title ?? ""), wip: Math.max(0, parseInt(c.wip, 10) || 0) }));
@@ -129,8 +130,9 @@ let state = load();
 /* ---------------- done dates + weeks ---------------- */
 
 // the last column is the Done column
+// the Done column is chosen in column settings; older boards used the last column
 function doneColumn() {
-  return state.columns[state.columns.length - 1];
+  return state.columns.find((c) => c.id === state.doneCol) || state.columns[state.columns.length - 1];
 }
 // stamp notes when they reach Done, clear the stamp when they leave it
 function syncDoneDates() {
@@ -315,7 +317,9 @@ function render() {
 function buildColLabel(col, i) {
   const ids = state.order[col.id];
   const label = document.createElement("header");
-  label.className = "col-label";
+  label.className = "col-label" + (col.id === doneColumn()?.id ? " is-done" : "");
+  label.dataset.colhead = col.id;
+  label.title = "Drag to move this column";
   label.style.setProperty("--label-tilt", (i % 2 ? 1.2 : -1.5) + "deg");
   const t = document.createElement("span");
   t.className = "col-title";
@@ -407,6 +411,7 @@ function renderLanes() {
   cols.forEach((col, i) => {
     const head = document.createElement("div");
     head.className = "lane-colhead";
+    head.dataset.col = col.id;
     if (overWip(col)) head.classList.add("over-wip");
     head.append(buildColLabel(col, i));
     grid.append(head);
@@ -758,7 +763,9 @@ function openColumnEditor(colId) {
   const col = state.columns.find((c) => c.id === colId);
   $("#c-title").value = col.title;
   $("#c-wip").value = col.wip || 0;
+  $("#c-done").checked = col.id === doneColumn()?.id;
   $("#col-delete").hidden = state.columns.length <= 1;
+  updateMoveButtons();
   colDialog.showModal();
   $("#c-title").select();
 }
@@ -768,6 +775,8 @@ $("#col-form").addEventListener("submit", (e) => {
   const col = state.columns.find((c) => c.id === editingCol);
   col.title = $("#c-title").value.trim() || col.title;
   col.wip = Math.max(0, parseInt($("#c-wip").value, 10) || 0);
+  if ($("#c-done").checked) state.doneCol = col.id;
+  else if (state.doneCol === col.id) state.doneCol = undefined; // falls back to the last column
   save();
   colDialog.close();
   render();
@@ -778,6 +787,7 @@ $("#col-delete").addEventListener("click", () => {
   if (idx < 0 || state.columns.length <= 1) return;
   undoSnapshot = snapshot();
   const [col] = state.columns.splice(idx, 1);
+  if (state.doneCol === col.id) state.doneCol = undefined;
   // notes in a deleted column slide into its neighbour so nothing is lost silently
   const neighbour = state.columns[Math.max(0, idx - 1)];
   state.order[neighbour.id].push(...state.order[col.id]);
@@ -789,15 +799,175 @@ $("#col-delete").addEventListener("click", () => {
 });
 
 $("#add-column").addEventListener("click", () => {
-  // new columns go just before Done, so Done stays the last column
+  // a new column goes just before Done when Done is last, otherwise at the end
   const col = { id: uid(), title: "New column", wip: 0 };
-  state.columns.splice(Math.max(0, state.columns.length - 1), 0, col);
+  const doneIdx = state.columns.indexOf(doneColumn());
+  const at = doneIdx === state.columns.length - 1 ? doneIdx : state.columns.length;
+  if (!state.doneCol && doneColumn()) state.doneCol = doneColumn().id; // keep Done fixed
+  state.columns.splice(Math.max(0, at), 0, col);
   state.order[col.id] = [];
   save();
   render();
   board.querySelector(`[data-col="${CSS.escape(col.id)}"]`)?.scrollIntoView({ behavior: "smooth", inline: "center", block: "nearest" });
   openColumnEditor(col.id);
 });
+
+/* ---------------- reorder columns ---------------- */
+
+function moveColumn(colId, toIndex) {
+  const from = state.columns.findIndex((c) => c.id === colId);
+  if (from < 0) return false;
+  const to = Math.max(0, Math.min(state.columns.length - 1, toIndex));
+  if (to === from) return false;
+  if (!state.doneCol && doneColumn()) state.doneCol = doneColumn().id; // Done stays Done wherever it moves
+  const [col] = state.columns.splice(from, 1);
+  state.columns.splice(to, 0, col);
+  save();
+  render();
+  return true;
+}
+
+function updateMoveButtons() {
+  const i = state.columns.findIndex((c) => c.id === editingCol);
+  $("#col-left").disabled = i <= 0;
+  $("#col-right").disabled = i < 0 || i >= state.columns.length - 1;
+  $("#col-pos").textContent = i < 0 ? "" : `Position ${i + 1} of ${state.columns.length}`;
+}
+$("#col-left").addEventListener("click", () => {
+  const i = state.columns.findIndex((c) => c.id === editingCol);
+  moveColumn(editingCol, i - 1);
+  updateMoveButtons();
+});
+$("#col-right").addEventListener("click", () => {
+  const i = state.columns.findIndex((c) => c.id === editingCol);
+  moveColumn(editingCol, i + 1);
+  updateMoveButtons();
+});
+
+// drag a column by its paper label (mouse right away, touch after a long-press)
+let colDrag = null;
+
+board.addEventListener("pointerdown", (e) => {
+  const label = e.target.closest(".col-label");
+  if (!label || e.button > 0 || e.target.closest(".col-menu")) return;
+  colDrag = {
+    id: label.dataset.colhead,
+    label,
+    startX: e.clientX,
+    startY: e.clientY,
+    x: e.clientX,
+    y: e.clientY,
+    active: false,
+    armed: e.pointerType !== "touch",
+    timer: null,
+  };
+  if (!colDrag.armed) {
+    colDrag.timer = setTimeout(() => {
+      if (!colDrag) return;
+      colDrag.armed = true;
+      navigator.vibrate?.(15);
+      startColDrag();
+    }, LONG_PRESS_MS);
+  }
+  window.addEventListener("pointermove", onColMove);
+  window.addEventListener("pointerup", onColUp);
+  window.addEventListener("pointercancel", endColDrag);
+});
+
+function colBox(id) {
+  // the whole column in column view; the header cell in swimlanes
+  return board.querySelector(`.column[data-col="${CSS.escape(id)}"], .lane-colhead[data-col="${CSS.escape(id)}"]`);
+}
+
+function startColDrag() {
+  if (!colDrag || colDrag.active) return;
+  const r = colDrag.label.getBoundingClientRect();
+  const ghost = colDrag.label.cloneNode(true);
+  ghost.classList.add("col-ghost");
+  ghost.style.width = colDrag.label.offsetWidth + "px";
+  colDrag.offX = colDrag.startX - r.left;
+  colDrag.offY = colDrag.startY - r.top;
+  document.body.append(ghost);
+  const marker = document.createElement("div");
+  marker.className = "col-drop-marker";
+  document.body.append(marker);
+  Object.assign(colDrag, { ghost, marker, active: true });
+  colBox(colDrag.id)?.classList.add("col-dragging");
+  document.body.classList.add("col-dragging-active");
+  window.getSelection()?.removeAllRanges();
+  updateColDrag();
+  colAutoScroll();
+}
+
+function onColMove(e) {
+  if (!colDrag) return;
+  colDrag.x = e.clientX;
+  colDrag.y = e.clientY;
+  if (!colDrag.active) {
+    const dist = Math.hypot(e.clientX - colDrag.startX, e.clientY - colDrag.startY);
+    if (!colDrag.armed) { if (dist > 8) endColDrag(); return; }
+    if (dist > 5) startColDrag(); else return;
+  }
+  updateColDrag();
+}
+
+// where the column would land: before the first column whose middle is right of the pointer
+function colTargetIndex() {
+  const others = state.columns.filter((c) => c.id !== colDrag.id);
+  let idx = others.length;
+  for (let i = 0; i < others.length; i++) {
+    const r = colBox(others[i].id)?.getBoundingClientRect();
+    if (r && colDrag.x < r.left + r.width / 2) { idx = i; break; }
+  }
+  return { idx, others };
+}
+
+function updateColDrag() {
+  if (!colDrag?.active) return;
+  colDrag.ghost.style.left = colDrag.x - colDrag.offX + "px";
+  colDrag.ghost.style.top = colDrag.y - colDrag.offY + "px";
+  const { idx, others } = colTargetIndex();
+  const br = board.getBoundingClientRect();
+  let x;
+  if (!others.length) x = colBox(colDrag.id).getBoundingClientRect().left;
+  else if (idx < others.length) x = colBox(others[idx].id).getBoundingClientRect().left - 9;
+  else x = colBox(others[others.length - 1].id).getBoundingClientRect().right + 9;
+  const top = Math.max(br.top, 0);
+  const bottom = Math.min(br.bottom, window.innerHeight);
+  Object.assign(colDrag.marker.style, { left: x + "px", top: top + "px", height: Math.max(40, bottom - top) + "px" });
+}
+
+function colAutoScroll() {
+  if (!colDrag?.active) return;
+  const edge = 70, speed = 16;
+  const br = board.getBoundingClientRect();
+  if (colDrag.x < br.left + edge) board.scrollLeft -= speed;
+  else if (colDrag.x > br.right - edge) board.scrollLeft += speed;
+  updateColDrag();
+  requestAnimationFrame(colAutoScroll);
+}
+
+function onColUp() {
+  if (!colDrag) return;
+  if (!colDrag.active) { endColDrag(); return; }
+  const id = colDrag.id;
+  const { idx } = colTargetIndex();
+  endColDrag();
+  moveColumn(id, idx);
+}
+
+function endColDrag() {
+  if (!colDrag) return;
+  clearTimeout(colDrag.timer);
+  colDrag.ghost?.remove();
+  colDrag.marker?.remove();
+  colBox(colDrag.id)?.classList.remove("col-dragging");
+  document.body.classList.remove("col-dragging-active");
+  colDrag = null;
+  window.removeEventListener("pointermove", onColMove);
+  window.removeEventListener("pointerup", onColUp);
+  window.removeEventListener("pointercancel", endColDrag);
+}
 
 /* ---------------- toolbar ---------------- */
 
@@ -1274,8 +1444,10 @@ function cleanupPointer() {
 }
 
 // While a touch drag is active, stop the page from scrolling under the finger.
-document.addEventListener("touchmove", (e) => { if (drag?.active || (drag && drag.armed)) e.preventDefault(); }, { passive: false });
-board.addEventListener("contextmenu", (e) => { if (e.target.closest(".note")) e.preventDefault(); });
+document.addEventListener("touchmove", (e) => {
+  if (drag?.active || (drag && drag.armed) || colDrag?.active) e.preventDefault();
+}, { passive: false });
+board.addEventListener("contextmenu", (e) => { if (e.target.closest(".note, .col-label")) e.preventDefault(); });
 
 /* ---------------- go ---------------- */
 

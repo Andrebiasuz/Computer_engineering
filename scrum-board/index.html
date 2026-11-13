@@ -113,6 +113,15 @@
     <label>WIP limit <small>(0 = none)</small>
       <input id="c-wip" type="number" min="0" max="99" value="0">
     </label>
+    <label class="check">
+      <input id="c-done" type="checkbox">
+      <span>This is the <b>Done</b> column <small>(counts toward "finished this week" and Archive done)</small></span>
+    </label>
+    <div class="move-row" role="group" aria-label="Column position">
+      <button type="button" id="col-left" class="btn">◀ Move left</button>
+      <span id="col-pos" class="col-pos"></span>
+      <button type="button" id="col-right" class="btn">Move right ▶</button>
+    </div>
     <div class="dialog-actions">
       <button type="button" id="col-delete" class="btn btn-danger">Delete column</button>
       <span class="spacer"></span>

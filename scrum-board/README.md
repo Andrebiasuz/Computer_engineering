@@ -8,7 +8,11 @@ page makes no network requests except to load its two Google Fonts.
 ## Features
 
 - Columns (Backlog → Next → Doing → Waiting → Done by default). You can rename, add and delete them.
-  The last column is the Done column; new columns are added just before it.
+- **Reorder columns**: drag a column by its paper label left or right (on touch screens,
+  long-press the label first), or use **◀ Move left / Move right ▶** in the column's ⋯ menu.
+  Works in swimlanes too.
+- The **Done** column (marked ✓) is chosen in the column's ⋯ menu and stays the Done
+  column wherever you move it. New columns are added just before Done when Done is last.
 - **WIP limits** per column. A column over its limit turns red.
 - Sticky notes with a title, details, owner (with an initials avatar), story points and one of six colours.
 - **Projects**: give a note a project and it shows as a label on the card. The

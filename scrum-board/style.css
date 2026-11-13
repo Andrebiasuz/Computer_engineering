@@ -261,6 +261,40 @@ body {
 }
 .col-menu:hover, .col-menu:focus-visible { background: rgba(0,0,0,.08); color: var(--ink); }
 
+/* drag a column by its label */
+.col-label { cursor: grab; touch-action: pan-y; user-select: none; -webkit-user-select: none; }
+.col-label .col-menu { cursor: pointer; }
+.col-label.is-done .col-title::before { content: "✓ "; color: #2b8a3e; }
+.column.col-dragging, .lane-colhead.col-dragging { opacity: .45; }
+.col-ghost {
+  position: fixed;
+  z-index: 1000;
+  pointer-events: none;
+  transform: rotate(-3deg) scale(1.05) !important;
+  box-shadow: 0 14px 24px rgba(0,0,0,.4) !important;
+  left: 0;
+  top: 0;
+  min-width: 0 !important;
+}
+.col-drop-marker {
+  position: fixed;
+  z-index: 999;
+  width: 6px;
+  margin-left: -3px;
+  border-radius: 3px;
+  background: var(--accent);
+  box-shadow: 0 0 0 2px rgba(255,255,255,.7), 0 4px 10px rgba(0,0,0,.35);
+  pointer-events: none;
+}
+body.col-dragging-active, body.col-dragging-active * { cursor: grabbing !important; }
+
+/* column dialog extras */
+.paper-dialog label.check { display: flex; gap: 10px; align-items: flex-start; font-weight: 500; color: var(--ink); }
+.paper-dialog label.check input { width: auto; margin-top: 3px; }
+.move-row { display: flex; align-items: center; gap: 8px; }
+.move-row .col-pos { flex: 1; text-align: center; font: 600 .85rem var(--ui); color: var(--ink-soft); }
+.move-row .btn:disabled { opacity: .4; cursor: default; transform: none; }
+
 .col-notes {
   flex: 1;
   display: flex;
