@@ -497,6 +497,9 @@
     return c.pairs ? n * 2 : n;
   }
   const isShielded = link => link.shielded != null ? link.shielded : CABLES[link.cable].shielded;
+  // multipair cable with a screen on every pair (as well as, usually, the overall one)
+  const pairScreens = link => CABLES[link.cable].pairs && link.pairShield ? Math.max(1, Number(link.n) || CABLES[link.cable].defN || 1) : 0;
+  const coreName = core => core === 'S' ? 'screen' : /^S\d+$/.test(core) ? `pair ${core.slice(1)} screen` : 'core ' + core;
   function termAt(loop, link, end) {
     const t = link.ends[end].term;
     if (t && t !== 'auto') return t;
@@ -516,7 +519,7 @@
     return enc ? `${enc.tag} (for ${node.tag})` : node ? node.tag : 'open end';
   }
   function screenEndOf(loop, link) {
-    if (!isShielded(link)) return 'none';
+    if (!isShielded(link) && !pairScreens(link)) return 'none';
     if (link.screenEnd && link.screenEnd !== 'auto') return link.screenEnd;
     const na = nodeById(loop, link.a), nb = nodeById(loop, link.b);
     if (nb && isPanel(nb.type)) return 'b';
@@ -545,7 +548,9 @@
   const isTermItem = n => !!n && (isPanel(n.type) || isEnclosure(n.type) || !!n.inside || !!T(n.type).terminals);
   function coreKeys(l) {
     const ks = [];
-    for (let i = 1; i <= cores(l); i++) ks.push(String(i));
+    const ps = pairScreens(l);
+    if (ps) for (let i = 1; i <= ps; i++) ks.push(String(2 * i - 1), String(2 * i), 'S' + i); // 1 2 S1, 3 4 S2 …
+    else for (let i = 1; i <= cores(l); i++) ks.push(String(i));
     if (isShielded(l)) ks.push('S');
     return ks;
   }
@@ -714,7 +719,7 @@
     const loop = cur(), n = nodeById(loop, nodeId);
     if (!n) return;
     const users = coresOn(loop, nodeId).filter(c => c.num === row);
-    if (users.length) { toast(`${termName(n, row)} carries ${users.map(c => `${c.l.tag} core ${c.core}`).join(', ')}. Drag those cores to another terminal first.`); return; }
+    if (users.length) { toast(`${termName(n, row)} carries ${users.map(c => `${c.l.tag} ${coreName(c.core)}`).join(', ')}. Drag those cores to another terminal first.`); return; }
     if (!deleteSpareTerminal(loop, nodeId, row)) return;
     renderDiagram(); renderInspector(); save();
     toast(`${termName(n, row)} deleted; the terminals after it moved up one number.`);
@@ -737,7 +742,7 @@
     closeTermPop();
     const loop = cur(), n = nodeById(loop, nodeId);
     const users = coresOn(loop, nodeId).filter(c => c.num === row);
-    const who = side => users.filter(c => c.side === side).map(c => `${esc(c.l.tag)} core ${esc(c.core)}`).join(', ') || '–';
+    const who = side => users.filter(c => c.side === side).map(c => `${esc(c.l.tag)} ${esc(coreName(c.core))}`).join(', ') || '–';
     const spares = spareTerminals(loop, nodeId).length;
     const el = document.createElement('div');
     el.id = 'termPop'; el.className = 'term-pop';
@@ -798,8 +803,8 @@
     const me = coresOn(loop, n.id, plan).find(c => c.l === l && c.end === end && c.core === core);
     const share = me ? (plan[n.id].used[me.side][me.num] || []).filter(u => !(u.l === l && u.core === core)) : [];
     renderDiagram(); if (sel) renderInspector(); save();
-    const name = core === 'S' ? 'screen' : 'core ' + core;
-    toast(me ? `${l.tag} ${name} → ${termName(n, me.num)}${share.length ? ` (shared with ${share.map(u => `${u.l.tag} core ${u.core}`).join(', ')}: marked red)` : ''}.` : `${l.tag} ${name} moved to ${n.tag}.`);
+    const name = coreName(core);
+    toast(me ? `${l.tag} ${name} → ${termName(n, me.num)}${share.length ? ` (shared with ${share.map(u => `${u.l.tag} ${coreName(u.core)}`).join(', ')}: marked red)` : ''}.` : `${l.tag} ${name} moved to ${n.tag}.`);
     return true;
   }
   const termName = (n, num) => `${n.tag}:${num}`;
@@ -834,6 +839,7 @@
     if (c.field) {
       let desc = c.name;
       if (c.pairs) desc += `, ${Math.max(1, Number(link.n) || c.defN)} pairs`;
+      if (pairScreens(link)) desc += shielded ? ', individually screened pairs + overall screen' : ', individually screened pairs';
       else if (!c.fixed) desc += `, ${n} cores`;
       desc += size;
       if (link.armoured) desc += ', armoured';
@@ -851,9 +857,9 @@
       if (term === 'connector') {
         out.push({ key: 'term-' + end, name: `Connector at ${at}`, cat: 'term', auto: 1, unit: 'pcs', hint: 'RJ45 / M12 / plug to suit the device' });
       } else if (term !== 'none') {
-        const extra = shielded ? 1 : 0;
+        const ps = pairScreens(link), extra = (shielded ? 1 : 0) + ps;
         out.push({ key: 'term-' + end, name: `${TERMS[term]}${size} at ${at}`, cat: 'term', auto: n + extra, unit: 'pcs',
-          hint: shielded ? `${n} cores + 1 drain wire` : `${n} cores` });
+          hint: extra ? `${n} cores + ${extra} drain wire${extra > 1 ? 's' : ''}${ps ? ` (${ps} pair screens${shielded ? ' + overall' : ''})` : ''}` : `${n} cores` });
       }
       if (glandAt(loop, link, end)) {
         const gat = entryLabel(loop, node);
@@ -863,14 +869,17 @@
       }
       if (c.field) out.push({ key: 'cmark-' + end, name: `Cable tag at ${at}`, cat: 'mark', auto: 1, unit: 'pcs' });
       out.push({ key: 'wmark-' + end, name: `Core / wire markers at ${at}`, cat: 'mark', auto: n, unit: 'pcs' });
-      if (shielded) out.push({ key: 'hs-' + end, name: `Heat-shrink for screen / drain at ${at}`, cat: 'consum', auto: 1, unit: 'pcs' });
+      if (shielded || pairScreens(link)) out.push({ key: 'hs-' + end, name: `Heat-shrink for screen / drain at ${at}`, cat: 'consum', auto: (shielded ? 1 : 0) + pairScreens(link), unit: 'pcs',
+        hint: pairScreens(link) ? 'One sleeve per drain wire, so the screens stay insulated from each other' : '' });
     });
     const se = screenEndOf(loop, link);
     if (se !== 'none') {
       const ends = se === 'both' ? ['a', 'b'] : [se];
       ends.forEach(e => {
         const node = nodeById(loop, link[e]);
-        out.push({ key: 'screen-' + e, name: `Screen earth terminal / clamp at ${node ? node.tag : e.toUpperCase()}`, cat: 'terminal', auto: 1, unit: 'pcs' });
+        const ps = pairScreens(link);
+        out.push({ key: 'screen-' + e, name: `Screen earth terminal / clamp at ${node ? node.tag : e.toUpperCase()}`, cat: 'terminal', auto: ps + (isShielded(link) ? 1 : 0), unit: 'pcs',
+          hint: ps ? `${ps} pair screens${isShielded(link) ? ' + overall screen' : ''}` : '' });
       });
     }
     switch (link.route) {
@@ -1179,7 +1188,7 @@
       const cls = w === 'todo' ? 'todo' : w === 'ordered' ? 'ordered' : 'done';
       const isSel = sel && sel.kind === 'link' && sel.id === l.id;
       const c = CABLES[l.cable];
-      const spec = c.pairs ? `${Math.max(1, Number(l.n) || c.defN)} pr` : c.fixed ? c.short : `${cores(l)}${c.short}`;
+      const spec = c.pairs ? `${Math.max(1, Number(l.n) || c.defN)} pr${pairScreens(l) ? (isShielded(l) ? ' ISOS' : ' indiv. scr.') : ''}` : c.fixed ? c.short : `${cores(l)}${c.short}`;
       const lhits = items.filter(hlMatch).length;
       const lhl = hlActive() ? (lhits ? ' hl-on' : ' hl-off') : '';
       const hid = l.infoHidden && !showHiddenAll;
@@ -1499,7 +1508,7 @@
         const g = stripGeom(nodeById(loop, itemId));
         if (!g) return;
         const x = (c.side === 'r' ? g.right + 8 : g.left - 8) * 1, y = g.rowY(c.num) - 3;
-        coreGrips.push(`<div class="cgrip core" data-coregrip="${c.l.id}|${c.end}|${esc(c.core)}" style="left:${x}px;top:${y}px" title="${esc(c.l.tag)} ${c.core === 'S' ? 'screen' : 'core ' + esc(c.core)} on ${esc(termName(nodeById(loop, itemId), c.num))}: drag onto another terminal"></div>`);
+        coreGrips.push(`<div class="cgrip core" data-coregrip="${c.l.id}|${c.end}|${esc(c.core)}" style="left:${x}px;top:${y}px" title="${esc(c.l.tag)} ${esc(coreName(c.core))} on ${esc(termName(nodeById(loop, itemId), c.num))}: drag onto another terminal"></div>`);
       }));
       cgrips += coreGrips.join('');
     }
@@ -1766,13 +1775,13 @@
       const select = `<select class="cmap" data-cmap="${end}|${esc(core)}" aria-label="Item for core ${esc(core)} at the ${end.toUpperCase()} end">${opts.map(o => `<option value="${o.id}" ${o.id === target ? 'selected' : ''}>${o.id === n.id ? '' : '→ '}${esc(o.tag)}</option>`).join('')}</select>`;
       if (!c) return `<td title="Lands on the device itself"><div class="ccell">${select}</div></td>`;
       const users = (P.used[entry.side][c.num] || []).filter(u => !(u.l.id === l.id && u.core === core));
-      const clash = users.length ? ` title="Also used by ${users.map(u => `${u.l.tag} core ${u.core}`).join(', ')}"` : '';
+      const clash = users.length ? ` title="Also used by ${users.map(u => `${u.l.tag} ${coreName(u.core)}`).join(', ')}"` : '';
       return `<td class="${users.length ? 'clash' : ''}${target !== n.id ? ' moved' : ''}"${clash}><div class="ccell">${select}<span class="tprefix">:</span><input type="text" data-tmap="${end}|${esc(core)}" value="${c.manual ? esc(c.num) : ''}" placeholder="${esc(c.num)}" aria-label="Terminal for core ${esc(core)} at ${esc(tn.tag)}">${users.length ? '<b class="clash-mark">!</b>' : ''}</div></td>`;
     };
     const anyManual = ['a', 'b'].some(end => Object.keys(l.ends[end].tmap || {}).length || Object.keys(l.ends[end].cmap || {}).length);
     return `<h3><span>Cores &amp; terminals</span>${anyManual ? '<button class="btn ghost small" data-tmreset="1" title="Land every core on the cable end\'s own item again, with automatic numbers">Reset cores</button>' : ''}</h3>
       <div class="otable-wrap"><table class="ctable"><thead><tr><th>Core</th><th>A end</th><th>B end</th></tr></thead><tbody>
-      ${coreKeys(l).map(core => `<tr><td class="cno">${core === 'S' ? 'Screen' : esc(core)}</td>${cell(na, 'a', core)}${cell(nb, 'b', core)}</tr>`).join('')}
+      ${coreKeys(l).map(core => `<tr><td class="cno">${core === 'S' ? 'Screen' : /^S\d+$/.test(core) ? `Screen ${esc(core.slice(1))}` : esc(core)}</td>${cell(na, 'a', core)}${cell(nb, 'b', core)}</tr>`).join('')}
       </tbody></table></div>
       <p class="tip">Each core can land on another strip (choose it in the list) and terminal (type the number; grey numbers are automatic). A red mark means two cores share a terminal on the same side.</p>`;
   }
@@ -1780,7 +1789,7 @@
   function terminalSchedule(loop, n) {
     const P = terminalPlan(loop)[n.id];
     if (!P || !P.rows.length) return '';
-    const who = (side, r) => (P.used[side][r] || []).map(u => `${esc(u.l.tag)} <span class="muted">core ${esc(u.core)}</span>`).join('<br>') || '<span class="muted">–</span>';
+    const who = (side, r) => (P.used[side][r] || []).map(u => `${esc(u.l.tag)} <span class="muted">${esc(coreName(u.core))}</span>`).join('<br>') || '<span class="muted">–</span>';
     return `<h3><span>Terminals (${P.rows.length})</span></h3>
       <div class="otable-wrap"><table class="ctable"><thead><tr><th>Terminal</th><th>Left side</th><th>Right side</th></tr></thead><tbody>
       ${P.rows.map(r => `<tr${P.mixed.has(r) ? ' class="mixed" title="Ex i and other circuits on the same terminal: keep intrinsically safe circuits separate"' : ''}><td class="cno${P.exi.has(r) ? ' exi' : ''}">${esc(termName(n, r))}${P.mixed.has(r) ? ' <b class="clash-mark">!</b>' : ''}</td><td${(P.used.l[r] || []).length > 1 ? ' class="clash"' : ''}>${who('l', r)}</td><td${(P.used.r[r] || []).length > 1 ? ' class="clash"' : ''}>${who('r', r)}</td></tr>`).join('')}
@@ -1821,7 +1830,8 @@
         <label for="f-route">Route</label><select id="f-route" data-bind="route">
           ${Object.keys(ROUTES).map(k => `<option value="${k}" ${k === l.route ? 'selected' : ''}>${esc(ROUTES[k])}</option>`).join('')}</select>
         <span></span><div class="row">
-          <label><input id="f-shield" type="checkbox" data-bind="shielded" data-rerender="1" ${shielded ? 'checked' : ''}> Shielded</label>
+          <label><input id="f-shield" type="checkbox" data-bind="shielded" data-rerender="1" ${shielded ? 'checked' : ''}> ${c.pairs ? 'Overall shield' : 'Shielded'}</label>
+          ${c.pairs ? `<label title="Every pair has its own screen and drain wire (ISOS cable), landed on its own terminal"><input id="f-pairshield" type="checkbox" data-bind="pairShield" data-rerender="1" ${l.pairShield ? 'checked' : ''}> Each pair shielded</label>` : ''}
           ${c.field ? `<label><input id="f-arm" type="checkbox" data-bind="armoured" ${l.armoured ? 'checked' : ''}> Armoured</label>` : ''}
           <label title="Blue cable and terminals; checked against other circuits"><input id="f-exi" type="checkbox" data-bind="exi" data-rerender="1" ${l.exi ? 'checked' : ''}> Ex i (intrinsically safe)</label>
           <label title="Hide the information box of this cable on the drawing (H)"><input id="f-hidden" type="checkbox" data-bind="infoHidden" ${l.infoHidden ? 'checked' : ''}> Hide its information</label>
