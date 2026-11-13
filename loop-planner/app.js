@@ -29,7 +29,8 @@
 
   // Item spec: [key, name, category, qty(ctx) -> number, unit, hint(ctx) -> string]
   const TB_ITEMS = [
-    ['tb', 'Terminal blocks', 'terminal', c => c.terminals || '', 'pcs', c => c.cores ? `${c.terminals} terminals used by ${c.cores} cores landing. Add spares.` : 'Count follows the cables you connect'],
+    ['tb', 'Terminal blocks', 'terminal', c => (c.terminals - (c.exiTerminals || 0)) || '', 'pcs', c => c.cores ? `${c.terminals - (c.exiTerminals || 0)} terminals used by ${c.cores} cores landing. Add spares.` : 'Count follows the cables you connect'],
+    ['tbexi', 'Ex i terminal blocks (light blue)', 'terminal', c => c.exiTerminals || '', 'pcs', c => `${c.exiTerminals} terminals of intrinsically safe circuits`],
     ['endplate', 'End plates', 'terminal', () => 1, 'pcs'],
     ['endstop', 'End stops / end clamps', 'terminal', () => 2, 'pcs'],
     ['jumper', 'Bridging jumpers (commons, 0 V, screens)', 'terminal', null, 'pcs'],
@@ -71,6 +72,20 @@
       ['pe', 'Earth lug + green/yellow bonding conductor', 'term', () => 1, 'pcs'],
       ['entry', 'Thread adaptor / reducer for the terminal box entry', 'gland'],
       ['tagplate', 'Tag plate', 'mark', () => 1, 'pcs']
+    ] },
+    kp: { group: 'Field devices', name: 'Keyphasor / prox probe', shape: 'probe', tag: 'KP-', desc: 'Keyphasor, gas generator', term: 'connector', items: [
+      ['dev', 'Proximity probe (check model, tip size and total system length)', 'device', () => 1, 'pcs'],
+      ['holder', 'Probe holder / sleeve, lock nut and anti-rotation', 'mount', () => 1, 'pcs'],
+      ['protect', 'Connector protector / insulating sleeve for the probe–extension joint', 'term', () => 1, 'pcs'],
+      ['target', 'Keyphasor target on the shaft: notch or projection (confirm with the machine vendor)', 'process'],
+      ['tagplate', 'Tag plate + fixing wire', 'mark', () => 1, 'pcs']
+    ] },
+    prox: { group: 'Field devices', name: 'Proximitor (probe driver)', shape: 'proximitor', tag: 'GA-', desc: 'Proximitor for the Keyphasor probe', items: [
+      ['dev', 'Proximitor / probe driver (same system length as probe + extension cable)', 'device', () => 1, 'pcs'],
+      ['base', 'Isolated mounting base / DIN-rail adaptor (keep the case off ground)', 'mount', () => 1, 'pcs'],
+      ['inprot', 'Connector protector for the IN connection', 'term', () => 1, 'pcs'],
+      ['supply', '−24 VDC supply for VT (from the monitor rack or a separate supply)', 'device'],
+      ['mark', 'Device label', 'mark', () => 1, 'pcs']
     ] },
     jb: { group: 'Enclosures', name: 'Junction box', shape: 'jb', sym: 'JB', tag: 'JB-', desc: 'Field junction box', items: [
       ['encl', 'Enclosure (IP rating, size, material)', 'device', () => 1, 'pcs'],
@@ -177,6 +192,7 @@
     control:   { name: 'Control cable, multicore', short: 'c', defN: 3, field: true, shielded: false },
     power:     { name: 'Power cable', short: 'c', defN: 4, field: true, shielded: false },
     tc:        { name: 'Thermocouple extension cable', short: 'TC', fixed: 2, field: true, shielded: true },
+    coax:      { name: 'Probe extension cable (coax; probe + extension = system length)', short: 'coax', fixed: 1, field: true, shielded: true, term: 'connector' },
     bus:       { name: 'Fieldbus / Ethernet cable', short: 'bus', fixed: 4, field: true, shielded: true, term: 'connector' },
     wire:      { name: 'Panel wire (single cores)', short: 'w', defN: 2, field: false, shielded: false }
   };
@@ -222,6 +238,10 @@
   // Items used to be 168 px wide cards; symbols are about 60 px. On first load with symbols,
   // shift each item so its centre stays where the card's centre was (layout looks the same).
   let migratedNow = false; // set when an older layout was converted, so it gets saved once
+  function migrateHiddenInfo(data) { // earlier versions hid the whole cable; now only its information
+    (data.loops || []).forEach(lp => (lp.links || []).forEach(k => { if (k.hidden) { k.infoHidden = true; delete k.hidden; } }));
+    return data;
+  }
   function migrateToSymbols(data) {
     if (data.symbolVersion >= 2) return data;
     migratedNow = true;
@@ -246,7 +266,7 @@
         const data = JSON.parse(raw);
         if (data && Array.isArray(data.loops) && data.loops.length) {
           if (!Array.isArray(data.customTypes)) data.customTypes = starterTypes();
-          return migrateToSymbols(data);
+          return migrateToSymbols(migrateHiddenInfo(data));
         }
       }
     } catch (e) { /* storage unavailable: start with the example */ }
@@ -347,7 +367,79 @@
   }
   const imageById = (loop, id) => (loop.images || []).find(i => i.id === id);
 
+  // ---------------------------------------------------------------- undo / redo (Ctrl+Z, Ctrl+Y)
+  // Every saved change is one step. The loop being shown is not part of a step, but each step
+  // remembers its loop, so undo shows the loop it changed. Typing in one field is one step.
+  const HIST_MAX = 200;
+  let histPast = [], histFuture = [], histLast = null, histRestoring = false;
+  let histGroup = null, histLastGroup = null, histT = 0;
+  function stateKey() {
+    const c = state.currentId;
+    delete state.currentId;
+    const k = JSON.stringify(state);
+    state.currentId = c;
+    return k;
+  }
+  function record() {
+    if (histRestoring || !state) return;
+    const k = stateKey();
+    if (histLast === null || k === histLast) { histLast = k; histGroup = null; return; }
+    const now = Date.now();
+    const merge = histGroup && histGroup === histLastGroup && now - histT < 2000 && histPast.length;
+    if (!merge) {
+      histPast.push({ data: histLast, loopId: state.currentId });
+      if (histPast.length > HIST_MAX) histPast.shift();
+    }
+    histFuture = [];
+    histLast = k; histLastGroup = histGroup; histGroup = null; histT = now;
+    updateUndoButtons();
+  }
+  function applyHistory(entry) {
+    const shown = state.currentId;
+    histRestoring = true;
+    state = JSON.parse(entry.data);
+    state.currentId = state.loops.some(l => l.id === entry.loopId) ? entry.loopId : state.loops.some(l => l.id === shown) ? shown : state.loops[0].id;
+    histLast = entry.data; histLastGroup = null;
+    // keep the selection where it still exists
+    const loop = cur();
+    if (drag) onPointerCancel();
+    if (cablePick) stopCablePick();
+    typeDraft = null;
+    if (sel && sel.kind === 'multi') {
+      selNodes = new Set([...selNodes].filter(id => nodeById(loop, id)));
+      sel = selNodes.size > 1 ? sel : selNodes.size ? { kind: 'node', id: [...selNodes][0] } : null;
+    } else if (sel && !((sel.kind === 'node' && nodeById(loop, sel.id)) || (sel.kind === 'link' && linkById(loop, sel.id)) || (sel.kind === 'image' && imageById(loop, sel.id)))) sel = null;
+    closeTermPop();
+    renderPalette(); renderAll(); save();
+    histLast = stateKey(); // what is on screen now is the base for the next step
+    histRestoring = false;
+    updateUndoButtons();
+    Promise.all([...allImageRefs()].map(imgGet)).then(renderDiagram);
+  }
+  function historyUndo() { undo(); }
+  function undo() {
+    if (!histPast.length) { toast('Nothing to undo.'); return; }
+    const e = histPast.pop();
+    histFuture.push({ data: histLast, loopId: e.loopId });
+    applyHistory(e);
+    toast(`Undone (${histPast.length} more step${histPast.length === 1 ? '' : 's'} back). Ctrl+Y redoes.`);
+  }
+  function redo() {
+    if (!histFuture.length) { toast('Nothing to redo.'); return; }
+    const e = histFuture.pop();
+    histPast.push({ data: histLast, loopId: e.loopId });
+    applyHistory(e);
+    toast('Redone.');
+  }
+  function updateUndoButtons() {
+    const u = $('btnUndo'), r = $('btnRedo');
+    if (u) u.disabled = !histPast.length;
+    if (r) r.disabled = !histFuture.length;
+  }
+  let recPending = false;
   function save() {
+    // all the saves of one action (one event) make one step
+    if (!recPending) { recPending = true; queueMicrotask(() => { recPending = false; record(); }); }
     clearTimeout(saveTimer);
     saveTimer = setTimeout(() => {
       try { localStorage.setItem(STORE_KEY, JSON.stringify(state)); } catch (e) { /* ignore */ }
@@ -373,6 +465,7 @@
     const ta = nodeById(loop, a).type, tb = nodeById(loop, b).type;
     let cable = 'pair';
     if ((isPanel(ta) && isPanel(tb)) || sameContainer(loop, { a, b })) cable = 'wire';
+    else if (ta === 'kp' || tb === 'kp') cable = 'coax'; // probe → Proximitor: extension cable
     else if (ta === 'motor' || tb === 'motor') cable = 'power';
     else if (ta === 'valve' || tb === 'valve') cable = 'control';
     else if ((ta === 'jb' || tb === 'jb') && (isPanel(ta) || isPanel(tb) || ta === 'jb' && tb === 'jb')) cable = 'multipair';
@@ -404,6 +497,9 @@
     return c.pairs ? n * 2 : n;
   }
   const isShielded = link => link.shielded != null ? link.shielded : CABLES[link.cable].shielded;
+  // multipair cable with a screen on every pair (as well as, usually, the overall one)
+  const pairScreens = link => CABLES[link.cable].pairs && link.pairShield ? Math.max(1, Number(link.n) || CABLES[link.cable].defN || 1) : 0;
+  const coreName = core => core === 'S' ? 'screen' : /^S\d+$/.test(core) ? `pair ${core.slice(1)} screen` : 'core ' + core;
   function termAt(loop, link, end) {
     const t = link.ends[end].term;
     if (t && t !== 'auto') return t;
@@ -423,7 +519,7 @@
     return enc ? `${enc.tag} (for ${node.tag})` : node ? node.tag : 'open end';
   }
   function screenEndOf(loop, link) {
-    if (!isShielded(link)) return 'none';
+    if (!isShielded(link) && !pairScreens(link)) return 'none';
     if (link.screenEnd && link.screenEnd !== 'auto') return link.screenEnd;
     const na = nodeById(loop, link.a), nb = nodeById(loop, link.b);
     if (nb && isPanel(nb.type)) return 'b';
@@ -438,7 +534,7 @@
   const draft = { snap: true, ortho: false, osnap: true, step: 10 };
   try { Object.assign(draft, JSON.parse(localStorage.getItem(DRAFT_KEY)) || {}); } catch (e) { /* defaults */ }
   const saveDraft = () => { try { localStorage.setItem(DRAFT_KEY, JSON.stringify(draft)); } catch (e) { /* not saved */ } };
-  let showHiddenAll = false; // temporarily show cables hidden with the eye button
+  let showHiddenAll = false; // temporarily show cable information hidden with the eye button
 
   // ---------------------------------------------------------------- terminals (X10:1 …)
   // Items with a terminal strip: panel equipment, enclosures, terminal strips and anything
@@ -452,7 +548,9 @@
   const isTermItem = n => !!n && (isPanel(n.type) || isEnclosure(n.type) || !!n.inside || !!T(n.type).terminals);
   function coreKeys(l) {
     const ks = [];
-    for (let i = 1; i <= cores(l); i++) ks.push(String(i));
+    const ps = pairScreens(l);
+    if (ps) for (let i = 1; i <= ps; i++) ks.push(String(2 * i - 1), String(2 * i), 'S' + i); // 1 2 S1, 3 4 S2 …
+    else for (let i = 1; i <= cores(l); i++) ks.push(String(i));
     if (isShielded(l)) ks.push('S');
     return ks;
   }
@@ -466,54 +564,94 @@
     if (Math.abs(co.x - cm.x) < (cm.w + co.w) / 2 + 30) return 'r'; // stacked: both ends on the right
     return co.x > cm.x ? 'r' : 'l';
   }
+  // the item a core lands on: the cable end's item, or another strip chosen for that core
+  function coreTarget(loop, l, end, core, plan) {
+    const t = (l.ends[end].cmap || {})[core];
+    return t && t !== l[end] && plan[t] ? t : l[end];
+  }
+  // side of `target` that faces the cable end's item (for cores moved to another strip)
+  function sideFacing(loop, l, end, target) {
+    const me = center(nodeById(loop, target));
+    const fromN = nodeById(loop, l[end]);
+    const from = fromN ? center(fromN) : Object.assign({ w: 0, h: 0 }, l['f' + end] || { x: me.x + 1, y: me.y });
+    if (Math.abs(from.x - me.x) < (me.w + from.w) / 2 + 30) return 'r';
+    return from.x > me.x ? 'r' : 'l';
+  }
   function terminalPlan(loop) {
     const plan = {};
-    loop.nodes.forEach(n => { if (isTermItem(n)) plan[n.id] = { used: { l: {}, r: {} }, ends: {}, rows: [] }; });
-    const ends = [];
-    loop.links.forEach(l => ['a', 'b'].forEach(end => { if (plan[l[end]]) ends.push({ l, end, P: plan[l[end]], side: endSide(loop, l, end) }); }));
-    // numbers typed by the user first, then automatic numbers fill the free terminals
-    ends.forEach(e => Object.entries(e.l.ends[e.end].tmap || {}).forEach(([core, num]) => {
-      if (coreKeys(e.l).includes(core) && String(num).trim()) (e.P.used[e.side][String(num).trim()] = e.P.used[e.side][String(num).trim()] || []).push({ l: e.l, core });
+    loop.nodes.forEach(n => { if (isTermItem(n)) plan[n.id] = { used: { l: {}, r: {} }, ends: {}, rows: [], exi: new Set(), mixed: new Set() }; });
+    // groups: the cores of one cable end landing on one item (the end's own item, or another strip)
+    const groups = [];
+    loop.links.forEach(l => ['a', 'b'].forEach(end => {
+      const byItem = {};
+      coreKeys(l).forEach(core => { const t = coreTarget(loop, l, end, core, plan); (byItem[t] = byItem[t] || []).push(core); });
+      Object.entries(byItem).forEach(([item, coresHere]) => {
+        if (!item || !plan[item]) return;
+        const main = item === l[end];
+        groups.push({ l, end, item, P: plan[item], main, cores: coresHere, side: main ? endSide(loop, l, end) : sideFacing(loop, l, end, item), key: l.id + ':' + end + (main ? '' : ':f') });
+      });
     }));
-    // natural numbers: every core of every cable, in order, per item side (1, 2, 3 …).
-    // A core keeps its natural number unless the user typed one, so changing one core never
-    // renumbers the others; a moved core leaves its terminal free (a spare).
+    const use = (P, side, num, l, core) => {
+      (P.used[side][num] = P.used[side][num] || []).push({ l, core });
+      if (l.exi) P.exi.add(num);
+    };
+    // numbers typed by the user first
+    groups.forEach(g => Object.entries(g.l.ends[g.end].tmap || {}).forEach(([core, num]) => {
+      if (g.cores.includes(core) && String(num).trim()) use(g.P, g.side, String(num).trim(), g.l, core);
+    }));
+    // natural numbers on the cable end's own item: every core of the cable counts (1, 2, 3 …), so
+    // changing or moving one core never renumbers the others; a moved core leaves a spare terminal
     const natural = {};
-    const bumped = [];
-    ends.forEach(e => {
-      const tm = e.l.ends[e.end].tmap || {};
-      const nk = e.l[e.end] + e.side;
-      const list = coreKeys(e.l).map(core => {
+    const later = []; // cores whose natural terminal is taken, and cores moved to another strip
+    groups.filter(g => g.main).forEach(g => {
+      const tm = g.l.ends[g.end].tmap || {};
+      const nk = g.item + g.side;
+      const list = [];
+      coreKeys(g.l).forEach(core => {
         const nat = natural[nk] = (natural[nk] || 0) + 1;
-        const manual = tm[core] != null && String(tm[core]).trim();
-        if (manual) return { core, num: String(tm[core]).trim(), manual: true };
+        if (!g.cores.includes(core)) return; // moved to another strip: its terminal here stays free
+        if (tm[core] != null && String(tm[core]).trim()) { list.push({ core, num: String(tm[core]).trim(), manual: true }); return; }
         const c = { core, num: String(nat), manual: false };
-        if (e.P.used[e.side][c.num]) bumped.push({ e, c }); // its terminal was taken by a typed number
-        else e.P.used[e.side][c.num] = [{ l: e.l, core }];
+        if (g.P.used[g.side][c.num]) later.push({ g, c }); else use(g.P, g.side, c.num, g.l, core);
+        list.push(c);
+      });
+      if (list.length) g.P.ends[g.key] = { side: g.side, list };
+    });
+    groups.filter(g => !g.main).forEach(g => {
+      const tm = g.l.ends[g.end].tmap || {};
+      const list = g.cores.map(core => {
+        if (tm[core] != null && String(tm[core]).trim()) return { core, num: String(tm[core]).trim(), manual: true };
+        const c = { core, num: '', manual: false };
+        later.push({ g, c });
         return c;
       });
-      e.P.ends[e.l.id + ':' + e.end] = { side: e.side, list };
+      g.P.ends[g.key] = { side: g.side, list, from: g.end };
     });
-    // cores pushed off their terminal go to the next free numbers after the last one used
-    bumped.forEach(({ e, c }) => {
-      const nums = Object.keys(e.P.used[e.side]).filter(x => /^\d+$/.test(x)).map(Number);
-      let n = Math.max(natural[e.l[e.end] + e.side] || 0, nums.length ? Math.max(...nums) : 0) + 1;
-      while (e.P.used[e.side][String(n)]) n++;
+    // the rest go to the next free numbers after the last one used on that side
+    later.forEach(({ g, c }) => {
+      const nums = Object.keys(g.P.used[g.side]).filter(x => /^\d+$/.test(x)).map(Number);
+      let n = Math.max(natural[g.item + g.side] || 0, nums.length ? Math.max(...nums) : 0) + 1;
+      while (g.P.used[g.side][String(n)]) n++;
       c.num = String(n);
-      e.P.used[e.side][c.num] = [{ l: e.l, core: c.core }];
+      use(g.P, g.side, c.num, g.l, c.core);
     });
     Object.values(plan).forEach(P => {
       const labels = new Set([...Object.keys(P.used.l), ...Object.keys(P.used.r)]);
       const nums = [...labels].filter(x => /^\d+$/.test(x)).map(Number);
       const max = nums.length ? Math.max(...nums) : 0;
       P.rows = Array.from({ length: max }, (_, i) => String(i + 1)).concat([...labels].filter(x => !/^\d+$/.test(x)).sort());
+      // intrinsically safe and other circuits must not share a terminal
+      labels.forEach(r => {
+        const all = [...(P.used.l[r] || []), ...(P.used.r[r] || [])];
+        if (all.some(u => u.l.exi) && all.some(u => !u.l.exi)) P.mixed.add(r);
+      });
     });
     return plan;
   }
-  function stripSVG(rows, k) {
+  function stripSVG(rows, k, exi) {
     k = k || 1;
     return `<svg class="isym strip" viewBox="0 0 ${TSW} ${rows.length * TROW + 2}" width="${(TSW * k).toFixed(1)}" height="${((rows.length * TROW + 2) * k).toFixed(1)}" aria-hidden="true">${rows.map((r, i) =>
-      `<rect x="1" y="${1 + i * TROW}" width="${TSW - 2}" height="${TROW}" class="s-f"/><text x="${TSW / 2}" y="${1 + i * TROW + 10.5}" class="s-n">${esc(r)}</text>`).join('')}</svg>`;
+      `<rect x="1" y="${1 + i * TROW}" width="${TSW - 2}" height="${TROW}" class="s-f${exi && exi.has(r) ? ' exi' : ''}"><title>Terminal ${esc(r)}: double-click to renumber or delete</title></rect><text x="${TSW / 2}" y="${1 + i * TROW + 10.5}" class="s-n">${esc(r)}</text>`).join('')}</svg>`;
   }
   // where the strip of an item sits on the sheet (matches the DOM layout of .nsym)
   function stripGeom(n) {
@@ -524,7 +662,150 @@
     const cx = n.x + sz.w / 2;
     const top = n.y + (n.type === 'tb' ? 0 : (symParts(n.type, n.tag).sym.h + 4) * k + 6);
     const idx = {}; P.rows.forEach((r, i) => { idx[r] = i; });
-    return { cx, left: cx - (TSW / 2 - 1) * k, right: cx + (TSW / 2 - 1) * k, rowY: r => top + (1 + ((idx[r] != null ? idx[r] : 0) + 0.5) * TROW) * k, P };
+    return { cx, left: cx - (TSW / 2 - 1) * k, right: cx + (TSW / 2 - 1) * k, rowY: r => top + (1 + ((idx[r] != null ? idx[r] : 0) + 0.5) * TROW) * k, P,
+      top: top + k, bottom: top + (1 + P.rows.length * TROW) * k, rowH: TROW * k,
+      rowAt: y => { const i = Math.floor((y - top - k) / (TROW * k)); return i >= 0 && i < P.rows.length ? P.rows[i] : null; } };
+  }
+  // ---------------------------------------------------------------- terminals on the canvas
+  // every core landing on one item: [{ l, end, core, num, side }]
+  function coresOn(loop, nodeId, plan) {
+    const P = (plan || tplan)[nodeId];
+    const out = [];
+    if (!P) return out;
+    Object.entries(P.ends).forEach(([key, ent]) => {
+      const [lid, end] = key.split(':');
+      const l = linkById(loop, lid);
+      if (l) ent.list.forEach(c => out.push({ l, end, core: c.core, num: c.num, side: ent.side }));
+    });
+    return out;
+  }
+  const setTmap = (l, end, core, num) => {
+    const tm = l.ends[end].tmap = l.ends[end].tmap || {};
+    if (num == null) { delete tm[core]; if (!Object.keys(tm).length) delete l.ends[end].tmap; } else tm[core] = String(num);
+  };
+  // give a terminal another number: every core on it (both sides) follows
+  function renameTerminal(nodeId, row, to) {
+    const loop = cur(), n = nodeById(loop, nodeId);
+    to = String(to || '').trim().slice(0, 10);
+    if (!n || !to || to === row) return;
+    const plan = terminalPlan(loop);
+    const on = coresOn(loop, nodeId, plan).filter(c => c.num === row);
+    if (!on.length) { toast(`${termName(n, row)} is a spare terminal: nothing lands on it to renumber.`); return; }
+    const taken = coresOn(loop, nodeId, plan).filter(c => c.num === to);
+    const rows0 = plan[nodeId].rows.length;
+    on.forEach(c => setTmap(c.l, c.end, c.core, to));
+    renderDiagram(); renderInspector(); save();
+    const added = tplan[nodeId] ? tplan[nodeId].rows.length - rows0 : 0;
+    toast(`${termName(n, row)} is now ${termName(n, to)}.` +
+      (taken.length ? ' That number was already used: shared terminals are marked red in the schedule.' : '') +
+      (added > 0 ? ` The strip now runs to ${to}, so ${added} spare terminal${added > 1 ? 's were' : ' was'} added (double-click a terminal → Remove spares to close the gaps).` : ''));
+  }
+  // delete a spare terminal: the numbers after it close up (1 2 4 5 → 1 2 3 4)
+  function deleteSpareTerminal(loop, nodeId, row) {
+    const plan = terminalPlan(loop);
+    const all = coresOn(loop, nodeId, plan);
+    if (all.some(c => c.num === row) || !/^\d+$/.test(row)) return false;
+    const k = Number(row);
+    all.forEach(c => { if (/^\d+$/.test(c.num) && Number(c.num) > k) setTmap(c.l, c.end, c.core, Number(c.num) - 1); });
+    return true;
+  }
+  function spareTerminals(loop, nodeId) {
+    const P = tplan[nodeId];
+    if (!P) return [];
+    const used = new Set(coresOn(loop, nodeId).map(c => c.num));
+    return P.rows.filter(r => /^\d+$/.test(r) && !used.has(r));
+  }
+  function deleteTerminal(nodeId, row) {
+    const loop = cur(), n = nodeById(loop, nodeId);
+    if (!n) return;
+    const users = coresOn(loop, nodeId).filter(c => c.num === row);
+    if (users.length) { toast(`${termName(n, row)} carries ${users.map(c => `${c.l.tag} ${coreName(c.core)}`).join(', ')}. Drag those cores to another terminal first.`); return; }
+    if (!deleteSpareTerminal(loop, nodeId, row)) return;
+    renderDiagram(); renderInspector(); save();
+    toast(`${termName(n, row)} deleted; the terminals after it moved up one number.`);
+  }
+  function removeSpareTerminals(nodeId) {
+    const loop = cur(), n = nodeById(loop, nodeId);
+    let count = 0;
+    for (let guard = 0; guard < 500; guard++) { // highest first, so the numbers below stay put
+      tplan = terminalPlan(loop);
+      const sp = spareTerminals(loop, nodeId).map(Number).sort((a, b) => b - a);
+      if (!sp.length || !deleteSpareTerminal(loop, nodeId, String(sp[0]))) break;
+      count++;
+    }
+    renderDiagram(); renderInspector(); save();
+    toast(count ? `Removed ${count} spare terminal${count > 1 ? 's' : ''} from ${n.tag}.` : `${n.tag} has no spare terminals.`);
+  }
+  // small editor next to a terminal (double-click it on the canvas)
+  function closeTermPop() { const el = $('termPop'); if (el) el.remove(); }
+  function openTermPop(nodeId, row, clientX, clientY) {
+    closeTermPop();
+    const loop = cur(), n = nodeById(loop, nodeId);
+    const users = coresOn(loop, nodeId).filter(c => c.num === row);
+    const who = side => users.filter(c => c.side === side).map(c => `${esc(c.l.tag)} ${esc(coreName(c.core))}`).join(', ') || '–';
+    const spares = spareTerminals(loop, nodeId).length;
+    const el = document.createElement('div');
+    el.id = 'termPop'; el.className = 'term-pop';
+    el.setAttribute('role', 'dialog'); el.setAttribute('aria-label', `Terminal ${termName(n, row)}`);
+    el.innerHTML = `<div class="tp-head"><b>${esc(termName(n, row))}</b>${users.length ? '' : '<span class="muted">spare</span>'}<button class="tp-x" data-tp="close" aria-label="Close">×</button></div>
+      ${users.length ? `<div class="tp-who"><span>Left</span>${who('l')}<span>Right</span>${who('r')}</div>
+      <label class="tp-row">Number <input id="tpNum" type="text" value="${esc(row)}" maxlength="10" autocomplete="off"><button class="btn small" data-tp="rename">Rename</button></label>` : ''}
+      <div class="tp-row">
+        <button class="btn ghost small danger" data-tp="delete" ${users.length ? 'disabled title="Drag its cores to another terminal first"' : ''}>Delete terminal</button>
+        ${spares ? `<button class="btn ghost small" data-tp="spares">Remove ${spares} spare${spares > 1 ? 's' : ''}</button>` : ''}
+      </div>
+      <p class="tip">${users.length ? 'Enter renames. Drag a core’s grip (select the cable or strip) to land it elsewhere.' : 'Deleting closes the gap: the terminals after it move up one number.'}</p>`;
+    document.body.appendChild(el);
+    const vw = window.innerWidth, vh = window.innerHeight, bw = el.offsetWidth, bh = el.offsetHeight;
+    el.style.left = Math.max(8, Math.min(vw - bw - 8, clientX + 14)) + 'px';
+    el.style.top = Math.max(8, Math.min(vh - bh - 8, clientY - 20)) + 'px';
+    const inp = $('tpNum');
+    if (inp) { inp.focus(); inp.select(); }
+    el.addEventListener('keydown', e => {
+      if (e.key === 'Escape') { e.preventDefault(); e.stopPropagation(); closeTermPop(); }
+      else if (e.key === 'Enter' && e.target === inp) { e.preventDefault(); const v = inp.value; closeTermPop(); renameTerminal(nodeId, row, v); }
+      e.stopPropagation(); // typing here must not trigger canvas shortcuts
+    });
+    el.addEventListener('click', e => {
+      const b = e.target.closest('[data-tp]');
+      if (!b || b.disabled) return;
+      const a = b.dataset.tp;
+      if (a === 'rename') { const v = inp.value; closeTermPop(); renameTerminal(nodeId, row, v); }
+      else if (a === 'delete') { closeTermPop(); deleteTerminal(nodeId, row); }
+      else if (a === 'spares') { closeTermPop(); removeSpareTerminals(nodeId); }
+      else closeTermPop();
+    });
+  }
+  // the terminal strip (and row) under a point of the drawing, for dropping a core on it
+  function terminalAt(loop, w, exceptNode) {
+    for (const n of loop.nodes) {
+      const g = tplan[n.id] && stripGeom(n);
+      if (!g) continue;
+      if (w.x >= g.left - 16 && w.x <= g.right + 16 && w.y >= g.top && w.y <= g.bottom) return { n, row: g.rowAt(w.y), g };
+    }
+    for (const n of loop.nodes) { // anywhere else on an item with terminals: next free number there
+      if (!tplan[n.id] || n.id === exceptNode) continue;
+      const f = fullBox(n);
+      if (w.x >= f.x0 && w.x <= f.x1 && w.y >= f.y0 && w.y <= f.y1) return { n, row: null, g: stripGeom(n) };
+    }
+    return null;
+  }
+  // land one core of a cable end on another terminal (of this or another strip)
+  function landCore(l, end, core, n, row) {
+    const loop = cur();
+    const other = end === 'a' ? 'b' : 'a';
+    if (n.id === l[other] && n.id !== l[end]) { toast(`${n.tag} is the other end of ${l.tag}.`); return false; }
+    const cm = l.ends[end].cmap = l.ends[end].cmap || {};
+    if (n.id === l[end]) delete cm[core]; else cm[core] = n.id;
+    if (!Object.keys(cm).length) delete l.ends[end].cmap;
+    setTmap(l, end, core, row);
+    const plan = terminalPlan(loop);
+    const me = coresOn(loop, n.id, plan).find(c => c.l === l && c.end === end && c.core === core);
+    const share = me ? (plan[n.id].used[me.side][me.num] || []).filter(u => !(u.l === l && u.core === core)) : [];
+    renderDiagram(); if (sel) renderInspector(); save();
+    const name = coreName(core);
+    toast(me ? `${l.tag} ${name} → ${termName(n, me.num)}${share.length ? ` (shared with ${share.map(u => `${u.l.tag} ${coreName(u.core)}`).join(', ')}: marked red)` : ''}.` : `${l.tag} ${name} moved to ${n.tag}.`);
+    return true;
   }
   const termName = (n, num) => `${n.tag}:${num}`;
 
@@ -536,7 +817,8 @@
     return {
       cores: sum, cables: ls.length,
       shielded: ls.filter(isShielded).length,
-      terminals: isTermItem(node) ? (terminalPlan(loop)[node.id] || { rows: [] }).rows.length : (sum ? Math.max(max, Math.ceil(sum / 2)) : 0)
+      terminals: isTermItem(node) ? (terminalPlan(loop)[node.id] || { rows: [] }).rows.length : (sum ? Math.max(max, Math.ceil(sum / 2)) : 0),
+      exiTerminals: isTermItem(node) ? ((terminalPlan(loop)[node.id] || {}).exi || new Set()).size : 0
     };
   }
   function specToGen(spec, ctx) {
@@ -545,7 +827,7 @@
   }
   function genNode(loop, node) {
     const ctx = nodeCtx(loop, node);
-    return T(node.type).items.map(s => specToGen(s, ctx));
+    return T(node.type).items.filter(s => s[0] !== 'tbexi' || ctx.exiTerminals).map(s => specToGen(s, ctx));
   }
   function genLink(loop, link) {
     const c = CABLES[link.cable];
@@ -557,9 +839,11 @@
     if (c.field) {
       let desc = c.name;
       if (c.pairs) desc += `, ${Math.max(1, Number(link.n) || c.defN)} pairs`;
+      if (pairScreens(link)) desc += shielded ? ', individually screened pairs + overall screen' : ', individually screened pairs';
       else if (!c.fixed) desc += `, ${n} cores`;
       desc += size;
       if (link.armoured) desc += ', armoured';
+      if (link.exi) desc += ', Ex i (light blue sheath)';
       out.push({ key: 'cable', name: desc, cat: 'cable', auto: len ? Math.ceil(len * 1.1) : '', unit: 'm',
         hint: len ? `${len} m route + 10% for terminations and slack` : 'Set the route length to get a quantity' });
     } else {
@@ -573,9 +857,9 @@
       if (term === 'connector') {
         out.push({ key: 'term-' + end, name: `Connector at ${at}`, cat: 'term', auto: 1, unit: 'pcs', hint: 'RJ45 / M12 / plug to suit the device' });
       } else if (term !== 'none') {
-        const extra = shielded ? 1 : 0;
+        const ps = pairScreens(link), extra = (shielded ? 1 : 0) + ps;
         out.push({ key: 'term-' + end, name: `${TERMS[term]}${size} at ${at}`, cat: 'term', auto: n + extra, unit: 'pcs',
-          hint: shielded ? `${n} cores + 1 drain wire` : `${n} cores` });
+          hint: extra ? `${n} cores + ${extra} drain wire${extra > 1 ? 's' : ''}${ps ? ` (${ps} pair screens${shielded ? ' + overall' : ''})` : ''}` : `${n} cores` });
       }
       if (glandAt(loop, link, end)) {
         const gat = entryLabel(loop, node);
@@ -585,14 +869,17 @@
       }
       if (c.field) out.push({ key: 'cmark-' + end, name: `Cable tag at ${at}`, cat: 'mark', auto: 1, unit: 'pcs' });
       out.push({ key: 'wmark-' + end, name: `Core / wire markers at ${at}`, cat: 'mark', auto: n, unit: 'pcs' });
-      if (shielded) out.push({ key: 'hs-' + end, name: `Heat-shrink for screen / drain at ${at}`, cat: 'consum', auto: 1, unit: 'pcs' });
+      if (shielded || pairScreens(link)) out.push({ key: 'hs-' + end, name: `Heat-shrink for screen / drain at ${at}`, cat: 'consum', auto: (shielded ? 1 : 0) + pairScreens(link), unit: 'pcs',
+        hint: pairScreens(link) ? 'One sleeve per drain wire, so the screens stay insulated from each other' : '' });
     });
     const se = screenEndOf(loop, link);
     if (se !== 'none') {
       const ends = se === 'both' ? ['a', 'b'] : [se];
       ends.forEach(e => {
         const node = nodeById(loop, link[e]);
-        out.push({ key: 'screen-' + e, name: `Screen earth terminal / clamp at ${node ? node.tag : e.toUpperCase()}`, cat: 'terminal', auto: 1, unit: 'pcs' });
+        const ps = pairScreens(link);
+        out.push({ key: 'screen-' + e, name: `Screen earth terminal / clamp at ${node ? node.tag : e.toUpperCase()}`, cat: 'terminal', auto: ps + (isShielded(link) ? 1 : 0), unit: 'pcs',
+          hint: ps ? `${ps} pair screens${isShielded(link) ? ' + overall screen' : ''}` : '' });
       });
     }
     switch (link.route) {
@@ -660,6 +947,9 @@
   let flagFocus = false;     // fade everything that is not flagged
   let labelPts = {};         // cable label positions, to jump to a flagged cable
   let labelAnchors = {};     // where each cable label belongs on its route
+  let lastStripDown = null;  // for double-clicks on a terminal
+  let labelOrient = {};      // 'h' or 'v': the direction of the run a cable label is written along
+  let routeInfo = {};        // per cable: end points and middle run, for the reroute grips
   const flagged = loop => loop.nodes.filter(n => n.flag).map(n => ({ kind: 'node', ent: n })).concat(loop.links.filter(l => l.flag).map(l => ({ kind: 'link', ent: l })));
   function flagPin(ent) {
     if (!ent.flag) return '';
@@ -781,6 +1071,8 @@
     psu:       { name: 'Power supply (AC/DC)', w: 56, h: 56, draw: () => `<rect x="2" y="2" width="52" height="52" class="s-f"/><path d="M2 54 L54 2" class="s-thin"/><text x="16" y="24" class="s-t s-mid">~</text><text x="40" y="46" class="s-t s-mid">=</text>` },
     fuse:      { name: 'Fuse / breaker', w: 56, h: 24, draw: () => `<path d="M0 12 H12 M44 12 H56" class="s-thin"/><rect x="12" y="4" width="32" height="16" class="s-f"/><path d="M12 12 H44" class="s-thin"/>` },
     amplifier: { name: 'Amplifier', w: 60, h: 44, draw: () => `<rect x="2" y="2" width="56" height="40" class="s-f"/><path d="M18 9 V35 L44 22 Z" class="s-f"/>` },
+    probe:     { name: 'Proximity probe', w: 64, h: 28, draw: () => `<path d="M0 14 H14" class="s-thin"/><rect x="14" y="6" width="30" height="16" class="s-f"/><path d="M44 9 H52 V19 H44" class="s-f"/><path d="M58 2 V26" class="s-dash"/>` },
+    proximitor: { name: 'Proximitor (VT / COM / OUT, IN)', w: 72, h: 56, draw: () => `<rect x="8" y="2" width="62" height="52" class="s-f"/>${[['VT', 15], ['COM', 29], ['OUT', 43]].map(([t, y]) => `<path d="M0 ${y} H8" class="s-thin"/><text x="22" y="${y + 3.5}" class="s-n">${t}</text>`).join('')}<path d="M72 29 H58" class="s-thin"/><circle cx="54" cy="29" r="4" class="s-f"/><path d="M50 25 A4 4 0 0 0 50 33"/><text x="54" y="47" class="s-n">IN</text>` },
     box:       { name: 'Box with letters', w: 60, h: 44, draw: L => `<rect x="2" y="2" width="56" height="40" rx="2" class="s-f"/><text x="30" y="27" class="s-t">${L}</text>` }
   };
   function symParts(type, tag) {
@@ -853,13 +1145,14 @@
 
   const EYE = '<svg viewBox="0 0 16 16" aria-hidden="true"><path d="M1 8s2.5-4.5 7-4.5S15 8 15 8s-2.5 4.5-7 4.5S1 8 1 8z"/><circle cx="8" cy="8" r="2.2"/></svg>';
   const EYE_OFF = '<svg viewBox="0 0 16 16" aria-hidden="true"><path d="M1 8s2.5-4.5 7-4.5S15 8 15 8s-2.5 4.5-7 4.5S1 8 1 8z"/><path d="M2 14L14 2"/></svg>';
+  // hide a cable's information box (tag, type, chips); the cable itself stays on the drawing
   function toggleCableHidden(l) {
     if (!l) return;
-    l.hidden = !l.hidden;
-    if (!l.hidden) delete l.hidden;
+    l.infoHidden = !l.infoHidden;
+    if (!l.infoHidden) delete l.infoHidden;
     renderDiagram(); if (sel && sel.kind === 'link' && sel.id === l.id) renderInspector(); save();
     updateStatusBar();
-    toast(l.hidden ? `${l.tag} hidden. Click the eye on its tag (or press H) to show it again.` : `${l.tag} shown.`);
+    toast(l.infoHidden ? `Information of ${l.tag} hidden. Click the small eye (or press H) to show it again.` : `Information of ${l.tag} shown.`);
   }
   function renderDiagram() {
     const loop = cur();
@@ -883,9 +1176,9 @@
           const one = selectedIds().length === 1 && selectedIds()[0] === n.id; // corner grips to resize, like images
           const grips = one ? ['nw', 'ne', 'sw', 'se'].map(g => `<span class="grip ${g}" data-ngrip="${g}" title="Drag to resize"></span>`).join('') : '';
           if (!showTerminals || !P || !P.rows.length) return symSVG(n.type, n.tag, null, k) + grips;
-          return (n.type === 'tb' ? '' : symSVG(n.type, n.tag, null, k)) + stripSVG(P.rows, k) + grips; // the terminal strip under the symbol
+          return (n.type === 'tb' ? '' : symSVG(n.type, n.tag, null, k)) + stripSVG(P.rows, k, P.exi) + grips; // the terminal strip under the symbol
         })()}</div>${badge}
-        <div class="nlabel"><div class="node-title"><b>${esc(n.tag)}</b><small>${esc(n.desc || T(n.type).name)}</small>${n.inside && nodeById(loop, n.inside) ? `<small class="inside-tag">in ${esc(nodeById(loop, n.inside).tag)}</small>` : ''}</div>
+        <div class="nlabel" title="Drag to move this text" style="${nlabelStyle(n)}"><div class="node-title"><b>${esc(n.tag)}</b><small>${esc(n.desc || T(n.type).name)}</small>${n.inside && nodeById(loop, n.inside) ? `<small class="inside-tag">in ${esc(nodeById(loop, n.inside).tag)}</small>` : ''}</div>
           <div class="chips">${chipsHTML(items)}</div>${n.flag && n.flag.note ? `<div class="flag-note inline">${esc(n.flag.note)}</div>` : ''}</div>
         <div class="port left" title="Drag to another item to add a cable"></div><div class="port" title="Drag to another item to add a cable"></div></div>`;
     });
@@ -895,14 +1188,13 @@
       const cls = w === 'todo' ? 'todo' : w === 'ordered' ? 'ordered' : 'done';
       const isSel = sel && sel.kind === 'link' && sel.id === l.id;
       const c = CABLES[l.cable];
-      const spec = c.pairs ? `${Math.max(1, Number(l.n) || c.defN)} pr` : c.fixed ? c.short : `${cores(l)}${c.short}`;
+      const spec = c.pairs ? `${Math.max(1, Number(l.n) || c.defN)} pr${pairScreens(l) ? (isShielded(l) ? ' ISOS' : ' indiv. scr.') : ''}` : c.fixed ? c.short : `${cores(l)}${c.short}`;
       const lhits = items.filter(hlMatch).length;
       const lhl = hlActive() ? (lhits ? ' hl-on' : ' hl-off') : '';
-      const hid = l.hidden && !showHiddenAll;
-      html += `<div class="wlabel ${cls}${isSel ? ' sel' : ''}${lhl}${flagCls(l)}${hid ? ' is-hidden' : ''}${l.hidden && showHiddenAll ? ' was-hidden' : ''}" data-link="${l.id}" style="${flagStyle(l)}">${flagPin(l)}${lhits ? `<span class="hl-badge" title="${lhits} matching line${lhits > 1 ? 's' : ''}">${lhits}</span>` : ''}
-        <button class="eye" data-eye="${l.id}" title="${l.hidden ? 'Show this cable (H)' : 'Hide this cable (H)'}" aria-label="${l.hidden ? 'Show' : 'Hide'} cable ${esc(l.tag)}">${l.hidden ? EYE_OFF : EYE}</button>
-        <div class="wt">${esc(l.tag)} <small>${esc(spec)}${l.length ? ' · ' + esc(l.length) + ' m' : ''}</small></div>
-        <div class="chips">${chipsHTML(items)}</div></div>`;
+      const hid = l.infoHidden && !showHiddenAll;
+      html += `<div class="wlabel ${cls}${isSel ? ' sel' : ''}${lhl}${flagCls(l)}${hid ? ' info-hidden' : ''}${l.infoHidden && showHiddenAll ? ' was-hidden' : ''}${l.exi ? ' exi' : ''}" data-link="${l.id}" style="${flagStyle(l)}">${flagPin(l)}${lhits ? `<span class="hl-badge" title="${lhits} matching line${lhits > 1 ? 's' : ''}">${lhits}</span>` : ''}
+        <button class="eye" data-eye="${l.id}" title="${l.infoHidden ? `Show the information of ${esc(l.tag)} (H)` : 'Hide this information (H)'}" aria-label="${l.infoHidden ? 'Show' : 'Hide'} the information of cable ${esc(l.tag)}">${l.infoHidden ? EYE_OFF : EYE}</button>
+        <div class="wt">${esc(l.tag)} <small>${esc(spec)}${l.length ? ' · ' + esc(l.length) + ' m' : ''}</small>${l.exi ? '<b class="exi-tag" title="Intrinsically safe circuit">Ex i</b>' : ''}</div><div class="chips">${chipsHTML(items)}</div></div>`;
     });
     nodesEl.innerHTML = html;
     sizes = {};
@@ -933,15 +1225,30 @@
     $('imgFront').innerHTML = html.front;
   }
 
-  // the symbol plus its tag block underneath, for selection boxes, zones and zoom extents
+  // an item's text block (tag, service, chips) sits under the symbol unless the user moved it
+  function nlabelStyle(n) {
+    const o = n.lblOff;
+    return o ? `transform:translate(calc(-50% + ${o.dx}px), ${o.dy}px)` : '';
+  }
+  function nlabelBox(n) {
+    const s = sizes[n.id] || { w: NODE_W, h: 56, lw: 140, lh: 44 };
+    const o = n.lblOff || { dx: 0, dy: 0 }, cx = n.x + s.w / 2 + o.dx, lw = s.lw || 0;
+    return { x0: cx - lw / 2, y0: n.y + s.h + o.dy, x1: cx + lw / 2, y1: n.y + s.h + o.dy + (s.lh || 0) };
+  }
+  // the symbol plus its text block, for selection boxes, zones and zoom extents
   function fullBox(n) {
     const s = sizes[n.id] || { w: NODE_W, h: 56, lw: 140, lh: 44 };
-    const half = Math.max(s.w, s.lw || 0) / 2, cx = n.x + s.w / 2;
-    return { x0: cx - half, y0: n.y, x1: cx + half, y1: n.y + s.h + (s.lh || 0) };
+    const t = nlabelBox(n);
+    return { x0: Math.min(n.x, t.x0), y0: Math.min(n.y, t.y0), x1: Math.max(n.x + s.w, t.x1), y1: Math.max(n.y + s.h, t.y1) };
   }
   function center(n) {
     const s = sizes[n.id] || { w: NODE_W, h: 56 };
-    return { x: n.x + s.w / 2, y: n.y + s.h / 2, w: s.w, h: s.h, lh: s.lh || 0 };
+    return { x: n.x + s.w / 2, y: n.y + s.h / 2, w: s.w, h: s.h, lh: n.lblOff ? 0 : (s.lh || 0) };
+  }
+  // a cable's information is centred on its run and written along it: tag and type on one side of
+  // the cable, the material chips on the other ('v' runs are turned to read upwards)
+  function cableLabelRect(x, y, w, h, orient) {
+    return orient === 'v' ? { x0: x - h / 2, y0: y - w / 2, x1: x + h / 2, y1: y + w / 2 } : { x0: x - w / 2, y0: y - h / 2, x1: x + w / 2, y1: y + h / 2 };
   }
   function clip(c, toward) {
     const dx = toward.x - c.x, dy = toward.y - c.y;
@@ -1027,6 +1334,7 @@
     const portPt = (nd, c, side, off) => side === 'r' ? { x: nd.x + c.w, y: c.y + off } : side === 'l' ? { x: nd.x, y: c.y + off }
       : side === 'b' ? { x: c.x + off, y: nd.y + c.h + (c.lh || 0) } : { x: c.x + off, y: nd.y };
     const brk = {}; // breakout slots per item side, so several cables don't share one trunk
+    routeInfo = {};
     Object.values(R).forEach(r => {
       const l = r.l;
       const k = [l.a, l.b].sort().join('|');
@@ -1042,32 +1350,78 @@
       const pa = r.ea ? breakout(r.na, r.ga, r.ea, r.sa) : portPt(r.na, r.ca, r.sa, r.offa);
       const pb = r.eb ? breakout(r.nb, r.gb, r.eb, r.sb) : portPt(r.nb, r.cb, r.sb, r.offb);
       let pts;
+      // the user can move the middle run (l.bend); otherwise it is placed automatically
+      const bend = l.bend || {};
+      let orient;
       if (r.sa === r.sb && (r.sa === 'l' || r.sa === 'r')) { // both ends on the same side: a C-shaped route
-        const X = r.sa === 'r' ? Math.max(pa.x, pb.x) + 18 + Math.abs(r.lane) : Math.min(pa.x, pb.x) - 18 - Math.abs(r.lane);
-        pts = [pa, { x: X, y: pa.y }, { x: X, y: pb.y }, pb];
+        const X = bend.x != null ? bend.x : (r.sa === 'r' ? Math.max(pa.x, pb.x) + 18 + Math.abs(r.lane) : Math.min(pa.x, pb.x) - 18 - Math.abs(r.lane));
+        pts = [pa, { x: X, y: pa.y }, { x: X, y: pb.y }, pb]; orient = 'x';
+      } else if ((r.sa === 'l' || r.sa === 'r') && bend.y != null) { // detour: out, up/down to a level, across, back
+        const dA = r.sa === 'r' ? 1 : -1, dB = r.sb === 'r' ? 1 : -1;
+        pts = [pa, { x: pa.x + dA * 20, y: pa.y }, { x: pa.x + dA * 20, y: bend.y }, { x: pb.x + dB * 20, y: bend.y }, { x: pb.x + dB * 20, y: pb.y }, pb]; orient = 'jog';
       } else if (r.sa === 'l' || r.sa === 'r') {
         const lo = Math.min(pa.x, pb.x) + 12, hi = Math.max(pa.x, pb.x) - 12;
-        const mx = Math.max(lo, Math.min(hi, (pa.x + pb.x) / 2 + r.lane));
+        const mx = bend.x != null ? bend.x : Math.max(lo, Math.min(hi, (pa.x + pb.x) / 2 + r.lane));
         pts = [pa, { x: mx, y: pa.y }, { x: mx, y: pb.y }, pb];
+        orient = Math.abs(pb.y - pa.y) < 4 && bend.x == null ? 'jog' : 'x'; // a straight cable gets a detour grip
       } else {
         const lo = Math.min(pa.y, pb.y) + 12, hi = Math.max(pa.y, pb.y) - 12;
-        const my = lo < hi ? Math.max(lo, Math.min(hi, (pa.y + pb.y) / 2 + r.lane)) : (pa.y + pb.y) / 2;
-        pts = [pa, { x: pa.x, y: my }, { x: pb.x, y: my }, pb];
+        const my = bend.y != null ? bend.y : (lo < hi ? Math.max(lo, Math.min(hi, (pa.y + pb.y) / 2 + r.lane)) : (pa.y + pb.y) / 2);
+        pts = [pa, { x: pa.x, y: my }, { x: pb.x, y: my }, pb]; orient = 'y';
       }
-      // label on the middle run of the route, i.e. halfway between the two items
-      const best = { x: (pts[1].x + pts[2].x) / 2, y: (pts[1].y + pts[2].y) / 2 };
+      // the move-the-run grip must not cover the cable's own label (which sits at the run's centre
+      // unless the user moved it): put it just past the label's edge along the run, or at the
+      // run's first corner when the run is too short
+      const si = pts.length === 6 ? 2 : 1; // the middle run: pts[si] → pts[si + 1]
+      // the run the label sits on: for a straight cable that is the cable itself
+      const s0 = orient === 'jog' && pts.length === 4 ? pa : pts[si], s1 = orient === 'jog' && pts.length === 4 ? pb : pts[si + 1];
+      const mc = { x: (s0.x + s1.x) / 2, y: (s0.y + s1.y) / 2 };
+      // where the run currently is (the drag moves it by the pointer's movement, not to the pointer)
+      const run = orient === 'x' ? s0.x : s0.y;
+      // the move-the-run grip must never cover the cable's own label: try spots along the run,
+      // then its corners, then along the legs, and take the first one clear of the label
+      // the cable's information goes on its longest run, written along it (like a cable tag on a
+      // circuit diagram); horizontal runs win a close call, so most tags read normally
+      let lseg = 0, lscore = -1;
+      for (let i = 0; i < pts.length - 1; i++) {
+        const dx = Math.abs(pts[i + 1].x - pts[i].x), dy = Math.abs(pts[i + 1].y - pts[i].y);
+        const sc = Math.max(dx, dy) * (dx >= dy ? 1.25 : 1);
+        if (sc > lscore + 0.5) { lscore = sc; lseg = i; }
+      }
+      const L0 = pts[lseg], L1 = pts[lseg + 1];
+      const best = { x: (L0.x + L1.x) / 2, y: (L0.y + L1.y) / 2 };
+      const lorient = Math.abs(L1.y - L0.y) > Math.abs(L1.x - L0.x) ? 'v' : 'h';
+      labelOrient[l.id] = lorient;
+      const lpos = l.lblOff ? { x: best.x + l.lblOff.dx, y: best.y + l.lblOff.dy } : best;
+      let gmid = mc;
+      const lel = document.querySelector(`#nodes .wlabel[data-link="${l.id}"]`);
+      if (lel) {
+        const lr = cableLabelRect(lpos.x, lpos.y, lel.offsetWidth, lel.offsetHeight, lorient);
+        const clear = q => q.x < lr.x0 - 8 || q.x > lr.x1 + 8 || q.y < lr.y0 - 8 || q.y > lr.y1 + 8;
+        const hw = lel.offsetWidth / 2 + 8, hh = lel.offsetHeight / 2 + 8;
+        const along = (a, b2, dist) => { const L2 = Math.hypot(b2.x - a.x, b2.y - a.y); return L2 > dist ? { x: a.x + (b2.x - a.x) * dist / L2, y: a.y + (b2.y - a.y) * dist / L2 } : null; };
+        const runLen = Math.hypot(s1.x - s0.x, s1.y - s0.y);
+        const cand = [];
+        if (runLen) { const ext = (Math.abs(s1.x - s0.x) > Math.abs(s1.y - s0.y) ? hw : hh) + 6; cand.push(along(mc, s0, ext), along(mc, s1, ext)); }
+        cand.push(s0, s1);
+        const i0 = pts.indexOf(s0), i1 = pts.indexOf(s1);
+        if (i0 > 0) cand.push(along(s0, pts[i0 - 1], hw + 6), along(s0, pts[i0 - 1], hh + 6));
+        if (i1 >= 0 && i1 < pts.length - 1) cand.push(along(s1, pts[i1 + 1], hw + 6), along(s1, pts[i1 + 1], hh + 6));
+        gmid = cand.find(q => q && clear(q)) || mc;
+      }
+      routeInfo[l.id] = { pa, pb, mid: gmid, orient, run, freeA: !!r.na.free, freeB: !!r.nb.free };
       const items = linkItems(loop, l);
       const w = worst(items);
       const cls = w === 'todo' ? 'todo' : w === 'ordered' ? 'ordered' : 'done';
       const isSel = sel && sel.kind === 'link' && sel.id === l.id;
       const d = roundedPath(pts, 8);
       const whl = hlActive() ? (items.some(hlMatch) ? ' hl-on' : ' hl-off') : '';
-      const svgBefore = svg; // a hidden cable draws nothing but its small tag
-      const hideIt = l.hidden && !showHiddenAll;
+      const exi = l.exi ? ' exi' : ''; // intrinsically safe: blue cable and cores
       if (whl === ' hl-on') svg += `<path class="wire-glow" d="${d}"/>`;
-      svg += `<path class="wire ${cls}${isSel ? ' sel' : ''}${whl}" d="${d}"/>`;
-      svg += `<circle class="wire-end${whl}" cx="${pa.x.toFixed(1)}" cy="${pa.y.toFixed(1)}" r="4" style="fill:var(--${cls === 'done' ? 'have' : cls})"/>`;
-      svg += `<circle class="wire-end${whl}" cx="${pb.x.toFixed(1)}" cy="${pb.y.toFixed(1)}" r="4" style="fill:var(--${cls === 'done' ? 'have' : cls})"/>`;
+      svg += `<path class="wire ${cls}${isSel ? ' sel' : ''}${whl}${exi}" d="${d}"/>`;
+      const endFill = l.exi ? 'exi' : (cls === 'done' ? 'have' : cls);
+      svg += `<circle class="wire-end${whl}" cx="${pa.x.toFixed(1)}" cy="${pa.y.toFixed(1)}" r="4" style="fill:var(--${endFill})"/>`;
+      svg += `<circle class="wire-end${whl}" cx="${pb.x.toFixed(1)}" cy="${pb.y.toFixed(1)}" r="4" style="fill:var(--${endFill})"/>`;
       svg += `<path class="wire-hit" data-link="${l.id}" d="${d}"/>`;
       // cores: from the breakout point along a short trunk to each terminal of the strip
       [[r.ea, r.ga, r.sa, pa], [r.eb, r.gb, r.sb, pb]].forEach(([e, g, side, p]) => {
@@ -1075,21 +1429,57 @@
         const edge = side === 'r' ? g.right : g.left, dir = side === 'r' ? 1 : -1;
         e.list.forEach(c => {
           const y = g.rowY(c.num);
-          svg += `<path class="core ${cls}${whl}" d="M${p.x.toFixed(1)},${p.y.toFixed(1)} V${y.toFixed(1)} H${edge.toFixed(1)}"/>`;
+          svg += `<path class="core ${cls}${whl}${exi}" d="M${p.x.toFixed(1)},${p.y.toFixed(1)} V${y.toFixed(1)} H${edge.toFixed(1)}"/>`;
           svg += `<text class="core-no${whl}" x="${(edge + dir * 8).toFixed(1)}" y="${(y - 2.5).toFixed(1)}" text-anchor="middle">${esc(c.core)}</text>`;
+        });
+      });
+      // cores moved to another strip: from this cable end's point to their own terminals there
+      // they leave outward, pass above or below the cable end's own item, then run to the target strip
+      [['a', pa, r.sa], ['b', pb, r.sb]].forEach(([end, p, side]) => {
+        Object.keys(tplan).forEach(itemId => {
+          const fe = tplan[itemId].ends[l.id + ':' + end + ':f'];
+          const tn = fe && nodeById(loop, itemId);
+          const g = tn && stripGeom(tn);
+          if (!g) return;
+          const edge = fe.side === 'r' ? g.right : g.left, dir = fe.side === 'r' ? 1 : -1;
+          const tx = edge + dir * 14;
+          const src = nodeById(loop, l[end]);
+          fe.list.forEach((c, i) => {
+            const y = g.rowY(c.num);
+            let d = `M${p.x.toFixed(1)},${p.y.toFixed(1)}`;
+            if (src) {
+              const fb = fullBox(src);
+              const ox = p.x + (side === 'l' ? -1 : 1) * (8 + i * 3);
+              const cy = y >= p.y ? fb.y1 + 10 + i * 3 : fb.y0 - 10 - i * 3;
+              d += ` H${ox.toFixed(1)} V${cy.toFixed(1)}`;
+            }
+            d += ` H${tx.toFixed(1)} V${y.toFixed(1)} H${edge.toFixed(1)}`;
+            svg += `<path class="core moved ${cls}${whl}${exi}" d="${d}"/>`;
+            svg += `<text class="core-no${whl}" x="${(edge + dir * 8).toFixed(1)}" y="${(y - 2.5).toFixed(1)}" text-anchor="middle">${esc(c.core)}</text>`;
+          });
         });
       });
       // the label sits on the route unless the user dragged it; then a leader line ties it back
       const off = l.lblOff;
-      const pos = off ? { x: best.x + off.dx, y: best.y + off.dy } : best;
-      if (off && Math.hypot(off.dx, off.dy) > 18) {
+      const pos = lpos;
+      if (off && Math.hypot(off.dx, off.dy) > 18 && !(l.infoHidden && !showHiddenAll)) {
         svg += `<path class="leader${whl}" d="M${best.x.toFixed(1)},${best.y.toFixed(1)} L${pos.x.toFixed(1)},${pos.y.toFixed(1)}"/>`;
         svg += `<circle class="leader-dot${whl}" cx="${best.x.toFixed(1)}" cy="${best.y.toFixed(1)}" r="3.5"/>`;
       }
-      if (hideIt) svg = svgBefore;
       labels[l.id] = pos;
       labelPts[l.id] = pos;
       labelAnchors[l.id] = best;
+    });
+    loop.nodes.forEach(n => {
+      if (!n.lblOff || Math.hypot(n.lblOff.dx, n.lblOff.dy) < 18) return;
+      const c = center(n), t = nlabelBox(n);
+      const tc = { x: (t.x0 + t.x1) / 2, y: (t.y0 + t.y1) / 2 };
+      const a = clip(c, tc); // symbol edge towards the text
+      const b = { x: Math.max(t.x0, Math.min(t.x1, a.x)), y: Math.max(t.y0, Math.min(t.y1, a.y)) }; // nearest point of the text block
+      if (Math.hypot(b.x - a.x, b.y - a.y) < 6) return;
+      const nh = hlActive() ? (nodeItems(loop, n).some(hlMatch) ? ' hl-on' : ' hl-off') : '';
+      svg += `<path class="leader${nh}" d="M${a.x.toFixed(1)},${a.y.toFixed(1)} L${b.x.toFixed(1)},${b.y.toFixed(1)}"/>`;
+      svg += `<circle class="leader-dot${nh}" cx="${a.x.toFixed(1)}" cy="${a.y.toFixed(1)}" r="2.5"/>`;
     });
     svg += '<path id="tempWire" class="wire-temp" d="" style="display:none"/>';
     // size the SVG to what it draws, since items can be anywhere (also at negative coordinates)
@@ -1101,12 +1491,37 @@
     const W = $('wires');
     Object.assign(W.style, { left: (bx0 - m) + 'px', top: (by0 - m) + 'px', width: (bx1 - bx0 + 2 * m) + 'px', height: (by1 - by0 + 2 * m) + 'px' });
     W.innerHTML = `<g transform="translate(${m - bx0},${m - by0})">${svg}</g>`;
-    $('nodes').querySelectorAll('.encl-tab, .open-end').forEach(el => el.remove());
+    $('nodes').querySelectorAll('.encl-tab, .open-end, .cgrip').forEach(el => el.remove());
+    let cgrips = '';
+    const sl = sel && sel.kind === 'link' && !cablePick && linkById(loop, sel.id);
+    const ri = sl && routeInfo[sl.id];
+    if (ri) { // AutoCAD-style grips: drag an end onto another item, or move the middle run
+      if (!ri.freeA) cgrips += `<div class="cgrip end" data-endgrip="${sl.id}:a" style="left:${ri.pa.x}px;top:${ri.pa.y}px" title="Drag onto another item to move this end"></div>`;
+      if (!ri.freeB) cgrips += `<div class="cgrip end" data-endgrip="${sl.id}:b" style="left:${ri.pb.x}px;top:${ri.pb.y}px" title="Drag onto another item to move this end"></div>`;
+      cgrips += `<div class="cgrip mid ${ri.orient}" data-bendgrip="${sl.id}" style="left:${ri.mid.x}px;top:${ri.mid.y}px" title="Drag to move this run of the cable"></div>`;
+    }
+    if (!cablePick) {
+      const coreGrips = [];
+      const selNode = sel && sel.kind === 'node' && nodeById(loop, sel.id);
+      Object.keys(tplan).forEach(itemId => coresOn(loop, itemId).forEach(c => {
+        if (!((sl && c.l.id === sl.id) || (selNode && selNode.id === itemId))) return;
+        const g = stripGeom(nodeById(loop, itemId));
+        if (!g) return;
+        const x = (c.side === 'r' ? g.right + 8 : g.left - 8) * 1, y = g.rowY(c.num) - 3;
+        coreGrips.push(`<div class="cgrip core" data-coregrip="${c.l.id}|${c.end}|${esc(c.core)}" style="left:${x}px;top:${y}px" title="${esc(c.l.tag)} ${esc(coreName(c.core))} on ${esc(termName(nodeById(loop, itemId), c.num))}: drag onto another terminal"></div>`);
+      }));
+      cgrips += coreGrips.join('');
+    }
     $('nodes').insertAdjacentHTML('beforeend', tabs.join('') + openEnds.map(o =>
-      `<div class="open-end" data-open="${o.l.id}:${o.end}" style="left:${o.x}px;top:${o.y}px" title="Open end of ${esc(o.l.tag)}: drag it onto an item to connect"></div>`).join(''));
+      `<div class="open-end" data-open="${o.l.id}:${o.end}" style="left:${o.x}px;top:${o.y}px" title="Open end of ${esc(o.l.tag)}: drag it onto an item to connect"></div>`).join('') + cgrips);
     document.querySelectorAll('.wlabel').forEach(el => {
       const p = labels[el.dataset.link];
-      if (p) { el.style.left = p.x + 'px'; el.style.top = p.y + 'px'; el.hidden = false; } else el.hidden = true;
+      if (p) {
+        el.style.left = p.x + 'px'; el.style.top = p.y + 'px'; el.hidden = false;
+        const lk = linkById(loop, el.dataset.link);
+        el.classList.toggle('along-v', labelOrient[el.dataset.link] === 'v');
+        el.classList.toggle('loose', !!(lk && lk.lblOff));
+      } else el.hidden = true;
     });
   }
 
@@ -1171,7 +1586,7 @@
     return `<h2>${esc(loop.name || 'Untitled loop')}</h2>
       <div id="summaryGrid" class="summary-grid">${summaryHTML(loop)}</div>
       ${flagListHTML(loop)}
-      <p class="tip">Select an item or a cable on the sheet to see its checklist. Drag from a round handle on the side of an item to another item to draw a cable. Drag a box on an empty part of the sheet to select several items: left to right selects items fully inside, right to left selects anything the box touches. Then drag one of them to move them together (drag an enclosure's dashed outline or label to move it with everything inside); Ctrl+C / Ctrl+V copies and pastes them at the mouse pointer (Ctrl+Shift+V keeps their order statuses). Ctrl+V with a picture on the clipboard (e.g. a screenshot) inserts it as an image; you can also drop image files on the sheet. Drag a selected item's corner grip to resize it. The eye on a cable's tag hides the cable (H). The status bar under the sheet has SNAP (F9), ORTHO (F8) and OSNAP (F3). The sheet is endless: the mouse wheel zooms at the cursor, drag with the middle button (or hold Space and drag) to pan, double-click the middle button to zoom extents. Click a status to step it: To order → Ordered → In stock → Not needed.</p>
+      <p class="tip">Select an item or a cable on the sheet to see its checklist. Drag from a round handle on the side of an item to another item to draw a cable. Drag a box on an empty part of the sheet to select several items: left to right selects items fully inside, right to left selects anything the box touches. Then drag one of them to move them together (drag an enclosure's dashed outline or label to move it with everything inside); Ctrl+C / Ctrl+V copies and pastes them at the mouse pointer (Ctrl+Shift+V keeps their order statuses). Ctrl+V with a picture on the clipboard (e.g. a screenshot) inserts it as an image; you can also drop image files on the sheet. Drag a selected item's corner grip to resize it. A selected cable has grips: drag an end onto another item to reroute it, or drag the middle grip to move its path. The eye on a cable's tag hides its information box (H); the cable stays drawn. The status bar under the sheet has SNAP (F9), ORTHO (F8) and OSNAP (F3). The sheet is endless: the mouse wheel zooms at the cursor, drag with the middle button (or hold Space and drag) to pan, double-click the middle button to zoom extents. Click a status to step it: To order → Ordered → In stock → Not needed.</p>
       ${(() => { const c = readClip(); return c && (c.nodes.length || c.cable) ? `<div class="del-row" style="margin-top:12px"><button class="btn ghost" data-clip="paste" title="Ctrl+V">${c.cable ? `Paste cable ${esc(c.cable.tag)}` : `Paste ${c.nodes.length} copied item${c.nodes.length > 1 ? 's' : ''}`}</button>${keepBox()}</div>` : ''; })()}
       ${checklistBlock('Whole-loop consumables')}`;
   }
@@ -1230,6 +1645,7 @@
         <label for="f-desc">Service</label><input id="f-desc" type="text" data-bind="desc" value="${esc(n.desc)}">
         <label for="f-scale">Size</label><div class="row"><input id="f-scale" type="number" min="50" max="300" step="5" data-scale="1" value="${Math.round((n.scale || 1) * 100)}" style="width:5.5em"> %
           ${(n.scale || 1) !== 1 ? '<button class="btn ghost small" data-scalereset="1">Reset</button>' : ''}<span class="muted" style="font-size:.8rem">or drag a corner grip</span></div>
+        ${n.lblOff ? '<span></span><div class="row"><button class="btn ghost small" data-nlblreset="1" title="Put the text back under the symbol">Reset text position</button></div>' : ''}
         <label for="f-inside">Mounted inside</label><select id="f-inside" data-bind="inside" data-rerender="1">
           <option value="">Not inside another item</option>
           ${loop.nodes.filter(o => o.id !== n.id && isEnclosure(o.type) && o.inside !== n.id).map(o => `<option value="${o.id}" ${n.inside === o.id ? 'selected' : ''}>${esc(o.tag)} (${esc(T(o.type).name)})</option>`).join('')}
@@ -1346,32 +1762,38 @@
   // which core goes to which terminal at each end; typing a number overrides the automatic one
   function coresTable(loop, l, na, nb) {
     const plan = terminalPlan(loop);
-    const at = (n, end) => n && plan[n.id] && plan[n.id].ends[l.id + ':' + end];
-    const ea = at(na, 'a'), eb = at(nb, 'b');
-    if (!ea && !eb) return '';
-    const cell = (n, end, e, core) => {
-      if (!e) return `<td class="muted">${n ? 'device' : 'open end'}</td>`;
-      const c = e.list.find(x => x.core === core);
-      const users = (plan[n.id].used[e.side][c.num] || []).filter(u => !(u.l.id === l.id && u.core === core));
-      const clash = users.length ? ` title="Also used by ${users.map(u => `${u.l.tag} core ${u.core}`).join(', ')}"` : '';
-      return `<td class="${users.length ? 'clash' : ''}"${clash}><span class="tprefix">${esc(n.tag)}:</span><input type="text" data-tmap="${end}|${esc(core)}" value="${c.manual ? esc(c.num) : ''}" placeholder="${esc(c.num)}" aria-label="Terminal for core ${esc(core)} at ${esc(n.tag)}">${users.length ? '<b class="clash-mark">!</b>' : ''}</td>`;
+    const strips = loop.nodes.filter(o => plan[o.id]);
+    if (!strips.length || (!na && !nb)) return '';
+    const cell = (n, end, core) => {
+      if (!n) return '<td class="muted">open end</td>';
+      const target = coreTarget(loop, l, end, core, plan);
+      const tn = nodeById(loop, target);
+      const P = plan[target];
+      const entry = P && (P.ends[l.id + ':' + end + (target === l[end] ? '' : ':f')]);
+      const c = entry && entry.list.find(x => x.core === core);
+      const opts = [n].concat(strips.filter(o => o.id !== n.id && o.id !== l[end === 'a' ? 'b' : 'a']));
+      const select = `<select class="cmap" data-cmap="${end}|${esc(core)}" aria-label="Item for core ${esc(core)} at the ${end.toUpperCase()} end">${opts.map(o => `<option value="${o.id}" ${o.id === target ? 'selected' : ''}>${o.id === n.id ? '' : '→ '}${esc(o.tag)}</option>`).join('')}</select>`;
+      if (!c) return `<td title="Lands on the device itself"><div class="ccell">${select}</div></td>`;
+      const users = (P.used[entry.side][c.num] || []).filter(u => !(u.l.id === l.id && u.core === core));
+      const clash = users.length ? ` title="Also used by ${users.map(u => `${u.l.tag} ${coreName(u.core)}`).join(', ')}"` : '';
+      return `<td class="${users.length ? 'clash' : ''}${target !== n.id ? ' moved' : ''}"${clash}><div class="ccell">${select}<span class="tprefix">:</span><input type="text" data-tmap="${end}|${esc(core)}" value="${c.manual ? esc(c.num) : ''}" placeholder="${esc(c.num)}" aria-label="Terminal for core ${esc(core)} at ${esc(tn.tag)}">${users.length ? '<b class="clash-mark">!</b>' : ''}</div></td>`;
     };
-    const anyManual = ['a', 'b'].some(end => Object.keys(l.ends[end].tmap || {}).length);
-    return `<h3><span>Cores &amp; terminals</span>${anyManual ? '<button class="btn ghost small" data-tmreset="1" title="Number all cores automatically again">Automatic numbers</button>' : ''}</h3>
+    const anyManual = ['a', 'b'].some(end => Object.keys(l.ends[end].tmap || {}).length || Object.keys(l.ends[end].cmap || {}).length);
+    return `<h3><span>Cores &amp; terminals</span>${anyManual ? '<button class="btn ghost small" data-tmreset="1" title="Land every core on the cable end\'s own item again, with automatic numbers">Reset cores</button>' : ''}</h3>
       <div class="otable-wrap"><table class="ctable"><thead><tr><th>Core</th><th>A end</th><th>B end</th></tr></thead><tbody>
-      ${coreKeys(l).map(core => `<tr><td class="cno">${core === 'S' ? 'Screen' : esc(core)}</td>${cell(na, 'a', ea, core)}${cell(nb, 'b', eb, core)}</tr>`).join('')}
+      ${coreKeys(l).map(core => `<tr><td class="cno">${core === 'S' ? 'Screen' : /^S\d+$/.test(core) ? `Screen ${esc(core.slice(1))}` : esc(core)}</td>${cell(na, 'a', core)}${cell(nb, 'b', core)}</tr>`).join('')}
       </tbody></table></div>
-      <p class="tip">Grey numbers are automatic. Type a terminal number to fix it; a red mark means two cores share a terminal on the same side.</p>`;
+      <p class="tip">Each core can land on another strip (choose it in the list) and terminal (type the number; grey numbers are automatic). A red mark means two cores share a terminal on the same side.</p>`;
   }
   // what lands on each terminal of an item, left and right side
   function terminalSchedule(loop, n) {
     const P = terminalPlan(loop)[n.id];
     if (!P || !P.rows.length) return '';
-    const who = (side, r) => (P.used[side][r] || []).map(u => `${esc(u.l.tag)} <span class="muted">core ${esc(u.core)}</span>`).join('<br>') || '<span class="muted">–</span>';
+    const who = (side, r) => (P.used[side][r] || []).map(u => `${esc(u.l.tag)} <span class="muted">${esc(coreName(u.core))}</span>`).join('<br>') || '<span class="muted">–</span>';
     return `<h3><span>Terminals (${P.rows.length})</span></h3>
       <div class="otable-wrap"><table class="ctable"><thead><tr><th>Terminal</th><th>Left side</th><th>Right side</th></tr></thead><tbody>
-      ${P.rows.map(r => `<tr><td class="cno">${esc(termName(n, r))}</td><td${(P.used.l[r] || []).length > 1 ? ' class="clash"' : ''}>${who('l', r)}</td><td${(P.used.r[r] || []).length > 1 ? ' class="clash"' : ''}>${who('r', r)}</td></tr>`).join('')}
-      </tbody></table></div>`;
+      ${P.rows.map(r => `<tr${P.mixed.has(r) ? ' class="mixed" title="Ex i and other circuits on the same terminal: keep intrinsically safe circuits separate"' : ''}><td class="cno${P.exi.has(r) ? ' exi' : ''}">${esc(termName(n, r))}${P.mixed.has(r) ? ' <b class="clash-mark">!</b>' : ''}</td><td${(P.used.l[r] || []).length > 1 ? ' class="clash"' : ''}>${who('l', r)}</td><td${(P.used.r[r] || []).length > 1 ? ' class="clash"' : ''}>${who('r', r)}</td></tr>`).join('')}
+      </tbody></table></div>${spareTerminals(loop, n.id).length ? `<button class="btn ghost small" data-sparerm="${n.id}" title="Delete terminals nothing lands on; the numbers close up">Remove ${spareTerminals(loop, n.id).length} spare terminal${spareTerminals(loop, n.id).length > 1 ? 's' : ''}</button>` : ''}${P.mixed.size ? `<p class="tip warn-text">${P.mixed.size} terminal${P.mixed.size > 1 ? 's carry' : ' carries'} both Ex i and other circuits. Keep intrinsically safe circuits on their own (blue) terminals.</p>` : ''}`;
   }
 
   function linkInspector(loop, l) {
@@ -1383,9 +1805,9 @@
       const autoTerm = (() => { const keep = l.ends[end].term; l.ends[end].term = 'auto'; const t = termAt(loop, l, end); l.ends[end].term = keep; return t; })();
       return `<div class="end">
         <div class="end-h"><span>${end.toUpperCase()} end</span><b>${node ? esc(node.tag) : '<span class="open-tag">open end</span>'}</b></div>
-        ${node ? '' : `<div class="row"><label class="sr" for="conn-${end}">Connect the ${end.toUpperCase()} end to</label><select id="conn-${end}" data-connect="${end}">
-            <option value="">Connect to…</option>
-            ${loop.nodes.filter(o => o.id !== l[end === 'a' ? 'b' : 'a']).map(o => `<option value="${o.id}">${esc(o.tag)} (${esc(o.desc || T(o.type).name)})</option>`).join('')}
+        ${`<div class="row"><label class="sr" for="conn-${end}">${node ? 'Move' : 'Connect'} the ${end.toUpperCase()} end to</label><select id="conn-${end}" data-connect="${end}">
+            <option value="">${node ? 'Move this end to…' : 'Connect to…'}</option>
+            ${loop.nodes.filter(o => o.id !== l[end === 'a' ? 'b' : 'a'] && o.id !== l[end]).map(o => `<option value="${o.id}">${esc(o.tag)} (${esc(o.desc || T(o.type).name)})</option>`).join('')}
           </select></div>`}
         <div class="row"><label class="sr" for="term-${end}">Termination at ${end.toUpperCase()} end</label>
           <select id="term-${end}" data-bind="ends.${end}.term" data-rerender="1">
@@ -1408,9 +1830,11 @@
         <label for="f-route">Route</label><select id="f-route" data-bind="route">
           ${Object.keys(ROUTES).map(k => `<option value="${k}" ${k === l.route ? 'selected' : ''}>${esc(ROUTES[k])}</option>`).join('')}</select>
         <span></span><div class="row">
-          <label><input id="f-shield" type="checkbox" data-bind="shielded" data-rerender="1" ${shielded ? 'checked' : ''}> Shielded</label>
+          <label><input id="f-shield" type="checkbox" data-bind="shielded" data-rerender="1" ${shielded ? 'checked' : ''}> ${c.pairs ? 'Overall shield' : 'Shielded'}</label>
+          ${c.pairs ? `<label title="Every pair has its own screen and drain wire (ISOS cable), landed on its own terminal"><input id="f-pairshield" type="checkbox" data-bind="pairShield" data-rerender="1" ${l.pairShield ? 'checked' : ''}> Each pair shielded</label>` : ''}
           ${c.field ? `<label><input id="f-arm" type="checkbox" data-bind="armoured" ${l.armoured ? 'checked' : ''}> Armoured</label>` : ''}
-          <label title="Hide the cable's line on the drawing (H)"><input id="f-hidden" type="checkbox" data-bind="hidden" ${l.hidden ? 'checked' : ''}> Hidden on the drawing</label>
+          <label title="Blue cable and terminals; checked against other circuits"><input id="f-exi" type="checkbox" data-bind="exi" data-rerender="1" ${l.exi ? 'checked' : ''}> Ex i (intrinsically safe)</label>
+          <label title="Hide the information box of this cable on the drawing (H)"><input id="f-hidden" type="checkbox" data-bind="infoHidden" ${l.infoHidden ? 'checked' : ''}> Hide its information</label>
         </div>
         ${shielded ? `<label for="f-screen">Screen earth</label><select id="f-screen" data-bind="screenEnd">
           ${[['auto', 'Auto (panel side)'], ['a', `A end (${na ? na.tag : ''})`], ['b', `B end (${nb ? nb.tag : ''})`], ['both', 'Both ends'], ['none', 'Not earthed']]
@@ -1422,6 +1846,7 @@
       <div class="form"><label for="f-notes">Notes</label><textarea id="f-notes" data-bind="notes" placeholder="Supplier, drum number, PO…">${esc(l.notes)}</textarea></div>
       ${checklistBlock('To order for this cable')}
       <div class="del-row">
+        ${l.bend ? '<button class="btn ghost small" data-bendreset="1" title="Go back to the automatic route">Reset route</button>' : ''}
         ${l.lblOff ? '<button class="btn ghost small" data-lblreset="1" title="Put the label back on the cable">Reset label position</button>' : ''}
         ${na ? `<button class="btn ghost small" data-goto-node="${l.a}">Go to ${esc(na.tag)}</button>` : ''}
         ${nb ? `<button class="btn ghost small" data-goto-node="${l.b}">Go to ${esc(nb.tag)}</button>` : ''}
@@ -1545,16 +1970,14 @@
   }
 
   // ---------------------------------------------------------------- toast / confirm
-  function toast(msg, undo) {
+  function toast(msg, withUndo) {
+    const undo = withUndo;
     const t = $('toast');
     t.innerHTML = `<span>${esc(msg)}</span>${undo ? '<button id="undoBtn">Undo</button>' : ''}`;
     t.hidden = false;
     clearTimeout(toastTimer);
     toastTimer = setTimeout(() => { t.hidden = true; }, undo ? 7000 : 3500);
-    if (undo) $('undoBtn').onclick = () => {
-      if (undoSnapshot) { state = JSON.parse(undoSnapshot); undoSnapshot = null; sel = null; typeDraft = null; renderPalette(); renderAll(); save(); Promise.all([...allImageRefs()].map(imgGet)).then(renderDiagram); }
-      t.hidden = true;
-    };
+    if (undo) $('undoBtn').onclick = () => { t.hidden = true; window.setTimeout(historyUndo, 0); };
   }
   function snapshot() { undoSnapshot = JSON.stringify(state); }
   function askConfirm(text, label, fn) {
@@ -1619,7 +2042,8 @@
     loop.nodes.forEach(n => { const w = (sizes[n.id] || { w: NODE_W }).w; x0 = Math.min(x0, n.x); x1 = Math.max(x1, n.x + w); });
     loop.nodes.forEach(n => { const w = (sizes[n.id] || { w: NODE_W }).w; n.x = clampX(snap(x0 + x1 - n.x - w)); });
     loop.links.forEach(l => ['fa', 'fb'].forEach(k => { if (l[k]) l[k].x = x0 + x1 - l[k].x; }));
-    loop.links.forEach(l => { if (l.lblOff) l.lblOff.dx = -l.lblOff.dx; });
+    loop.nodes.forEach(n => { if (n.lblOff) n.lblOff.dx = -n.lblOff.dx; });
+    loop.links.forEach(l => { if (l.lblOff) l.lblOff.dx = -l.lblOff.dx; if (l.bend && l.bend.x != null) l.bend.x = Math.round(x0 + x1 - l.bend.x); });
     (loop.images || []).forEach(im => { im.x = Math.round(x0 + x1 - im.x - im.w); });
     renderDiagram(); save();
     toast('Loop mirrored left ↔ right.', true);
@@ -1797,6 +2221,7 @@
     const links = clip.links.filter(l => map[l.a] && map[l.b]).map(src => {
       const l = JSON.parse(JSON.stringify(src));
       l.id = uid(); l.a = map[src.a]; l.b = map[src.b];
+      ['a', 'b'].forEach(e => { const cm = l.ends[e].cmap; if (cm) { Object.keys(cm).forEach(k => { if (map[cm[k]]) cm[k] = map[cm[k]]; else delete cm[k]; }); if (!Object.keys(cm).length) delete l.ends[e].cmap; } });
       l.tag = freeTag(src.tag, used);
       if (!keep) { resetStatuses(l); delete l.flag; }
       return l;
@@ -1813,8 +2238,8 @@
   let cablePick = null; // { first: node id | null, keep } while picking items for copied cables
   function cableSettings(src, target, keep) {
     const c = JSON.parse(JSON.stringify(src));
-    delete c.id; delete c.a; delete c.b; delete c.tag; delete c.lblOff;
-    if (c.ends) { delete c.ends.a.tmap; delete c.ends.b.tmap; } // terminal numbers belong to the original items
+    delete c.id; delete c.a; delete c.b; delete c.tag; delete c.lblOff; delete c.bend;
+    if (c.ends) { delete c.ends.a.tmap; delete c.ends.b.tmap; delete c.ends.a.cmap; delete c.ends.b.cmap; } // terminal numbers belong to the original items
     if (!keep) {
       if (target) c.st = JSON.parse(JSON.stringify(target.st || {})); // matching settings keeps the target's own statuses
       else resetStatuses(c);
@@ -1941,6 +2366,23 @@
     const loop = cur();
     const eye = e.target.closest('[data-eye]');
     if (eye && e.button === 0) { e.preventDefault(); e.stopPropagation(); toggleCableHidden(linkById(loop, eye.dataset.eye)); return; }
+    const eg = e.target.closest('[data-endgrip]');
+    if (eg && e.button === 0) { // move a connected cable end to another item
+      e.preventDefault();
+      const [lid, end] = eg.dataset.endgrip.split(':');
+      const l = linkById(loop, lid);
+      drag = { mode: 'endmove', lid, end, orig: l[end], other: l[end === 'a' ? 'b' : 'a'], sx: e.clientX, sy: e.clientY, moved: false, target: null };
+      return;
+    }
+    const bg = e.target.closest('[data-bendgrip]');
+    if (bg && e.button === 0) { // move the middle run of the route
+      e.preventDefault();
+      const l = linkById(loop, bg.dataset.bendgrip);
+      snapshot();
+      const ri0 = routeInfo[l.id] || {};
+      drag = { mode: 'bend', lid: l.id, orient: ri0.orient || 'x', run0: ri0.run, w0: toWorld(e.clientX, e.clientY), sx: e.clientX, sy: e.clientY, moved: false };
+      return;
+    }
     if (cablePick && e.button === 0) { // picking items / cables for a copied cable
       const pn = e.target.closest('.node'), pc = e.target.closest('.wlabel') || e.target.closest('.wire-hit');
       if (pc) { e.preventDefault(); applyCableTo(linkById(loop, pc.dataset.link), cablePick.keep); select(null); updateModeBar(); return; }
@@ -1954,6 +2396,25 @@
       e.preventDefault();
       drag = { mode: 'link', from: nodeEl.dataset.id, target: null };
       document.body.classList.add('linking');
+      return;
+    }
+    // double-click a terminal of a strip: renumber or delete it (detected here, because the first
+    // click redraws the item and the browser then never sends a dblclick)
+    if (nodeEl && e.button === 0 && e.target.closest('svg.strip') && !(e.shiftKey || e.ctrlKey || e.metaKey)) {
+      const now = performance.now(), last = lastStripDown;
+      lastStripDown = { t: now, x: e.clientX, y: e.clientY, id: nodeEl.dataset.id };
+      if (last && last.id === nodeEl.dataset.id && now - last.t < 450 && Math.hypot(e.clientX - last.x, e.clientY - last.y) < 6) {
+        lastStripDown = null;
+        const n = nodeById(loop, nodeEl.dataset.id), g = n && stripGeom(n);
+        const row = g && g.rowAt(toWorld(e.clientX, e.clientY).y);
+        if (row) { e.preventDefault(); openTermPop(n.id, row, e.clientX, e.clientY); return; }
+      }
+    } else lastStripDown = null;
+    const cg = e.target.closest('[data-coregrip]');
+    if (cg) { // land one core on another terminal: drag its grip onto a terminal of any strip
+      e.preventDefault();
+      const [lid, end, core] = cg.dataset.coregrip.split('|');
+      drag = { mode: 'core', lid, end, core, sx: e.clientX, sy: e.clientY, x0: parseFloat(cg.style.left), y0: parseFloat(cg.style.top), moved: false, hot: null };
       return;
     }
     const ngrip = e.target.closest('[data-ngrip]');
@@ -1999,6 +2460,13 @@
       const w = toWorld(e.clientX, e.clientY);
       const movers = loop.nodes.filter(k => k.id === enc.id || k.inside === enc.id).map(k => ({ k, x: k.x, y: k.y, el: document.querySelector(`.node[data-id="${k.id}"]`) }));
       drag = { mode: 'node', id: enc.id, dx: w.x - enc.x, dy: w.y - enc.y, x0: enc.x, y0: enc.y, movers, sx: e.clientX, sy: e.clientY, moved: false };
+      return;
+    }
+    const nlab = e.target.closest('.nlabel');
+    if (nlab && nodeEl && !(e.shiftKey || e.ctrlKey || e.metaKey)) { // the text block moves on its own
+      e.preventDefault();
+      const n = nodeById(loop, nodeEl.dataset.id);
+      drag = { mode: 'nlabel', id: n.id, el: nlab, sx: e.clientX, sy: e.clientY, off0: Object.assign({ dx: 0, dy: 0 }, n.lblOff), moved: false };
       return;
     }
     if (nodeEl) {
@@ -2102,6 +2570,15 @@
       if (draft.ortho) { if (Math.abs(mdx) >= Math.abs(mdy)) mdy = 0; else mdx = 0; }
       l.lblOff = { dx: snap(drag.off0.dx + mdx), dy: snap(drag.off0.dy + mdy) };
       drawWires();
+    } else if (drag.mode === 'nlabel') {
+      if (!drag.moved && Math.hypot(e.clientX - drag.sx, e.clientY - drag.sy) < 4) return;
+      if (!drag.moved) { drag.moved = true; document.body.classList.add('moving-label'); }
+      const n = nodeById(loop, drag.id);
+      let mdx = (e.clientX - drag.sx) / zoom, mdy = (e.clientY - drag.sy) / zoom;
+      if (draft.ortho) { if (Math.abs(mdx) >= Math.abs(mdy)) mdy = 0; else mdx = 0; }
+      n.lblOff = { dx: snap(drag.off0.dx + mdx), dy: snap(drag.off0.dy + mdy) };
+      drag.el.style.transform = nlabelStyle(n).replace('transform:', '');
+      drawWires();
     } else if (drag.mode === 'imgmove') {
       if (!drag.moved && Math.hypot(e.clientX - drag.sx, e.clientY - drag.sy) < 3) return;
       drag.moved = true;
@@ -2121,6 +2598,30 @@
       im.x = Math.round(drag.g.includes('w') ? drag.ax - im.w : drag.ax);
       im.y = Math.round(drag.g.includes('n') ? drag.ay - im.h : drag.ay);
       Object.assign(drag.el.style, { left: im.x + 'px', top: im.y + 'px', width: im.w + 'px', height: im.h + 'px' });
+    } else if (drag.mode === 'endmove') {
+      if (!drag.moved && Math.hypot(e.clientX - drag.sx, e.clientY - drag.sy) < 3) return;
+      const l = linkById(loop, drag.lid);
+      const w = toWorld(e.clientX, e.clientY);
+      if (!drag.moved) { drag.moved = true; snapshot(); }
+      // while dragging, the end follows the pointer (shown as a free end)
+      l[drag.end] = null; l['f' + drag.end] = { x: Math.round(w.x), y: Math.round(w.y) };
+      document.querySelectorAll('.cgrip, .open-end').forEach(x => { x.style.pointerEvents = 'none'; });
+      const tn = osnapTarget(loop, e, w, drag.other);
+      const tid = tn ? tn.id : null;
+      document.querySelectorAll('.node.target').forEach(x => x.classList.remove('target'));
+      const te = tid && document.querySelector(`#nodes .node[data-id="${tid}"]`);
+      if (te) te.classList.add('target');
+      drag.target = tid;
+      drawWires();
+      document.querySelectorAll('.cgrip, .open-end').forEach(x => { x.style.pointerEvents = 'none'; });
+      if (tn) { const c2 = center(tn); showGuides([{ kind: 'm', x: c2.x, y: c2.y, text: tid === drag.orig ? `Back to ${tn.tag}` : `Move end to ${tn.tag}` }]); } else showGuides([]);
+    } else if (drag.mode === 'bend') {
+      if (!drag.moved && Math.hypot(e.clientX - drag.sx, e.clientY - drag.sy) < 3) return;
+      drag.moved = true;
+      const l = linkById(loop, drag.lid), w = toWorld(e.clientX, e.clientY);
+      // move the run by the pointer's movement ('y' and 'jog' both set a level)
+      l.bend = drag.orient === 'x' ? { x: snap(drag.run0 + (w.x - drag.w0.x)) } : { y: snap(drag.run0 + (w.y - drag.w0.y)) };
+      drawWires();
     } else if (drag.mode === 'openend') {
       if (!drag.moved && Math.hypot(e.clientX - drag.sx, e.clientY - drag.sy) < 3) return;
       drag.moved = true;
@@ -2158,6 +2659,23 @@
       }).map(n => n.id);
       const on = new Set(drag.add ? drag.base.concat(drag.hits) : drag.hits);
       document.querySelectorAll('.node').forEach(el => el.classList.toggle('sel', on.has(el.dataset.id)));
+    } else if (drag.mode === 'core') {
+      if (!drag.moved && Math.hypot(e.clientX - drag.sx, e.clientY - drag.sy) < 4) return;
+      drag.moved = true;
+      const w = toWorld(e.clientX, e.clientY);
+      const tw = $('tempWire');
+      tw.style.display = '';
+      tw.setAttribute('d', `M${drag.x0},${drag.y0} H${((drag.x0 + w.x) / 2).toFixed(1)} V${w.y.toFixed(1)} H${w.x.toFixed(1)}`);
+      const hit = terminalAt(loop, w);
+      drag.hot = hit;
+      let hot = $('termHot');
+      if (hit && hit.g && hit.row) {
+        if (!hot) { hot = document.createElement('div'); hot.id = 'termHot'; hot.className = 'term-hot'; $('nodes').appendChild(hot); }
+        const y = hit.g.rowY(hit.row) - hit.g.rowH / 2;
+        Object.assign(hot.style, { left: hit.g.left + 'px', top: y + 'px', width: (hit.g.right - hit.g.left) + 'px', height: hit.g.rowH + 'px' });
+        hot.dataset.label = termName(hit.n, hit.row);
+      } else if (hot) hot.remove();
+      if (hit && !hit.row) showGuides([{ kind: 'm', x: center(hit.n).x, y: center(hit.n).y, text: `Next free terminal of ${hit.n.tag}` }]); else clearGuides();
     } else if (drag.mode === 'link') {
       const from = nodeById(loop, drag.from);
       const c = center(from);
@@ -2219,6 +2737,21 @@
       else setSelection([d.id]);
     } else if (d.mode === 'nscale') {
       if (d.moved) { save(); renderInspector(); }
+    } else if (d.mode === 'core') {
+      const tw = $('tempWire'); if (tw) tw.style.display = 'none';
+      const hot = $('termHot'); if (hot) hot.remove();
+      clearGuides();
+      const l = linkById(loop, d.lid);
+      if (d.moved && l && d.hot) landCore(l, d.end, d.core, d.hot.n, d.hot.row);
+      else if (d.moved) toast('Drop the core on a terminal of a strip.');
+    } else if (d.mode === 'nlabel') {
+      document.body.classList.remove('moving-label');
+      const n = nodeById(loop, d.id);
+      if (d.moved && n) {
+        if (n.lblOff && Math.hypot(n.lblOff.dx, n.lblOff.dy) < 6) delete n.lblOff; // dropped back under the symbol
+        save();
+        if (sel && sel.kind === 'node' && sel.id === n.id) { renderDiagram(); renderInspector(); } else setSelection([n.id]);
+      } else setSelection([d.id]);
     } else if (d.mode === 'label') {
       document.body.classList.remove('moving-label');
       const l = linkById(loop, d.id);
@@ -2229,12 +2762,31 @@
       } else select({ kind: 'link', id: d.id });
     } else if (d.mode === 'imgmove' || d.mode === 'imgscale') {
       if (d.moved) { save(); renderInspector(); }
+    } else if (d.mode === 'endmove') {
+      clearGuides();
+      document.querySelectorAll('.node.target').forEach(x => x.classList.remove('target'));
+      const l = linkById(loop, d.lid);
+      if (!d.moved || !l) { if (l) select({ kind: 'link', id: l.id }); }
+      else if (d.target && d.target !== d.orig) { // re-connect to the new item
+        l[d.end] = d.target; delete l['f' + d.end];
+        delete l.ends[d.end].tmap; delete l.ends[d.end].cmap; // terminal numbers belonged to the old item
+        delete l.bend;             // the old route no longer fits
+        sel = { kind: 'link', id: l.id };
+        renderAll(); save();
+        toast(`${l.tag} now goes from ${nodeById(loop, l.a).tag} to ${nodeById(loop, l.b).tag}.`, true);
+      } else { // dropped on nothing (or back on the same item): keep the original connection
+        l[d.end] = d.orig; delete l['f' + d.end];
+        renderDiagram();
+        if (!d.target) toast('Drop the end on an item to move it. The cable was left as it was.');
+      }
+    } else if (d.mode === 'bend') {
+      if (d.moved) { save(); renderInspector(); }
     } else if (d.mode === 'openend') {
       clearGuides();
       document.querySelectorAll('.node.target').forEach(x => x.classList.remove('target'));
       const l = linkById(loop, d.lid);
       if (d.target && l) {
-        l[d.end] = d.target; delete l['f' + d.end]; delete l.ends[d.end].tmap;
+        l[d.end] = d.target; delete l['f' + d.end]; delete l.ends[d.end].tmap; delete l.ends[d.end].cmap;
         sel = { kind: 'link', id: l.id };
         renderAll(); save();
         toast(`${l.tag} connected to ${nodeById(loop, d.target).tag}.`);
@@ -2270,6 +2822,11 @@
   }
   function onPointerCancel(e) {
     clearGuides();
+    if (drag && drag.mode === 'core') { const tw = $('tempWire'); if (tw) tw.style.display = 'none'; const hot = $('termHot'); if (hot) hot.remove(); }
+    if (drag && drag.mode === 'endmove' && drag.moved) { // restore the end that was being moved
+      const l = linkById(cur(), drag.lid);
+      if (l) { l[drag.end] = drag.orig; delete l['f' + drag.end]; renderDiagram(); }
+    }
     document.body.classList.remove('moving-label');
     if (e) touches.delete(e.pointerId);
     if (drag && drag.ghost) drag.ghost.remove();
@@ -2295,6 +2852,19 @@
       if (e.type !== 'change' || t.value === '') return;
       const n = sel && sel.kind === 'node' && nodeById(cur(), sel.id);
       if (n) setItemScale(n, Number(t.value) / 100);
+      return;
+    }
+    if (t.dataset.cmap) {
+      if (e.type !== 'change') return;
+      const l = sel && sel.kind === 'link' && linkById(cur(), sel.id);
+      if (!l) return;
+      const [end, core] = t.dataset.cmap.split('|');
+      snapshot();
+      const cm = l.ends[end].cmap = l.ends[end].cmap || {};
+      if (t.value === l[end]) delete cm[core]; else cm[core] = t.value;
+      if (!Object.keys(cm).length) delete l.ends[end].cmap;
+      if (l.ends[end].tmap) { delete l.ends[end].tmap[core]; if (!Object.keys(l.ends[end].tmap).length) delete l.ends[end].tmap; } // the number belonged to the old strip
+      renderDiagram(); renderInspector(); save();
       return;
     }
     if (t.dataset.tmap) {
@@ -2327,9 +2897,10 @@
     if (t.dataset.connect) {
       if (e.type === 'change' && t.value) {
         const l = linkById(cur(), sel.id);
-        l[t.dataset.connect] = t.value; delete l['f' + t.dataset.connect]; delete l.ends[t.dataset.connect].tmap;
+        snapshot();
+        l[t.dataset.connect] = t.value; delete l['f' + t.dataset.connect]; delete l.ends[t.dataset.connect].tmap; delete l.ends[t.dataset.connect].cmap; delete l.bend;
         renderAll(); save();
-        toast(`${l.tag} connected to ${nodeById(cur(), t.value).tag}.`);
+        toast(`${l.tag} now goes from ${nodeById(cur(), l.a) ? nodeById(cur(), l.a).tag : 'open end'} to ${nodeById(cur(), l.b) ? nodeById(cur(), l.b).tag : 'open end'}.`, true);
       }
       return;
     }
@@ -2341,6 +2912,7 @@
     }
     if (t.id === 'flagFade') { if (e.type === 'change') { flagFocus = t.checked; updateFlagButton(); } return; }
     if (t.id === 'keepStatus') { if (e.type === 'change') { setKeepPref(t.checked); toast(t.checked ? 'Copies will keep their order statuses.' : 'Copies will start as To order.'); } return; }
+    if (e.type === 'input') histGroup = 'insp:' + (t.id || t.dataset.bind || t.name || '') + ':' + (sel ? sel.kind + (sel.id || '') : '');
     const bind = t.dataset.bind;
     const se = selectedEntity();
     if (bind && se && se.kind !== 'general') {
@@ -2387,12 +2959,23 @@
     }
     if (t.closest('[data-tmreset]')) {
       const l = sel && sel.kind === 'link' && linkById(loop, sel.id);
-      if (l) { delete l.ends.a.tmap; delete l.ends.b.tmap; renderDiagram(); renderInspector(); save(); }
+      if (l) { snapshot(); delete l.ends.a.tmap; delete l.ends.b.tmap; delete l.ends.a.cmap; delete l.ends.b.cmap; renderDiagram(); renderInspector(); save(); }
       return;
     }
     if (t.closest('[data-scalereset]')) {
       const n = sel && sel.kind === 'node' && nodeById(loop, sel.id);
       if (n) setItemScale(n, 1);
+      return;
+    }
+    if (t.closest('[data-bendreset]')) {
+      const l = sel && sel.kind === 'link' && linkById(loop, sel.id);
+      if (l) { snapshot(); delete l.bend; renderDiagram(); renderInspector(); save(); }
+      return;
+    }
+    if (t.closest('[data-sparerm]')) { removeSpareTerminals(t.closest('[data-sparerm]').dataset.sparerm); return; }
+    if (t.closest('[data-nlblreset]')) {
+      const n = sel && sel.kind === 'node' && nodeById(loop, sel.id);
+      if (n) { delete n.lblOff; renderDiagram(); renderInspector(); save(); }
       return;
     }
     if (t.closest('[data-lblreset]')) {
@@ -2475,7 +3058,7 @@
         const i = slots[k] = (slots[k] || 0) + 1;
         l['f' + end] = { x: Math.round(right ? n.x + c.w : n.x), y: Math.round(c.y + (i - 1) * 22) };
         l[end] = null;
-        delete l.ends[end].tmap;
+        delete l.ends[end].tmap; delete l.ends[end].cmap;
         kept++;
       });
     });
@@ -2519,10 +3102,10 @@
   function updateStatusBar() {
     ['snap', 'ortho', 'osnap'].forEach(k => { const b = $('tg-' + k); b.classList.toggle('on', !!draft[k]); b.setAttribute('aria-pressed', !!draft[k]); });
     $('snapStep').value = String(draft.step);
-    const nh = cur().links.filter(l => l.hidden).length;
+    const nh = cur().links.filter(l => l.infoHidden).length;
     const hb = $('tg-hidden');
     hb.hidden = nh === 0;
-    hb.textContent = showHiddenAll ? `HIDDEN SHOWN (${nh})` : `${nh} HIDDEN`;
+    hb.textContent = showHiddenAll ? `INFO SHOWN (${nh})` : `${nh} INFO HIDDEN`;
     hb.classList.toggle('on', showHiddenAll);
     hb.setAttribute('aria-pressed', showHiddenAll);
   }
@@ -2589,7 +3172,10 @@
     document.querySelectorAll('#nodes .wlabel, #nodes .encl-tab').forEach(el => { // labels: measure in world units
       const x = parseFloat(el.style.left), y = parseFloat(el.style.top), w = el.offsetWidth, h = el.offsetHeight;
       if (isNaN(x)) return;
-      if (el.classList.contains('wlabel')) add(x - w / 2, y - h / 2, x + w / 2, y + h / 2 + (el.querySelector('.flag-note') ? 40 : 0));
+      if (el.classList.contains('wlabel')) {
+        const r = cableLabelRect(x, y, w, h, el.classList.contains('along-v') ? 'v' : 'h');
+        add(r.x0, r.y0, r.x1, r.y1 + (el.querySelector('.flag-note') ? 40 : 0));
+      }
       else add(x, y, x + w, y + h);
     });
     loop.links.forEach(l => ['fa', 'fb'].forEach(k => { if (l[k]) add(l[k].x, l[k].y, l[k].x, l[k].y); }));
@@ -2615,7 +3201,7 @@
     if (wl) wl.classList.add('ps-wires');
     if (nl) nl.classList.add('ps-nodes');
     world.querySelectorAll('[id]').forEach(e => e.removeAttribute('id')); // no duplicate ids in the page
-    world.querySelectorAll('.port, .grip, .selbox, .eye, .wlabel.is-hidden, .osnap-layer').forEach(e => e.remove());
+    world.querySelectorAll('.port, .grip, .cgrip, .selbox, .eye, .wlabel.info-hidden, .osnap-layer').forEach(e => e.remove());
     world.querySelectorAll('.sel').forEach(e => e.classList.remove('sel'));
     let scale = 1, tx = 0, ty = 0;
     if (ext) {
@@ -2698,6 +3284,10 @@
     renderAll();
     updateView();
     requestAnimationFrame(fit);
+    histLast = stateKey(); updateUndoButtons();
+    // Chromium can keep the size it first gave the symbols' SVG text (before the zoom and the web
+    // fonts were in place), drawing numbers too big and off their terminals: draw once more then
+    if (document.fonts && document.fonts.ready) document.fonts.ready.then(() => requestAnimationFrame(() => { if (!drag) renderDiagram(); }));
 
     $('paletteList').addEventListener('pointerdown', onPalettePointerDown);
     $('viewport').addEventListener('pointerdown', onSheetPointerDown);
@@ -2712,6 +3302,8 @@
       applyZoom(zoom * Math.exp(-Math.max(-300, Math.min(300, dy)) * 0.0015), { x: e.clientX, y: e.clientY });
     }, { passive: false });
     $('viewport').addEventListener('mousedown', e => { if (e.button === 1) e.preventDefault(); }); // no browser autoscroll
+    document.addEventListener('pointerdown', e => { if ($('termPop') && !e.target.closest('#termPop')) closeTermPop(); }, true);
+    $('viewport').addEventListener('wheel', () => closeTermPop(), { passive: true });
     // Keep the drawing in view when the sheet changes size (panel resized, window resized,
     // toolbar wrapping): rescale around the centre so what was visible stays visible.
     // Symmetric, so widening a panel and narrowing it back returns to the same view.
@@ -2839,6 +3431,12 @@
         if (!(e.ctrlKey || e.metaKey)) return;
         e.target.blur();
       }
+      if ((e.ctrlKey || e.metaKey) && !e.altKey && (e.key.toLowerCase() === 'z' || (e.key.toLowerCase() === 'y' && !e.shiftKey))) {
+        e.preventDefault();
+        if (drag) return;
+        if (e.key.toLowerCase() === 'y' || e.shiftKey) redo(); else undo();
+        return;
+      }
       if (e.key === ' ' && view === 'diagram') { e.preventDefault(); if (!spaceDown) { spaceDown = true; $('viewport').classList.add('panning'); } return; }
       if ((e.key === 'Delete' || e.key === 'Backspace') && sel && view === 'diagram') { e.preventDefault(); deleteSelected(); }
       if (e.key === 'Escape' && cablePick) { stopCablePick(); toast('Done placing cables.'); return; }
@@ -2861,6 +3459,7 @@
       const arrows = { ArrowLeft: [-1, 0], ArrowRight: [1, 0], ArrowUp: [0, -1], ArrowDown: [0, 1] };
       if (arrows[e.key] && selectedIds().length && view === 'diagram') {
         e.preventDefault();
+        histGroup = 'nudge';
         const step = e.shiftKey ? GRID * 5 : GRID;
         nudge(arrows[e.key][0] * step, arrows[e.key][1] * step);
       }
@@ -2916,7 +3515,9 @@
     $('tabOrders').onclick = () => setView('orders');
 
     $('loopSelect').onchange = e => switchLoop(e.target.value);
-    $('loopName').oninput = e => { cur().name = e.target.value; renderLoopBar(); if (!sel) { const h = document.querySelector('.inspector h2'); if (h) h.textContent = e.target.value; } save(); };
+    $('btnUndo').onclick = () => undo();
+    $('btnRedo').onclick = () => redo();
+    $('loopName').oninput = e => { histGroup = 'loopname:' + state.currentId; cur().name = e.target.value; renderLoopBar(); if (!sel) { const h = document.querySelector('.inspector h2'); if (h) h.textContent = e.target.value; } save(); };
     $('btnNewLoop').onclick = () => {
       const l = newLoop(`Loop ${state.loops.length + 1}`);
       state.loops.push(l); switchLoop(l.id);
@@ -2976,7 +3577,7 @@
         delete data.imageData;
         return Promise.all(Object.keys(pics).map(id => imgPut(id, pics[id]))).then(() => data);
       }).then(data => {
-        state = migrateToSymbols(data);
+        state = migrateToSymbols(migrateHiddenInfo(data));
         if (!state.loops.length) state.loops.push(newLoop('Loop 1'));
         if (!Array.isArray(state.customTypes)) state.customTypes = starterTypes();
         if (!state.loops.find(l => l.id === state.currentId)) state.currentId = state.loops[0].id;

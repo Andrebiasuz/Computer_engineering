@@ -127,11 +127,42 @@ outlined in violet with a count, everything else fades, and the matching
 lines are marked in the checklist and the order list. Tick *Only still to
 order* to see just what is left to buy. **Clear** turns it off.
 
-**Cable labels** can be dragged anywhere to tidy the drawing. A label stays
-tied to its cable (it follows when items move) and a dashed leader line
-points back to the cable when it is moved away. *Reset label position* in
-the cable's panel puts it back; a plain click on a label still selects the
-cable.
+**Cable labels** are written along the cable, like cable tags on a circuit
+diagram: the tag, type and length on one side of the line and the material
+chips on the other, on the cable's longest run (turned to read upwards on
+vertical runs). They can be dragged anywhere to tidy the drawing. A label
+stays tied to its cable (it follows when items move) and a dashed leader
+line points back to the cable when it is moved away. *Reset label position*
+in the cable's panel puts it back; a plain click on a label still selects
+the cable.
+
+**Undo / redo:** **Ctrl+Z** undoes the last change, **Ctrl+Y** (or
+Ctrl+Shift+Z) redoes it; the ↶ ↷ buttons above the sheet do the same. Up to
+200 steps are kept while the page is open. Every change counts: moving,
+adding or deleting items and cables, rewiring cores, terminals, statuses,
+settings. Typing in one field is a single step, and Ctrl+Z inside a text
+field undoes the typing itself. Undoing a change made in another loop shows
+that loop.
+
+**Terminals on the canvas:** double-click a terminal of a strip to open a
+small editor. It shows what lands on each side, lets you give the terminal
+another number (every core on it follows) and deletes a spare terminal; the
+numbers after it close up. *Remove spares* deletes every spare terminal of
+that strip at once (also in the item's terminal schedule). A terminal that
+still carries cores cannot be deleted: move its cores first.
+
+**Wiring cores on the canvas:** select a cable (or a strip) and every core
+landing on a strip gets a small round grip at its terminal. Drag a grip onto
+any terminal of any strip to land that core there; the target terminal is
+highlighted while you drag. Dropping on an item with terminals but not on a
+terminal uses its next free number. The *Cores & terminals* table in the
+cable's panel shows the same connections.
+
+**Item text** (tag, service and chips under a symbol) can be dragged
+anywhere too: only the text moves, with a dashed leader line back to its
+symbol, and it travels with the symbol when the item is moved. Dropping it
+back under the symbol, or *Reset text position* in the item's panel, puts
+it home.
 
 **Deleting an item keeps its cables**: each one is left with an open end
 (a dashed ◯) where the item was. Drag the open end onto another item to
@@ -170,11 +201,30 @@ number in the quantity box to override.
 - **Resize items:** select an item and drag a corner grip (proportions are
   kept, the opposite corner stays put), or type a **Size %** (50–300 %) in
   its panel. The symbol and its terminal strip scale; the tag text does not.
-- **Hide a cable:** click the eye on a cable's tag (or press **H** with the
-  cable selected). Only a small dashed tag stays; click the eye again to
-  show the cable. **N HIDDEN** in the status bar shows all hidden cables
-  temporarily. Hidden cables are still ordered and keep their terminals, but
-  are left out of the PDF.
+- **Reroute a cable** without deleting it: select the cable and drag one of
+  its square end grips onto another item (OSNAP helps you land on it); the
+  cable keeps its tag, settings, statuses and label. Dropping on empty sheet
+  leaves it as it was. Or use **Move this end to…** under *Ends* in the cable
+  panel. Drag the diamond grip to change the cable's path: on a cable with a
+  vertical middle run it moves that run sideways; on a straight cable it
+  pulls the cable up or down into a detour (around a label or an item).
+  **Reset route** goes back to the automatic path. Undo works for all of it.
+- **Hide a cable's information:** click the eye on a cable's tag (or press
+  **H** with the cable selected). The cable stays drawn; only its information
+  box is replaced by a small eye, which shows it again. **N INFO HIDDEN** in
+  the status bar shows all of it temporarily. Hidden information is left
+  out of the PDF.
+- **Connect each core separately:** in the cable's *Cores & terminals*
+  table, every core has its own item list and terminal number, so a cable
+  can be split over several strips (cores 1–4 to X10, 5–8 to X11). Moved
+  cores are drawn dashed from the cable end to their own terminals, are
+  numbered after the last terminal used there, and appear in that strip's
+  terminal schedule. **Reset cores** puts all cores back.
+- **Ex i:** tick *Ex i (intrinsically safe)* in a cable's properties. The
+  cable and its cores turn blue, the terminals its cores land on turn light
+  blue, and the order list asks for a light-blue cable and separate Ex i
+  terminal blocks. The terminal schedule warns when an Ex i core and another
+  circuit share a terminal.
 - **Status bar** (under the sheet), like AutoCAD:
   - **SNAP (F9):** moves snap to the grid step (10 / 20 / 50); off moves freely.
   - **ORTHO (F8):** drags are locked horizontal or vertical.
